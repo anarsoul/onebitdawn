@@ -1791,6 +1791,47 @@ its amplifier and, with `output` at `buzzer`, its buzzer, which is
 not a stock one: a stock buzzer at 128 bits and 31 250 Hz nobody has
 heard.
 
+## A 24 h soak of master, `v0.5-rc4-3-g9039ef5`, on the bare bench board — started 2026-11-21
+
+Master as it stands, three commits past `v0.5-rc4`, a local build of
+a clean tree; the first long run of the buzzer's pin at 128 bits a
+sample (`9039ef5`) and of the timezone commits. The board is
+`another-bench` (10.1.1.65, `/dev/ttyACM0`; no panel, speaker or
+sensors; alarms and previews allowed: the user, 2026-11-21), found on
+`v0.5-rc3` in `ota_0` with the record the rc3 soak left: the home
+network, the broker, the `.env` token, the output `buzzer`, the alarm
+armed at 10:45.
+
+The soak is the one of 2026-11-18 and 2026-11-20 (their sections
+above): the same driver, load and pass criteria, the files in
+`soak-master/` (untracked, outside `target/`). In order: master's
+default pack by `scripts/clips.sh` (one reset), the serial `cat`
+attached with no reset, then the image over the air by
+`scripts/ota.sh`; that reboot (`CoreSw`, into `ota_1`) is the start,
+and the update's `boot 1 of 2` warning is not counted. The previews
+go round the pack's eight clips and two note melodies, the alarm
+rings every 6 h, first at 20 min. The watcher reads the serial log
+from the start's boot on, lets a lone lost gateway probe pass as the
+rc3 run settled, and ends on anything else: a second boot, a warning,
+a heal, a watchdog count, a clip with underruns or stray positions,
+five `/api` failures running.
+
+Started 2026-11-21 00:35:26 MST, to end 2026-11-22 00:35. The pack
+`scripts/clips.sh` made is byte for byte the one of 2026-11-20
+(727891 bytes), written in 8.0 s; the image 916944 bytes, 9.1 s into
+`ota_1`, `CoreSw`, the pack checked in 501 ms, the address at 5.8 s,
+confirmed at 5.9 s, MQTT at 7.0 s. The feed gap before the upload, at
+180 s of rc3: 1180 ms. First heartbeat: heap free 54080, longest feed
+gap 1178 ms. Rings due at about 00:57, 06:57, 12:57 and 18:57, on
+Morning Mood, Mountain King, Suspended Seconds and the chip Morning
+Mood. `start-line` there is the line of `serial.log` the run begins
+at; `summary.sh` gives the figures so far.
+
+Seen on the way: `stty -F /dev/ttyACM0 raw -echo -hupcl` hung for two
+minutes, the port having echo on and the clock's log echoed back at
+it, so the set waited for output nobody reads. Setting the port from
+Python with `TCSANOW` after a `tcflush` did it at once, no reset.
+
 ## Checks still owed
 
 - "Suspended Seconds" (2026-11-19, in `HISTORY.md`): the processor's
