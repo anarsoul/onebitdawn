@@ -1832,7 +1832,7 @@ minutes, the port having echo on and the clock's log echoed back at
 it, so the set waited for output nobody reads. Setting the port from
 Python with `TCSANOW` after a `tcflush` did it at once, no reset.
 
-## The installer asks: buzzer or speaker — built 2026-11-21, the workflow not yet run
+## The installer asks: buzzer or speaker — built 2026-11-21, deployed by `v0.5-rc5`, no install from it yet
 
 The web installer wrote the buzzer's pack whatever the clock had (the
 section of 2026-11-19 above left the choice unbuilt); the user,
@@ -1865,9 +1865,17 @@ the speaker, `v0.5/manifest-speaker.json` after the release,
 YAML. Its `manifest` function is the old one called twice more and
 was not run: the host has no `jq`.
 
-Owed: the next tag's run deploying `manifest-speaker.json` and the
-speaker's pack under the tag and `latest/`, and an install of each
-choice from the page onto a clock.
+`v0.5-rc5` (2026-11-21) is the first tag with it: the run passed, and
+the page has the step, `manifest-speaker.json` and the speaker's pack
+(949750 bytes) under `v0.5-rc5/` and `latest/`, the manifest's fifth
+part naming that pack at 3014656.
+
+After the tag (the user, 2026-11-21): the line about the `output`
+setting was easy to miss in the step's small print, so it is a notice
+of its own, shown only while the speaker is chosen. Not deployed
+until the next tag.
+
+Owed: an install of each choice from the page onto a clock.
 
 ## Checks still owed
 

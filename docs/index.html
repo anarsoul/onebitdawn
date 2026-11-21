@@ -99,6 +99,7 @@
       display: block; background: var(--notice); border-left: 3px solid var(--accent);
       border-radius: 0 8px 8px 0; padding: 0.6rem 0.9rem;
     }
+    .notice[hidden] { display: none; }
     details { margin: 0.5rem 0 0.2rem; }
     summary { cursor: pointer; color: var(--accent); font-size: 0.95rem; }
     details ul { margin: 0.4rem 0 0; padding-left: 1.2rem; font-size: 0.95rem; }
@@ -157,7 +158,10 @@
         <p class="small">
           What the alarm's clips are made for: the kit's buzzer, or a speaker, in the buzzer's place
           or on an amplifier at the line output. The speaker's have the bass left in, and one clip more.
-          An amplifier at the line output also needs the output chosen on the clock's settings page.
+        </p>
+        <p class="notice" id="lineout" hidden>
+          <strong>An amplifier at the line output</strong> also needs the output chosen on the clock's
+          settings page, or it stays silent.
         </p>
       </li>
       <li>
@@ -241,9 +245,11 @@
     var OLD = ['v0.1', 'v0.2', 'v0.3', 'v0.4'];
 
     // A release has two manifests, which differ in the clip pack:
-    // the buzzer's, and the speaker's.
+    // the buzzer's, and the speaker's. The line output's notice is
+    // for the speaker only.
     function aim() {
       var speaker = document.querySelector('input[name=sound]:checked').value === 'speaker';
+      document.getElementById('lineout').hidden = !speaker;
       button.setAttribute('manifest', select.value + (speaker ? '/manifest-speaker.json' : '/manifest.json'));
     }
 
