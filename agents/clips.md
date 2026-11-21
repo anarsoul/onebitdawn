@@ -215,10 +215,10 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
   script, the bass with harmonics. Its limiter is
   `knee=64,release=13`, which is the limiter off: at the other tune's
   knee of 12 the four parts are always over the knee and each new peak
-  is flattened at full scale, heard as clicks on a speaker. The hiss
-  under its quiet piano on a speaker in the buzzer's place is the
-  transistor's stage and not the clip: the line output has none
-  (`PLAN.md`). The terms are those of "Suspended Seconds".
+  is flattened at full scale, heard as clicks on a speaker. Its piano's samples are of 16 bits
+  (`samples=16`, a clip for a firmware after v0.5). The hiss under its
+  quiet piano on a speaker in the buzzer's place is the transistor's
+  stage and not the clip: the line output has none (`PLAN.md`). The terms are those of "Suspended Seconds".
 - "Serial Dawn" (`mods/src/serial_dawn.py`, `mods/serial-dawn.xm`)
   is a tune in the key generators' manner, written here, of waves and
   noise made in its script: pulses put about their mean, a swept sine

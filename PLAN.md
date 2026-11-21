@@ -2294,6 +2294,114 @@ On white-clock the same day, the speaker's pack over the build of
 the clip and passed it. Not looked at: the buzzer's pack on a clock,
 and the `clip:` line for underruns at 18 channels.
 
+## Samples of 16 bits in a module, for the piano of "Starlight & Aurora" — on `next`, a feature for after v0.5
+
+The section above has why: under a quiet piano the user hears the
+rounding of its 8-bit samples, 43 to 45 dB under a note's attack, and
+nothing done within 8 bits is heard.
+
+**Design.**
+
+- The clip. A module with a 16-bit sample is `XMC3`; one with none is
+  written as `XMC2`, byte for byte what it was, so the clips there are
+  and their tests do not move. `XMC3` is `XMC2` with one of an
+  instrument's three spare bytes, the first, as the sample's flags:
+  bit 0 for samples of 16 bits, little-endian, signed. The sample's
+  length and its loop stay in samples, so the player's positions and
+  9xx do not change; only the bytes are two a sample.
+- An older firmware takes `XMC3` for a module's clip of a version it
+  does not play and refuses the pack (`clip::is_unsupported`): what
+  the compatibility rules ask of a new version. A pack with such a
+  clip is therefore for this firmware or later, and a clock rolled
+  back under it has no pack until it is updated again.
+- The player (`core/src/xm.rs`). A channel knows whether its sample
+  is wide. The mixer's sample is `a + (b - a) * frac / 256` with `a`
+  and `b` at 16 bits, an 8-bit one being its byte times 256: the same
+  numbers as before for the modules there are. What a second byte a
+  sample costs the mixer is to be measured on a clock (the `clip:`
+  line's time filling; the tune was 70 of 111 s on the bare board).
+- The converter (`tools/pack/src/xmc.rs`). A module's 16-bit samples
+  are cut to 8 as they were, unless `samples=16` asks for them kept: a
+  pack maker's page must go on making packs every firmware takes, and
+  16 bits are twice the bytes.
+- `scripts/mkxm.py`: `Sample(bits=16)` keeps what it was rounded
+  from at 16 bits, and the module's writer says so in the sample's
+  type.
+- The tune: the piano's ten samples at 16 bits, about 140 KB more
+  (the speaker's pack about 1090 KB of 1152); the bells stay at 8,
+  with them it would not fit. `scripts/speaker-clips.sh` makes the
+  clip with `samples=16`.
+
+**Built, 2026-11-20.** As designed, with two things the design did
+not have: a module's 16-bit samples cut to 8 are rounded and no
+longer have their low byte dropped, and the limiter of the tune is
+off, `knee=64` (the user: "Лимитер выключай вообще, knee=64").
+
+- Host: the modules there are come out byte for byte (`cargo
+  pack-test`); a 16-bit sample plays as the same at 8 bits times 256,
+  to the sample (the test found the second place a sample is read,
+  for a note that is cut). The tune's clip is 363 309 bytes (221 795
+  at 8 bits) and the speaker's pack 1 091 264 of 1 179 648. At the
+  start of the tune the floor between the partials is 15 dB lower at
+  4 to 5.5 kHz and 9 lower at 5.5 to 9, and as `openmpt123` has it.
+- test-clock: the tune through with 0 underruns, 0 stray positions,
+  80 of 111 s filling (72 %; "Suspended Seconds" 23 of 48 s there).
+  The same tune at 8 bits was not timed on that board, so what the
+  second byte costs is not known; on the bare board at 8 bits it was
+  70 of 111 s. One bounds check for the two bytes changed nothing.
+
+**What the hiss is, by the user's ear, 2026-11-20.** Not the samples.
+With the piano at 16 bits he still heard it on test-clock, whose
+speaker is on the buzzer's transistor (the S8550, the speaker mod),
+and "Suspended Seconds" has none there. On white-clock, the same
+firmware and clip: "sa_a хорошо звучит на усилителе - прямо как
+надо :) а на S8550 (speaker mod) есть шипение". So it is the
+transistor's stage under this tune, the line output being clean, and
+every hearing of the hiss before that was on that stage. What was
+found on the way and is true but is not it:
+
+- the 8 bits' rounding, 43 to 45 dB under a piano note's attack (the
+  section above);
+- the images of linear interpolation: the tune's first 12 s have
+  -48 dB of the whole at 9 to 15 kHz, and the same notes mixed on the
+  host from the recordings -75 (`sa_x`, a clip of one 16-bit sample);
+  the piano's samples are at 11 025 Hz and its low partials come back
+  round that, where the other tune's are at 16 000 and 22 050;
+- a loop keeps the treble the note had when the loop starts, 6 to
+  17 dB too much over 2 kHz two seconds into a held note
+  (a low-pass of the loop was tried in `mkxm.py`; in the mix it changes nothing
+  that is measured, the next notes' attacks being over it, and the
+  tune does not use it).
+
+Not known: whether 8 bits and 16 differ on the amplifier, which is
+what says if this feature is wanted; and why the transistor's stage
+hisses under this tune and not the other (a guess, not measured: the
+converter's bits at 8 Mbit/s through a transistor that does not turn
+off as fast as it turns on, which folds the converter's noise down
+under a quiet, dark tune that covers nothing).
+
+**Found on the way, 2026-11-20, not fixed.** Tones made to try the
+transistor's stage with (a looped 16-bit sine, `packs/tones-speaker.bin`)
+show two things about the shaper's high-pass (`core/src/shape.rs`):
+
+- Every module's clip for a speaker has a constant offset of about
+  -580 of 32512 (1.8 % of full scale) after the high-pass that is
+  there to take one out: the section's `>> 14` rounds down, half a
+  step each sample on average, and the feedback's gain at 0 Hz is
+  1 / (1 + a1 + a2), about 2500 for 100 Hz at 31 250 (reckoned -614,
+  measured -578 to -582, in a tone, in the tune, loud or soft). At
+  the buzzer's 300 Hz it is a ninth of that. Not heard as such; it
+  moves the converter off mid-scale by that much. A PCM or ADPCM clip
+  has no such filter and no offset, the clip of zeros among them.
+- `highpass=20` gives a clip stuck at full scale: the section's
+  coefficients in Q14 with the corner that low.
+
+**To check.** Host: the 8-bit modules' renders unchanged (the pack
+maker's byte-for-byte tests, the players' tests over the clips); a
+16-bit sample against the same at 8 bits; the tune's render against
+the module's with `openmpt123`. On test-clock: the time filling, no
+underruns, and the user's ear at the start of the tune.
+
 ## Checks still owed
 
 - "Suspended Seconds" (2026-11-19, in `HISTORY.md`): the processor's

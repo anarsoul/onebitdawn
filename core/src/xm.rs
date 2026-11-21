@@ -17,7 +17,10 @@
 //! where each pattern and each instrument's sample is, with the samples
 //! as plain signed bytes (an XM stores them as differences, which
 //! cannot be read from the middle) and ping-pong loops unrolled. One
-//! sample an instrument.
+//! sample an instrument. A module that keeps samples of 16 bits is
+//! `WIDE_MAGIC`: the same layout, with an instrument's entry saying
+//! which of them are, and a firmware from before it refuses the clip
+//! and does not play their bytes as 8-bit ones.
 //!
 //! What plays: notes with the instrument's relative note and finetune
 //! on the linear frequency table, forward loops, the volume envelope
@@ -49,6 +52,8 @@ use crate::shape::Shaper;
 
 /// The first bytes of a converted module.
 pub const MAGIC: &[u8; 4] = b"XMC2";
+/// And of one with a sample of 16 bits in it (`Instrument::wide`).
+pub const WIDE_MAGIC: &[u8; 4] = b"XMC3";
 /// The header: magic, channels, speed, tempo, orders, patterns,
 /// instruments, the limiter's drive and release (0 for `DRIVE` and
 /// `RELEASE_SHIFT`), the length in ms as `u32`; then the high-pass:
@@ -133,7 +138,7 @@ pub use crate::shape::STEP;
 
 /// Whether `data` is a converted module.
 pub const fn is_tune(data: &[u8]) -> bool {
-    data.len() >= HEADER && data[0] == MAGIC[0] && data[1] == MAGIC[1] && data[2] == MAGIC[2] && data[3] == MAGIC[3]
+    data.len() >= HEADER && data[0] == MAGIC[0] && data[1] == MAGIC[1] && data[2] == MAGIC[2] && (data[3] == MAGIC[3] || data[3] == WIDE_MAGIC[3])
 }
 
 /// How long the tune plays, as the converter worked it out.
@@ -153,13 +158,21 @@ fn long(d: &[u8], at: usize) -> u32 {
     word(d, at) as u32 | (word(d, at + 2) as u32) << 16
 }
 
+/// Sample `pos` of the samples at `data`, at 16 bits: one of 8 bits
+/// is its byte times 256.
+#[inline(always)]
+fn sample_at(d: &[u8], data: usize, wide: bool, pos: u32) -> i32 {
+    if wide { word(d, data + 2 * pos as usize) as i16 as i32 } else { (byte(d, data + pos as usize) as i8 as i32) << 8 }
+}
+
 /// An instrument's entry in the file: where its sample is (offset,
-/// length, loop start and loop length as `u32`, a loop length of 0 for
+/// length, loop start and loop length as `u32`, the three in samples, a loop length of 0 for
 /// none), its volume, finetune and relative note, the envelope's flags
 /// (1 on, 2 sustain, 4 loop), number of points, sustain point and loop
 /// points, the fade as `u16`, the auto-vibrato's sweep, depth and rate,
-/// three spare bytes, then twelve points of frame and level as `u16`
-/// each.
+/// the sample's flags (1 for samples of 16 bits, little-endian, two
+/// bytes each; `WIDE_MAGIC`), two spare bytes, then twelve points of
+/// frame and level as `u16` each.
 #[derive(Clone, Copy)]
 struct Instrument<'a> {
     d: &'a [u8],
@@ -209,6 +222,11 @@ impl Instrument<'_> {
         (byte(self.d, self.at + 26) as u32, byte(self.d, self.at + 27) as u32, byte(self.d, self.at + 28))
     }
 
+    /// Whether the sample is of 16 bits.
+    fn wide(&self) -> bool {
+        byte(self.d, self.at + 29) & 1 != 0
+    }
+
     /// Point `i` of the envelope: its frame and its level, 0 to 64.
     fn point(&self, i: usize) -> (u32, u32) {
         let at = self.at + 32 + 4 * i.min(ENVELOPE_POINTS - 1);
@@ -253,6 +271,8 @@ struct Channel {
     len: u32,
     loop_start: u32,
     loop_len: u32,
+    /// Its samples are of 16 bits, two bytes each.
+    wide: bool,
     playing: bool,
     /// Position in the sample, with 16 bits of fraction, and the step a
     /// mixed sample.
@@ -544,10 +564,11 @@ impl<'a> Tune<'a> {
                 self.cut += cut;
                 ch.fresh = true;
                 (ch.data, ch.len, ch.loop_start, ch.loop_len) = i.sample();
+                ch.wide = i.wide();
                 ch.period = period;
                 ch.target = period;
                 ch.frac = 0;
-                // 9xx: start 256 bytes in for each of xx.
+                // 9xx: start 256 samples in for each of xx.
                 ch.pos = if cell.effect == 9 { cell.param as u32 * 256 } else { 0 };
                 ch.playing = ch.pos < ch.len;
                 ch.vibrato_pos = 0;
@@ -575,8 +596,7 @@ impl<'a> Tune<'a> {
         if !ch.playing || ch.pos >= ch.len {
             return 0;
         }
-        let sample = byte(self.d, (ch.data + ch.pos) as usize) as i8 as i32 * 256;
-        (sample * (ch.gain >> 8)) >> 12
+        (sample_at(self.d, ch.data as usize, ch.wide, ch.pos) * (ch.gain >> 8)) >> 12
     }
 
     fn key_off(ch: &mut Channel, instrument: Option<Instrument>) {
@@ -811,13 +831,13 @@ impl<'a> Tune<'a> {
             if !ch.playing {
                 continue;
             }
-            let at = |pos: u32| byte(self.d, (ch.data + pos) as usize) as i8 as i32;
+            let at = |pos: u32| sample_at(self.d, ch.data as usize, ch.wide, pos);
             let mut after = ch.pos + 1;
             if ch.loop_len != 0 && after >= ch.loop_start + ch.loop_len {
                 after -= ch.loop_len;
             }
             let (a, b) = (at(ch.pos), if after < ch.len { at(after) } else { 0 });
-            let sample = a * 256 + (b - a) * (ch.frac >> 8) as i32;
+            let sample = a + (((b - a) * (ch.frac >> 8) as i32) >> 8);
             if ch.ramp != 0 {
                 ch.ramp -= 1;
                 ch.gain = if ch.ramp == 0 { ch.amp << 8 } else { ch.gain + ch.gain_step };
@@ -882,12 +902,14 @@ mod tests {
         fade: u16,
         /// The auto-vibrato: sweep, depth, rate.
         auto: (u8, u8, u8),
+        /// The sample at 16 bits, in place of `sample`, if it has any.
+        wide: Vec<i16>,
     }
 
     /// A square wave of `period` samples, looped.
     fn square(period: usize) -> Ins {
         let sample = (0..period).map(|i| if i < period / 2 { 127 } else { -127 }).collect();
-        Ins { sample, loop_start: 0, loop_len: period as u32, volume: 64, finetune: 0, relative: 0, envelope: vec![], flags: 0, sustain: 0, fade: 0, auto: (0, 0, 0) }
+        Ins { sample, loop_start: 0, loop_len: period as u32, volume: 64, finetune: 0, relative: 0, envelope: vec![], flags: 0, sustain: 0, fade: 0, auto: (0, 0, 0), wide: vec![] }
     }
 
     /// A cell: note, instrument, volume column, effect, parameter.
@@ -898,7 +920,7 @@ mod tests {
 
     /// A converted module, as `tools/pack/src/xmc.rs` lays one out.
     fn module(channels: u8, speed: u8, tempo: u8, orders: &[u8], patterns: &[Vec<Row>], instruments: &[Ins]) -> Vec<u8> {
-        let mut d = MAGIC.to_vec();
+        let mut d = if instruments.iter().any(|i| !i.wide.is_empty()) { WIDE_MAGIC.to_vec() } else { MAGIC.to_vec() };
         d.extend([channels, speed, tempo, orders.len() as u8, patterns.len() as u8, instruments.len() as u8, 0, 0]);
         d.extend(0u32.to_le_bytes());
         // 900 Hz at 8 kHz, second order, twice: `sox highpass 900` twice.
@@ -930,18 +952,22 @@ mod tests {
         }
         for i in instruments {
             d.extend(((tables + body.len()) as u32).to_le_bytes());
-            d.extend((i.sample.len() as u32).to_le_bytes());
+            d.extend((if i.wide.is_empty() { i.sample.len() } else { i.wide.len() } as u32).to_le_bytes());
             d.extend(i.loop_start.to_le_bytes());
             d.extend(i.loop_len.to_le_bytes());
             d.extend([i.volume, i.finetune as u8, i.relative as u8, i.flags, i.envelope.len() as u8, i.sustain, 0, 0]);
             d.extend(i.fade.to_le_bytes());
-            d.extend([i.auto.0, i.auto.1, i.auto.2, 0, 0, 0]);
+            d.extend([i.auto.0, i.auto.1, i.auto.2, !i.wide.is_empty() as u8, 0, 0]);
             for p in 0..ENVELOPE_POINTS {
                 let (x, y) = i.envelope.get(p).copied().unwrap_or((0, 0));
                 d.extend(x.to_le_bytes());
                 d.extend(y.to_le_bytes());
             }
-            body.extend(i.sample.iter().map(|&s| s as u8));
+            if i.wide.is_empty() {
+                body.extend(i.sample.iter().map(|&s| s as u8));
+            } else {
+                body.extend(i.wide.iter().flat_map(|s| s.to_le_bytes()));
+            }
         }
         assert_eq!(d.len(), tables);
         d.extend(body);
@@ -1329,5 +1355,34 @@ mod tests {
         }
         assert_eq!((narrow.next_sample(), wide.next_sample()), (None, None));
         assert!(between > n / 2, "{between} of {n}");
+    }
+
+    #[test]
+    fn a_sample_of_16_bits_is_played_as_one() {
+        // The same wave both ways, the wide one its bytes times 256:
+        // the same mix, to the sample, from a clip of the other magic.
+        // The loop starts off the wave's first sample, and the second
+        // note starts 256 samples in.
+        let wave: Vec<i8> = (0..600).map(|i| (120.0 * (i as f64 * 0.21).sin()) as i8).collect();
+        let narrow = Ins { sample: wave.clone(), loop_start: 100, loop_len: 500, ..square(32) };
+        let wide = Ins { wide: wave.iter().map(|&s| s as i16 * 256).collect(), ..narrow.clone() };
+        let cells = [(0, (C4, 1, 0, 0, 0)), (4, (C4 + 7, 1, 0x30, 9, 1))];
+        let play = |ins: &Ins| module(1, 6, 125, &[0], &[pattern(8, &cells)], core::slice::from_ref(ins));
+        let (a, b) = (play(&narrow), play(&wide));
+        assert_eq!((&a[..4], &b[..4]), (&MAGIC[..], &WIDE_MAGIC[..]));
+        assert!(is_tune(&b) && !crate::clip::is_unsupported(&b));
+        assert_eq!(b.len(), a.len() + wave.len());
+        let (ma, mb) = (mixed(&a), mixed(&b));
+        assert_eq!(ma.len(), mb.len());
+        if let Some(i) = (0..ma.len()).find(|&i| ma[i] != mb[i]) {
+            panic!("sample {i}: {:?} and {:?}", &ma[i.saturating_sub(3)..i + 4], &mb[i.saturating_sub(3)..i + 4]);
+        }
+        // And what is under the 8-bit step is played: a wave of a
+        // 64th of that step's size is not silence, and peaks where it
+        // should, 4 of 32768 at full level.
+        let faint = Ins { wide: (0..32).map(|i| if i < 16 { 4 } else { -4 }).collect(), ..square(32) };
+        let out = mixed(&module(1, 6, 125, &[0], &[pattern(8, &[(0, (C4, 1, 0, 0, 0))])], &[faint]));
+        assert_eq!(out.iter().map(|s| s.abs()).max(), Some(4));
+        assert!((pitch(&out) - 8363.0 / 32.0).abs() < 1.0);
     }
 }

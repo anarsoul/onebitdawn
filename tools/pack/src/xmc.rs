@@ -9,13 +9,17 @@
 //! 8, ping-pong loops unrolled. One sample an instrument, the first.
 //! One effect is written as another: R, where it changes no volume,
 //! as E9, which the player has.
+//! `samples=16` keeps the 16-bit ones as they are, two bytes each, in
+//! a clip of the player's other magic, which a firmware from before
+//! it refuses: under a quiet instrument what 8 bits round off is
+//! heard as hiss.
 //!
 //! The player cuts the bass, which the buzzer does not have, and
 //! limits hard; how is the clip's to say (`Shape`).
 
 use std::collections::BTreeMap;
 
-use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS};
+use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, WIDE_MAGIC};
 
 use crate::bytes::{Data, text};
 use crate::shape::{rate_flag, section};
@@ -34,7 +38,7 @@ const SILENT: [u8; 3] = [8, 0x19, 0x1D];
 const SILENT_VOLUMES: [u8; 3] = [0xC, 0xD, 0xE];
 
 /// The options a module takes.
-pub const OPTIONS: &[&str] = &["highpass", "passes", "drive", "release", "knee", "rate", "bits", "raise"];
+pub const OPTIONS: &[&str] = &["highpass", "passes", "drive", "release", "knee", "rate", "bits", "samples", "raise"];
 
 /// How the player is to shape the mix.
 #[derive(Clone, Debug)]
@@ -56,6 +60,8 @@ pub struct Shape {
     pub rate: u32,
     /// The width of the samples the player hands the modulator.
     pub bits: u8,
+    /// The width the module's 16-bit samples are kept at: 8 cuts them.
+    pub samples: u8,
     /// Instruments played octaves higher, by number from 1.
     pub raised: BTreeMap<usize, i32>,
 }
@@ -72,7 +78,7 @@ impl Shape {
             Output::Buzzer => (300.0, 0),
             Output::Speaker => (100.0, 10),
         };
-        Shape { drive: 0, release, knee: 0, highpass, passes: 1, rate: 31250, bits: 16, raised: BTreeMap::new() }
+        Shape { drive: 0, release, knee: 0, highpass, passes: 1, rate: 31250, bits: 16, samples: 8, raised: BTreeMap::new() }
     }
 
     pub fn options(output: Output, options: &mut Options) -> Result<Self, String> {
@@ -84,6 +90,7 @@ impl Shape {
         shape.passes = options.number("passes", shape.passes)?;
         shape.rate = options.number("rate", shape.rate)?;
         shape.bits = options.number("bits", shape.bits)?;
+        shape.samples = options.number("samples", shape.samples)?;
         while let Some(item) = options.text("raise")? {
             let parsed = item.split_once(':').and_then(|(i, o)| Some((i.parse().ok()?, o.parse().ok()?)));
             let (instrument, octaves) = parsed.ok_or_else(|| format!("raise={item}: raise=INSTRUMENT:OCTAVES"))?;
@@ -97,6 +104,9 @@ impl Shape {
         }
         if !matches!(shape.bits, 8 | 16) {
             return Err("bits is 8 or 16".into());
+        }
+        if !matches!(shape.samples, 8 | 16) {
+            return Err("samples is 8 or 16".into());
         }
         Ok(shape)
     }
@@ -170,7 +180,10 @@ fn effect_name(effect: u8, param: u8) -> String {
 
 #[derive(Default)]
 struct Instrument {
-    sample: Vec<u8>,
+    /// The sample at 16 bits, and whether it is kept so: one that is
+    /// not is written as its high bytes.
+    sample: Vec<i16>,
+    wide: bool,
     looped: (usize, usize),
     volume: u8,
     finetune: i8,
@@ -288,12 +301,15 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
             let kind = d.u8(head + 14)?;
             let relative = d.i8(head + 16)?;
             let raw = d.slice(body, body.saturating_add(length));
-            let mut values: Vec<u8> = Vec::with_capacity(raw.len());
+            let mut values: Vec<i16> = Vec::with_capacity(raw.len());
             if kind & 0x10 != 0 {
+                entry.wide = shape.samples == 16;
                 let mut acc = 0u16;
                 for pair in raw.as_chunks::<2>().0 {
                     acc = acc.wrapping_add(u16::from_le_bytes(*pair));
-                    values.push((acc >> 8) as u8);
+                    // Cut to 8 bits it is rounded, not its low byte dropped.
+                    let cut = ((acc as i16 as i32 + 128) >> 8).min(127) << 8;
+                    values.push(if entry.wide { acc as i16 } else { cut as i16 });
                 }
                 loop_start /= 2;
                 loop_len /= 2;
@@ -301,7 +317,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
                 let mut acc = 0u8;
                 for &delta in raw {
                     acc = acc.wrapping_add(delta);
-                    values.push(acc);
+                    values.push(((acc as u16) << 8) as i16);
                 }
             }
             let looping = kind & 3;
@@ -313,7 +329,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
                 let end = loop_start.saturating_add(loop_len).min(values.len());
                 if looping == 2 {
                     // Ping-pong: there and back is one forward loop.
-                    let back: Vec<u8> = values[start..end].iter().rev().copied().collect();
+                    let back: Vec<i16> = values[start..end].iter().rev().copied().collect();
                     values.truncate(end);
                     values.extend(back);
                     loop_len = loop_len.saturating_mul(2);
@@ -368,7 +384,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     }
 
     let byte = |n: usize, what: &str| u8::try_from(n).map_err(|_| format!("{n} {what}; the clip has room for 255"));
-    let mut out = MAGIC.to_vec();
+    let mut out = if instruments.iter().any(|i| i.wide) { WIDE_MAGIC.to_vec() } else { MAGIC.to_vec() };
     out.extend([
         channels as u8,
         byte(speed as usize, "ticks a row")?,
@@ -402,13 +418,17 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         out.extend([i.volume, i.finetune as u8, i.relative as u8, i.flags, i.points.len() as u8, i.sustain, i.env_loop.0, i.env_loop.1]);
         out.extend(i.fade.to_le_bytes());
         out.extend(i.auto);
-        out.extend([0; 3]);
+        out.extend([i.wide as u8, 0, 0]);
         for p in 0..ENVELOPE_POINTS {
             let (x, y) = i.points.get(p).copied().unwrap_or((0, 0));
             out.extend(x.to_le_bytes());
             out.extend(y.to_le_bytes());
         }
-        body.extend(&i.sample);
+        if i.wide {
+            body.extend(i.sample.iter().flat_map(|s| s.to_le_bytes()));
+        } else {
+            body.extend(i.sample.iter().map(|s| (s >> 8) as u8));
+        }
     }
     debug_assert_eq!(out.len(), tables);
     out.extend(body);

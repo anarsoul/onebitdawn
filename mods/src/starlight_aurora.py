@@ -19,7 +19,10 @@ Nothing is arranged. The parts, and what plays each here:
   (the LinnStrument MPE patches), which is what the composer played it
   with: each of its seven notes rendered from the synthesizer by
   itself (`scripts/surgenotes.py`, into `xm/surge/acoustic-grand/`),
-  soft and loud, and none played off its pitch.
+  soft and loud, and none played off its pitch. Its samples are of
+  16 bits: at 8 the piano alone, as the tune starts, hisses (the
+  composer, on a speaker), so the clip is made with `samples=16` and
+  needs a firmware that plays them.
 - The bell (his was JE-8086's "MKS80 Bell/Space") is made here after
   what his recording of the part measures as: a tone two octaves over
   the note that starts at once and dies slowly, a click at the twelfth
@@ -152,7 +155,7 @@ def tune(only=None):
                              f"`clips/README.md` has the command)")
         note = pitch_of(name)
         piano[note, velocity] = m.instrument(best(lambda loop: Sample(
-            f"grand {name} {velocity}", path, note, 11025, attack=0.9, loop=loop, struck=(TICK, DEPTH)), 0.35),
+            f"grand {name} {velocity}", path, note, 11025, attack=0.9, loop=loop, struck=(TICK, DEPTH), bits=16), 0.35),
             damp=DAMP)
 
     for name, velocity in (("F3", SOFT), ("F3", LOUD), ("G3", SOFT), ("A3", LOUD), ("C4", SOFT), ("C4", LOUD),

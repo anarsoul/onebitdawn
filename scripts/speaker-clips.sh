@@ -30,7 +30,10 @@
 # scale, 1254 samples of the clip, which the user heard as clicks on
 # test-clock's speaker; at 48 it was 63, at 64 none, 5 dB quieter
 # than at 12 and as loud as Suspended Seconds (the user, 2026-11-20:
-# "Лимитер выключай вообще, knee=64"). The high-pass stays at 100 Hz: the user's
+# "Лимитер выключай вообще, knee=64"). Its piano's samples are of 16 bits and kept so
+# (samples=16): at 8 the piano alone, as the tune starts, hisses. That
+# makes it a clip a firmware up to v0.5 refuses, and this pack with
+# it. The high-pass stays at 100 Hz: the user's
 # choice on white-clock's speaker over 60 Hz, with either limiter
 # ("баса почти не слышно, ну и ладно").
 # The pack maker's `--sound-output speaker` is these settings, so the
@@ -51,4 +54,4 @@ cargo pack -o "$pack" --sound-output speaker \
     mods/nq-synchronization.pt3:restart,name=synchronization mods/nq-lera.xm:name=lera \
     mods/grieg-morning-bright.xm mods/grieg-morning-chip.xm mods/grieg-mountain-king-bright.xm \
     mods/suspended-seconds.xm:knee=12,release=13 mods/serial-dawn.xm \
-    mods/starlight-aurora.xm:knee=64,release=13
+    mods/starlight-aurora.xm:knee=64,release=13,samples=16

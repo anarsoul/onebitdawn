@@ -416,7 +416,7 @@ pub(crate) mod tests {
         // pack: an old one's, here.
         assert_eq!(Pack::parse(&build(&[("old", "Old", true, b"XMC1....")])).unwrap_err(), PackError::Unplayable);
         // A version from a newer converter, behind a second of anything.
-        for magic in [b"PCM2", b"ADP2", b"BPR4", b"XMC3", b"SID3", b"PT32"] {
+        for magic in [b"PCM2", b"ADP2", b"BPR4", b"XMC4", b"SID3", b"PT32"] {
             let mut clip = magic.to_vec();
             clip.extend_from_slice(&SECOND);
             assert_eq!(Pack::parse(&build(&[("new", "New", false, &clip)])).unwrap_err(), PackError::Unplayable, "{:?}", core::str::from_utf8(magic));

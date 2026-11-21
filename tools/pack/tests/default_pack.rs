@@ -85,10 +85,35 @@ fn the_default_pack_from_its_sources() {
     // is the header's.
     // And the speaker's pack has a ninth, which the buzzer's has not
     // (scripts/speaker-clips.sh): its name and label are its title's.
-    let ninth = made("mods/starlight-aurora.xm:knee=64,release=13", Output::Speaker);
+    let ninth = made("mods/starlight-aurora.xm:knee=64,release=13,samples=16", Output::Speaker);
     assert_eq!((ninth.name.as_str(), ninth.label.as_str(), ninth.loops), ("starlight_and_aurora", "Starlight and Aurora", true));
     // One note, the module's line: nothing in it that the player lacks.
     assert_eq!(ninth.notes.len(), 1, "{:?}", ninth.notes);
+    // Its piano's samples are of 16 bits and kept so, in a clip a
+    // firmware from before them refuses; cut to 8, as a module's are
+    // unless asked for, it is a clip of the kind there was, smaller by
+    // a byte a sample of the piano's.
+    let cut = made("mods/starlight-aurora.xm:knee=64,release=13", Output::Speaker);
+    assert_eq!((&ninth.data[..4], &cut.data[..4]), (&b"XMC3"[..], &b"XMC2"[..]));
+    assert!(ninth.data.len() > cut.data.len() + 100_000 && ninth.data.len() < 2 * cut.data.len());
+    assert!(!onebitdawn_core::clip::is_unsupported(&ninth.data));
+    assert_eq!(onebitdawn_core::clip::duration_ms(&ninth.data), onebitdawn_core::clip::duration_ms(&cut.data));
+    // With the eight for a speaker it fits the partition.
+    let mut speaker: Vec<Clip> = Vec::new();
+    for arg in [
+        "mods/Orion-Nero6.3.0.2.xm:name=keygen",
+        "mods/nq-synchronization.pt3:restart,name=synchronization",
+        "mods/nq-lera.xm:name=lera",
+        "mods/grieg-morning-bright.xm",
+        "mods/grieg-morning-chip.xm",
+        "mods/grieg-mountain-king-bright.xm",
+        "mods/suspended-seconds.xm:knee=12,release=13",
+        "mods/serial-dawn.xm",
+    ] {
+        speaker.push(made(arg, Output::Speaker));
+    }
+    speaker.push(ninth);
+    assert_eq!(Pack::parse(&build(&speaker).unwrap()).unwrap().count(), 9);
     // Lera's rolls are R02, which the converter writes as E92: one
     // note, the module's line, and nothing the player lacks.
     assert_eq!(clips[2].notes.len(), 1, "{:?}", clips[2].notes);

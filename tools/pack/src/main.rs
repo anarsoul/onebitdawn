@@ -54,6 +54,9 @@ twenty channels; what a module uses that the player lacks is listed:
     raise=I:N     play instrument I that many octaves higher
     rate=HZ       31250 (the default), 16000 or 8000 samples a second
     bits=N        16 (the default) or 8
+    samples=16    keep a module's 16-bit samples, twice the bytes, where
+                  8 bits hiss under a quiet instrument; such a clip
+                  needs a firmware after v0.5
 
 Commodore 64 tunes (.sid, PSID), whose code is run here to the point
 where the tune comes round:

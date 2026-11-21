@@ -358,7 +358,10 @@ nothing for PCM (HISTORY.md, 2026-11-16).
 
 - `Tune` is a player for the part of FastTracker 2's XM that chiptunes
   use (see its header for the effects). It reads in place the `XMC2`
-  file `tools/pack/src/xmc.rs` makes of a module; no heap, twenty
+  file `tools/pack/src/xmc.rs` makes of a module, or the `XMC3` one
+  of a module whose 16-bit samples were kept (`samples=16`: two bytes
+  a sample, an instrument's entry saying which are; a firmware from
+  before it refuses the clip); no heap, twenty
   channels (`xm::MAX_CHANNELS`; eight, then sixteen, then this,
   all on 2026-11-18).
 - It mixes at 32 kHz and averages to 16 kHz (8 if the clip asks; at

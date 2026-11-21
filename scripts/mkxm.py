@@ -325,10 +325,18 @@ class Sample:
     goes on down after the loop's start at the rate the recording
     falls at. So the loop is stored near full scale, where 8 bits are
     enough, and the envelope is the decay (`Instrument(damp=)`).
+
+    `bits` is 8, or 16 for a sample kept at twice the bytes: what 8
+    bits round off is 43 to 45 dB under a piano note's attack, the
+    hammer's peak being what full scale is, and under a quiet piano
+    alone that is heard as hiss. The clip then wants `samples=16` of
+    the pack maker, and a firmware that plays such samples.
     """
 
     def __init__(self, name, path, note, rate, attack=0.25, loop=None, fade=None, length=None, skip=0.0, gain=1.0,
-                 tune=True, bright=0.0, made=None, struck=None, channel=None, onset=0.02):
+                 tune=True, bright=0.0, made=None, struck=None, channel=None, onset=0.02, bits=8):
+        assert bits in (8, 16), bits
+        self.bits = bits
         self.name = name
         self.note = note
         self.loop_match = 1.0
@@ -396,6 +404,8 @@ class Sample:
         self.ring = (int(loud[-1]) + 1) * hop / rate
         self.rms = float(np.sqrt((x * x).mean()))
         self.data = np.clip(np.round(x * 127), -127, 127).astype(np.int8)
+        # The same at 16 bits, full scale where the 8 bits' is.
+        self.wide = np.clip(np.round(x * 127 * 256), -32767, 32767).astype(np.int16)
         # What the instrument's relative note and finetune must add up
         # to, in semitones, for the note asked for to be the note heard.
         self.offset = 12 * math.log2(rate / C4_HZ) - (12 * math.log2(self.hz / 440.0) + 69 - 60)
@@ -711,10 +721,16 @@ class Module:
             head += bytes([0, sweep, depth, rate]) + struct.pack("<HH", fadeout, 0)
             out += head.ljust(263, b"\0")
             looped = 1 if s.loop_len else 0
-            out += struct.pack("<IIIBbBBbB", len(s.data), s.loop_start, s.loop_len, ins.volume, fine, looped, 128, rel, 0)
-            out += s.name.encode("ascii")[:22].ljust(22)
-            delta = np.diff(s.data.astype(np.int16), prepend=0).astype(np.int8)
-            out += delta.tobytes()
+            if s.bits == 16:
+                # Lengths in bytes, and the type says 16 bits.
+                out += struct.pack("<IIIBbBBbB", 2 * len(s.wide), 2 * s.loop_start, 2 * s.loop_len, ins.volume, fine, looped | 0x10, 128, rel, 0)
+                out += s.name.encode("ascii")[:22].ljust(22)
+                out += (np.diff(s.wide.astype(np.int64), prepend=0) & 0xFFFF).astype("<u2").tobytes()
+            else:
+                out += struct.pack("<IIIBbBBbB", len(s.data), s.loop_start, s.loop_len, ins.volume, fine, looped, 128, rel, 0)
+                out += s.name.encode("ascii")[:22].ljust(22)
+                delta = np.diff(s.data.astype(np.int16), prepend=0).astype(np.int8)
+                out += delta.tobytes()
         with open(path, "wb") as f:
             f.write(out)
         return len(out), len(patterns), len(orders)
@@ -933,7 +949,7 @@ def main():
     spec.loader.exec_module(tune)
     m = tune.tune(*sys.argv[3:])
     size, patterns, orders = m.write(sys.argv[2])
-    samples = sum(len(i.sample.data) for i in m.instruments)
+    samples = sum(len(i.sample.data) * i.sample.bits // 8 for i in m.instruments)
     print(f"{sys.argv[2]}: {size} bytes, {samples} of samples in {len(m.instruments)} instruments, "
           f"{patterns} patterns in {orders} orders, {m.channels} channels, {m.seconds():.1f} s")
     for p in m.polys:
