@@ -120,12 +120,13 @@ beeper tune, tracker modules, Commodore 64 and AY tunes) are clips,
 and a clock's clips are a *clip pack* in a flash partition of their
 own, `clips`, 1152 KB, so they can be changed without a new
 firmware. The default pack is the eight clips in `clips/`; a release
-has it as `onebitdawn-clips-<tag>.bin` and the web installer writes
-it. `onebitdawn-clips-speaker-<tag>.bin` is the same eight made for a
+has it as `onebitdawn-clips-<tag>.bin`.
+`onebitdawn-clips-speaker-<tag>.bin` is the same eight made for a
 clock with a speaker (in the buzzer's place, or on the line output's
 amplifier), the bass left in and a gentler limiter, and a ninth,
-"Starlight and Aurora", which a buzzer cannot say. Upload it in the
-other's place.
+"Starlight and Aurora", which a buzzer cannot say. The web installer
+asks which of the two to write; later, upload one in the other's
+place.
 
 A pack of your own is made of tracker modules (`.xm`, `.mod`, `.s3m`),
 Commodore 64 tunes (`.sid`), ZX Spectrum ones (`.pt3`) and sound files

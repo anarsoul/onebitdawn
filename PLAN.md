@@ -1832,6 +1832,43 @@ minutes, the port having echo on and the clock's log echoed back at
 it, so the set waited for output nobody reads. Setting the port from
 Python with `TCSANOW` after a `tcflush` did it at once, no reset.
 
+## The installer asks: buzzer or speaker — built 2026-11-21, the workflow not yet run
+
+The web installer wrote the buzzer's pack whatever the clock had (the
+section of 2026-11-19 above left the choice unbuilt); the user,
+2026-11-21: the page should ask which clips to install. A feature, on
+a `master` in feature freeze: the user asked for it as a last touch
+before v0.5.
+
+Design. ESP Web Tools takes one manifest, so a release gets two:
+`manifest.json` as before, with the buzzer's pack, and
+`manifest-speaker.json`, the same four parts and
+`onebitdawn-clips-speaker-<tag>.bin` at 0x2E0000 (under `latest/`,
+`onebitdawn-clips-speaker.bin`). The page has a step between the
+release and the install, "Choose the sound", two radio buttons with
+the buzzer checked, and the install button's manifest follows the
+release and the choice. The choice is the pack only: the `output`
+setting is the clock's, in `nvs`, which the installer does not write,
+and the page says so for a clock with an amplifier on the line
+output. No firmware change.
+
+The page and the manifests are deployed by the same run, so `latest/`
+always has both. A tag deployed before this has `manifest.json` only;
+all of those are pre-releases or the old names, which the list does
+not offer.
+
+Checked on the host: the page's script in headless Chromium, with
+the list of releases stubbed, the manifest attribute following both
+controls (`v0.6/manifest.json`, `v0.6/manifest-speaker.json` after
+the speaker, `v0.5/manifest-speaker.json` after the release,
+`v0.5/manifest.json` after the buzzer); the workflow file parses as
+YAML. Its `manifest` function is the old one called twice more and
+was not run: the host has no `jq`.
+
+Owed: the next tag's run deploying `manifest-speaker.json` and the
+speaker's pack under the tag and `latest/`, and an install of each
+choice from the page onto a clock.
+
 ## Checks still owed
 
 - "Suspended Seconds" (2026-11-19, in `HISTORY.md`): the processor's

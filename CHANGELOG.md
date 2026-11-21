@@ -103,6 +103,8 @@ from `http://<ip>/update`; its settings survive the update.
 
 ### Added
 
+- The web installer asks whether the clock has a buzzer or a speaker
+  and writes the default clip pack made for that.
 - A release has `onebitdawn-licenses-<tag>.txt`: the licences of the
   crates its files are built from, and of the bootloader and the
   radio's libraries in the images. The installer's and the pack

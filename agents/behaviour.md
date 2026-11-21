@@ -579,7 +579,7 @@ switches back. A power cut clears the count.
    - `onebitdawn-ota-<tag>.bin`, the `/update` image;
    - `onebitdawn-clips-<tag>.bin`, the default clip pack, and
      `onebitdawn-clips-speaker-<tag>.bin`, the same for a speaker
-     (`scripts/speaker-clips.sh`), which the installer does not write;
+     (`scripts/speaker-clips.sh`);
    - `onebitdawn-pack-<tag>-…`, the pack maker for three systems;
    - `onebitdawn-licenses-<tag>.txt`, the licences of the crates all
      of these are built from, and of what is not a crate (the
@@ -593,14 +593,16 @@ switches back. A power cut clears the count.
 4. It deploys `docs/` to the `gh-pages` branch with the release under
    `<tag>/` and `latest/`, keeping earlier tags, and the list of
    licences as `licenses.txt`, which both pages' footers link. The release's
-   manifest for ESP Web Tools has five parts: the bootloader and the
+   two manifests for ESP Web Tools, `manifest.json` with the buzzer's
+   pack and `manifest-speaker.json` with the speaker's, have five parts each: the bootloader and the
    partition table cut from the merged image, an erased `otadata`, the
-   OTA image at 0x20000 and the default clip pack at 0x2E0000. The
+   OTA image at 0x20000 and the clip pack at 0x2E0000. The
    pack replaces one the clock had; `nvs` is left alone, so the
    settings survive unless the erase is chosen.
 
 `docs/index.html` is the web installer at
 `https://anarsoul.github.io/onebitdawn/`: it lists the releases from
-the GitHub API, newest first, and points the install button at the
-chosen tag's manifest; without the API it uses `latest/`. Nothing in
+the GitHub API, newest first, asks whether the clock has a buzzer or
+a speaker, and points the install button at the chosen tag's manifest
+for that; without the API it uses `latest/`. Nothing in
 `docs/` but the page is in the repository.

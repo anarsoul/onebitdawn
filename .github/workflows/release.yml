@@ -218,7 +218,9 @@ jobs:
           TAG="$GITHUB_REF_NAME"
           # Five parts at their offsets; nvs (0x9000) is not among them.
           # The last is the default clip pack at the `clips` partition
-          # (0x2E0000), which replaces a pack the clock had.
+          # (0x2E0000), which replaces a pack the clock had. Two
+          # manifests a release, for the page's choice of sound: the
+          # buzzer's pack, and manifest-speaker.json with the speaker's.
           manifest() {
             jq -n --arg version "${TAG#v}" --arg app "$1" --arg clips "$2" '{
               name: "onebitdawn",
@@ -236,8 +238,9 @@ jobs:
           }
           # The release under its tag, as the page's list offers it.
           mkdir -p "docs/$TAG"
-          cp images/bootloader.bin images/partition-table.bin images/otadata.bin "images/onebitdawn-ota-$TAG.bin" "images/onebitdawn-clips-$TAG.bin" "docs/$TAG/"
+          cp images/bootloader.bin images/partition-table.bin images/otadata.bin "images/onebitdawn-ota-$TAG.bin" "images/onebitdawn-clips-$TAG.bin" "images/onebitdawn-clips-speaker-$TAG.bin" "docs/$TAG/"
           manifest "onebitdawn-ota-$TAG.bin" "onebitdawn-clips-$TAG.bin" > "docs/$TAG/manifest.json"
+          manifest "onebitdawn-ota-$TAG.bin" "onebitdawn-clips-speaker-$TAG.bin" > "docs/$TAG/manifest-speaker.json"
           # The same under fixed names as the fallback when the page
           # cannot ask GitHub for the list; keep_files below leaves earlier
           # tags in place, and these names are overwritten each release.
@@ -245,8 +248,10 @@ jobs:
           cp images/bootloader.bin images/partition-table.bin images/otadata.bin docs/latest/
           cp "images/onebitdawn-ota-$TAG.bin" docs/latest/onebitdawn-ota.bin
           cp "images/onebitdawn-clips-$TAG.bin" docs/latest/onebitdawn-clips.bin
+          cp "images/onebitdawn-clips-speaker-$TAG.bin" docs/latest/onebitdawn-clips-speaker.bin
           manifest "onebitdawn-ota.bin" "onebitdawn-clips.bin" > docs/latest/manifest.json
-          cat "docs/$TAG/manifest.json"
+          manifest "onebitdawn-ota.bin" "onebitdawn-clips-speaker.bin" > docs/latest/manifest-speaker.json
+          cat "docs/$TAG/manifest.json" "docs/$TAG/manifest-speaker.json"
           # The pack maker's page, with the converters of this release.
           cp images/onebitdawn_pack.wasm docs/pack/
           # The licences of what the page hands out, which both pages'

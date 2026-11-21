@@ -80,6 +80,9 @@
       font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
       border-radius: 8px; padding: 0.45rem 0.6rem; min-width: 11rem; max-width: 100%;
     }
+    .sound { display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem; margin: 0.5rem 0 0.2rem; }
+    .sound label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+    .sound input { accent-color: var(--accent); margin: 0; }
     .pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.9rem; margin: 0.5rem 0 0.2rem; }
     esp-web-install-button { display: block; margin: 0.6rem 0 0.4rem; }
     esp-web-install-button:not(:defined) > * { display: none; }
@@ -89,7 +92,7 @@
       border: 0; border-radius: 8px; padding: 0.65rem 1.4rem;
     }
     .go:hover { filter: brightness(1.08); }
-    .go:focus-visible, select:focus-visible, a:focus-visible, summary:focus-visible {
+    .go:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visible {
       outline: 2px solid var(--accent); outline-offset: 2px;
     }
     .notice {
@@ -146,6 +149,18 @@
         </div>
       </li>
       <li>
+        <h3 id="soundlabel">Choose the sound</h3>
+        <div class="sound" role="radiogroup" aria-labelledby="soundlabel">
+          <label><input type="radio" name="sound" value="buzzer" checked> Buzzer</label>
+          <label><input type="radio" name="sound" value="speaker"> Speaker</label>
+        </div>
+        <p class="small">
+          What the alarm's clips are made for: the kit's buzzer, or a speaker, in the buzzer's place
+          or on an amplifier at the line output. The speaker's have the bass left in, and one clip more.
+          An amplifier at the line output also needs the output chosen on the clock's settings page.
+        </p>
+      </li>
+      <li>
         <h3>Install</h3>
         <esp-web-install-button id="install" manifest="latest/manifest.json">
           <button slot="activate" class="go" type="button">Connect and install</button>
@@ -178,7 +193,7 @@
   <h2>Settings: kept unless you erase</h2>
   <p>
     The installer writes the bootloader, the partition table, the firmware and the default clip pack
-    (the alarm's sampled sounds), and leaves the settings alone. So without the erase a clock keeps its
+    (the alarm's sampled sounds) for the buzzer or the speaker, as chosen above, and leaves the settings alone. So without the erase a clock keeps its
     settings and its network; with it they are cleared and the clock starts as new. A clip pack you
     uploaded from <code>/clips</code> is replaced by the default one either way.
   </p>
@@ -218,14 +233,22 @@
     var select = document.getElementById('release'), button = document.getElementById('install');
     var about = document.getElementById('about'), ota = document.getElementById('ota');
     var otaname = document.getElementById('otaname');
+    var sounds = document.querySelectorAll('input[name=sound]');
     var releases = {};
     // Not offered: the releases under the project's old name, which
     // write a partition table with no room for the clip pack and carry
     // an API token that was printed in the manual.
     var OLD = ['v0.1', 'v0.2', 'v0.3', 'v0.4'];
 
+    // A release has two manifests, which differ in the clip pack:
+    // the buzzer's, and the speaker's.
+    function aim() {
+      var speaker = document.querySelector('input[name=sound]:checked').value === 'speaker';
+      button.setAttribute('manifest', select.value + (speaker ? '/manifest-speaker.json' : '/manifest.json'));
+    }
+
     function show(tag) {
-      button.setAttribute('manifest', tag + '/manifest.json');
+      aim();
       var r = releases[tag];
       about.textContent = '';
       if (!r) {
@@ -245,6 +268,9 @@
     }
 
     select.addEventListener('change', function () { show(this.value); });
+    sounds.forEach(function (i) { i.addEventListener('change', aim); });
+    // A reload may bring the page back with the speaker still chosen.
+    aim();
 
     // The releases, newest first; the page falls back to "latest" when
     // GitHub cannot be asked (offline, or past the API's rate limit).
