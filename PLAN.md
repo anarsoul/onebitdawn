@@ -1832,6 +1832,40 @@ minutes, the port having echo on and the clock's log echoed back at
 it, so the set waited for output nobody reads. Setting the port from
 Python with `TCSANOW` after a `tcflush` did it at once, no reset.
 
+**Passed, 2026-11-22 00:35**: 24 h on one boot (last heartbeat 86404
+s, `/api` uptime 86415 s), heals and watchdog 0, no panic, and no
+warning but the update's own and three lone lost gateway probes.
+Against the criteria:
+
+- Heap free 54080 until 21:34, then 53892 (the 188-byte step at the
+  heartbeat of 75544 s, the same minute as the soaks of 2026-11-08,
+  2026-11-18 and 2026-11-20); three one-minute dips in 1440
+  heartbeats, lowest 50672. No trend.
+- Longest feed gap 1178 ms in every heartbeat, through 116 clips, 24
+  saves and four rings.
+- All 116 `clip:` lines with 0 underruns and 0 stray positions, on
+  the buzzer's pin at 128 bits a sample; the four rings (Morning Mood
+  00:58, Mountain King 06:59, Suspended Seconds 13:00, the chip
+  Morning Mood 19:01) each five minutes, 299939 to 299991 ms.
+- The descriptor index moving; 84351 images published, no stop. The
+  index read 2 once in 1440 heartbeats where the others read 118 to
+  146 times each; the rc3 run's log has it twice, so it is not this
+  image's, and what makes descriptor 2 rare at the heartbeat's moment
+  is not looked into.
+- The gateway probe: 3 lost of 2879 (uptimes 27705, 27767 and 29840
+  s, 08:17 to 08:53), none two in a row.
+- One MQTT session (1468 published), one association, one BSSID and
+  channel.
+- The host: 2870 ticks, no `/api` failure, the slowest 295 ms; four
+  lost pings, each alone (the first at 33 s of the boot); every page
+  200 and the page's time the host's 287 times of 287.
+
+The driver was stopped at the end and left the alarm armed at 19:01
+on the chip Morning Mood, the colour blue; the clock runs on in
+`ota_1` with the serial `cat` still attached. The two uploads the
+soak of 2026-11-18 ended with were not made. The logs are in
+`soak-master/`.
+
 ## The installer asks: buzzer or speaker — built 2026-11-21, deployed by `v0.5-rc5`, no install from it yet
 
 The web installer wrote the buzzer's pack whatever the clock had (the
