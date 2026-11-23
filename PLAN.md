@@ -1924,6 +1924,20 @@ on the chip Morning Mood, the colour blue; the clock runs on in
 soak of 2026-11-18 ended with were not made. The logs are in
 `soak-master/`.
 
+Left running after the soak with no load but the daily alarm, the
+capture attached, and read again 2026-11-23 07:59 at 55 h 23 min
+(last heartbeat 199388 s, `/api` uptime 199433 s): still the one
+boot, heals and watchdog 0, no panic. Heap free 53892 in every
+heartbeat since the step of the 21st but nine one-minute dips (52188
+or 50484), and no second step at 21:34 on the 22nd. Longest feed gap
+1178 ms in all 3323 heartbeats. One association and one MQTT session
+(3353 published) throughout; 190716 images published, no stop. One
+more lone lost gateway probe, at 198182 s (07:38 on the 23rd): 4 of
+6645 in all. The alarm rang by itself at 19:01 on the 22nd, the chip
+Morning Mood, its five minutes with 0 underruns and 0 stray
+positions. The serial `cat` was stopped then (the user asked), with
+no reset; the clock runs on, the alarm still armed daily at 19:01.
+
 ## The installer asks: buzzer or speaker — built 2026-11-21, deployed by `v0.5-rc5`, no install from it yet
 
 The web installer wrote the buzzer's pack whatever the clock had (the
