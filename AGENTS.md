@@ -308,7 +308,7 @@ Each with its measurements in `agents/hardware.md`.
   converter puts it at an even offset in the clip, the pack maker
   such a clip at an even offset in the pack, `core/build.rs` aligns a
   clip built in. The player reads it as `&[i16]` (`xm::words`, the
-  one `unsafe` of `core/`, with its proof), one load a sample; at an
+  one `unsafe` block of `core/`, with its proof), one load a sample; at an
   odd address it is not played, and a pack skips the clip
   (`xm::is_misplaced`). The chip loads unaligned as well, but the
   compiler is not told so: that is an unstable target feature.
@@ -397,6 +397,11 @@ Each with its figures in `agents/sizes.md`.
   worst case, so run it after adding a key.
 - The clip ring is ahead of the DMA by a fraction of a second, which
   is why the clip task is on the interrupt executor; keep it there.
+- The module player's per-sample code is in RAM (`core`'s `ram`
+  feature, `.rwtext`), and a KB there is a KB off the main stack:
+  keep what runs once a tick, and the other players, out of those
+  functions (`#[inline(never)]`), and check `.rwtext` and `.stack`
+  after touching them.
 
 ## Verifying without a board
 

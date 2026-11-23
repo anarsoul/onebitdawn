@@ -401,3 +401,11 @@ in 6000; Morning, 150 KB of them, one in 180, and its code three
 times as often as the chip Morning's, the two sharing the cache. A
 miss is under 2 µs, so some 3 s of Morning's 75: the cost of a module
 is its instructions, not the flash.
+
+The code that runs for every sample of a module is therefore in RAM
+(`.rwtext`, `core`'s `ram` feature; `agents/modules.md`, `xm.rs`),
+3.5 KB of it, where the cache is not asked: on the bare bench board
+Morning Mood went from 72.5 to 70.8 % of the processor and the two
+small modules not at all. With the tick's code there as well it was
+70.3 %, with all the tick calls 70.0 %: each 3 KB more bought less,
+and a KB there is a KB off the main stack.

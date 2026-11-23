@@ -2969,6 +2969,68 @@ buzzer's, posted to `/clips`, on the buzzer):
     24 000 blocks a second, so the three coefficients read anew each
     block (three checks, six byte loads, three clamps) are under a
     percent of the processor by the code's count. Not done.
+  - The player's code in RAM, tried 2026-11-23 (the user: "попробуем
+    перенести код микшера в SRAM"), not kept yet: `.rwtext` by a
+    `link_section` on `Player::level` (the mixer and the players are
+    inlined in it, 7.5 KB), `fill_samples`, `fill_bits`,
+    `xm::refill`, `xm::fill`, `adpcm::decode_block` and
+    `Shaper::run`, 10 KB in all; the tick's code (a cell read, a note
+    taken, the envelope) stays in the flash, and the data. The main
+    stack is 27.6 KB with it, from 37.1. The speaker's pack on the
+    line output, the same board, against the table above's "after":
+
+    | clip | code in the flash | in RAM | |
+    | --- | --- | --- | --- |
+    | Halftime | 10 597 of 43 567 ms | 10 402 | 24.3 → 23.9 % |
+    | Keygen | 13 525 of 57 645 | 13 262 | 23.5 → 23.0 % |
+    | Morning Mood | 75 418 of 104 043 | 72 693 | 72.5 → 69.9 % |
+    | Morning Mood Chip | 66 417 of 104 040 | 64 766 | 63.8 → 62.3 % |
+    | Mountain King | 74 763 of 139 595 | 71 986 | 53.6 → 51.6 % |
+    | Suspended Seconds | 22 270 of 48 039 | 21 463 | 46.4 → 44.7 % |
+    | Starlight & Aurora | 73 616 of 111 042 | 71 587 | 66.3 → 64.5 % |
+
+    No underruns, the watchdog's longest feed gap 1340 ms. Every clip
+    is cheaper, the ones with the most samples the most, as the
+    cache's counts said: about what the misses were reckoned to cost.
+    How much of the main stack is used was not measured.
+
+    The same with less of it in RAM (the user: SID and AY out of
+    `Player::level`, as functions of their own in the flash): the two
+    players (`sid_sample` 2 KB, `ay_sample` 1.3 KB) and the module's
+    tick (`step_tick`, 3 KB) out of line and in the flash, the
+    module's `next_sample` with the mixer in RAM. 3.5 KB in RAM, the
+    main stack 33.6 KB: Halftime 10 602, Keygen 13 510, Morning Mood
+    73 649 (70.8 %), the chip Morning 65 199, Mountain King 73 136,
+    "Suspended Seconds" 21 843, "Starlight & Aurora" 72 257, and
+    Synchronization, the PT3 through its function, 29 749 of 120 002
+    (24.8 %, as it was). Some six tenths of the larger trial's gain
+    for the large clips and none for the two small ones. SID and AY
+    are not run by these clips, so what was lost is the tick's: 3 KB
+    of code called some tens of times a second, which the samples
+    push out of the cache between calls, by this reckoning; not
+    counted.
+
+    Two more, the same clips. With `step_tick` in RAM as well (6.4 KB
+    there, the stack 30.7 KB): 10 517, 13 417, 73 160, 65 052,
+    72 550, 21 635, 72 046. And with what the tick calls and
+    `Stream::fill` (`trigger`, `read_cell`, `enter`, `sounding_now`,
+    `Instrument::point`, `long`, the four of `refs`; 9.4 KB, the
+    stack 27.7 KB; only the SID's and the AY's players are called in
+    the flash from there): 10 470, 13 360, 72 880, 64 948, 72 114,
+    21 505, 71 791. Morning Mood, then: 75 418 in the flash, 73 649
+    with 3.5 KB in RAM, 73 160 with 6.4, 72 880 with 9.4, and 72 693
+    with the first trial's 9.5 that had the other players in it:
+    each 3 KB more buys less, 1.8 s, 0.5 and 0.3 of 104. No underruns
+    in any, the watchdog's longest feed gap 1260 ms.
+  - Kept of these (the user, 2026-11-23: "Берём вариант с 3.5кб"):
+    the first of the smaller ones, as a feature of `core`, `ram`,
+    that the firmware turns on: a `link_section` of `.rwtext` on the
+    eight functions, on a target with no OS. The image has the same
+    functions in RAM as the trial had, `.rwtext` 8032 bytes from
+    4560, the main stack 33 648. On the board: Morning Mood 73 651
+    of 104 042 ms, the chip Morning 65 201 of 104 045, as the trial
+    had them, and Synchronization, the PT3 through its function,
+    plays. How much of that stack is used is still not measured.
   - Owed: a clip heard (the board has no speaker and no buzzer), and
     the same on a clock with a panel.
 - test-clock is dearer than the bare board for the same tune at 8

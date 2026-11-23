@@ -287,6 +287,7 @@ const NO_BLOCK: u32 = u32::MAX - 2;
 
 /// Block `b` of the channel's predicted sample into a half of its
 /// buffer, after the block before it; silence past the sample's end.
+#[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"), inline(never))]
 fn fill(d: &[u8], ch: &mut Channel<'_>, b: u32, half: usize) {
     let out: &mut [i16; BLOCK] = if half == 0 { ch.blocks.first_chunk_mut().unwrap() } else { ch.blocks.last_chunk_mut().unwrap() };
     let first = b as usize * BLOCK;
@@ -315,6 +316,7 @@ fn fill(d: &[u8], ch: &mut Channel<'_>, b: u32, half: usize) {
 /// no seek points hit far in is decoded from its start: the converter
 /// gives seek points to those a module does that to.
 #[inline(never)]
+#[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"))]
 fn refill(d: &[u8], ch: &mut Channel<'_>, block: u32) {
     if block == ch.block.wrapping_add(1) {
         ch.blocks.copy_within(BLOCK.., 0);
@@ -626,6 +628,14 @@ impl<'a> Tune<'a> {
     /// The next sample, signed, in `STEP`ths of the 8-bit step a PCM
     /// clip has, so full scale is 127 of those; `None` when the tune
     /// has ended. Whole steps, unless the clip asks for the finer ones.
+    ///
+    /// In RAM in the firmware (the `ram` feature), the mixer with it,
+    /// as is what else runs for every sample: `Player::level` and the
+    /// two `fill`s under it, a predicted sample's `refill`, `fill` and
+    /// `adpcm::decode_block`, and `Shaper::run`. From the flash this
+    /// code is read through the 16 KB cache it shares with the
+    /// samples, which push it out.
+    #[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"), inline(never))]
     pub fn next_sample(&mut self) -> Option<i16> {
         let mut sum = 0;
         for _ in 0..self.oversample {
@@ -709,6 +719,10 @@ impl<'a> Tune<'a> {
 
     /// One tick: a new row on the first of a row's ticks, the running
     /// effects on the others, then every channel's pitch and level.
+    ///
+    /// Not inlined: `next_sample` is in RAM in the firmware (the
+    /// crate's `ram` feature), and this, once a tick, is 3 KB.
+    #[inline(never)]
     fn step_tick(&mut self) {
         if self.last || self.ended {
             self.ended = true;

@@ -16,7 +16,7 @@ path = "./src/bin/main.rs"
 members = ["core", "tools/pack"]
 
 [dependencies]
-onebitdawn-core = { path = "core" }
+onebitdawn-core = { path = "core", features = ["ram"] }
 
 esp-hal = { version = "1.2.2", features = ["esp32c3", "log-04", "unstable"] }
 

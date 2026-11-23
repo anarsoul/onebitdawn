@@ -391,7 +391,7 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   the clip: one bounds check a sample, against the sample's own end.
   For 8 bits it is the sample's bytes (`held`, as many as the clip
   has); for 16 bits the same as `&[i16]` (`words`, the crate's one
-  `unsafe`: `align_to`, its proof beside it), one load a sample,
+  `unsafe` block: `align_to`, its proof beside it), one load a sample,
   where two bytes read apart were twelve points of the processor on
   twenty channels. That needs the sample at an even address: the
   converter puts a 16-bit sample at an even offset in the clip and
@@ -404,6 +404,16 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   (`melody`'s assert refuses one built in). The mixer's loop runs
   62 500 times a second for every sounding channel: a load or a
   check in it is most of a percent of the processor with twenty.
+- What runs for every sample is in RAM in the firmware, by the
+  crate's `ram` feature (a `link_section` of `.rwtext`, esp-hal's
+  `#[ram]` section, on a target with no OS; the host's builds do not
+  have it): `Tune::next_sample` with the mixer inlined, `refill`,
+  `fill` and `adpcm::decode_block` for a predicted sample,
+  `Shaper::run`, and `clip.rs`'s `Player::level`, `fill_samples` and
+  `fill_bits` above them. `step_tick` is kept out of line and in the
+  flash, as are the SID's and the PT3's players (`clip::sid_sample`,
+  `ay_sample`), which `Player::level` would otherwise take to RAM
+  with it.
 - A predicted sample is 16 bits in 8 a sample: 8 bytes for the loop
   (`PACKED_LOOP`), the table of predictors fitted to the sample, then
   `adpcm.rs`'s blocks. It cannot be read from the middle, so a

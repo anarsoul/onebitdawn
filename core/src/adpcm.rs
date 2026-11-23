@@ -166,6 +166,7 @@ pub fn decode_one(k: [i32; 3], shift: u8, before: [i32; 3], residual: i8) -> i32
 /// The samples of a block: `block` is its `BLOCK_BYTES`, `table` the
 /// table its predictor is of, `before` the three samples before it,
 /// the newest first, and then the block's last three.
+#[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"), inline(never))]
 pub fn decode_block(table: &[u8], before: &mut [i32; 3], block: &[u8; BLOCK_BYTES], out: &mut [i16; BLOCK]) {
     let (k, shift) = (coefficients(table, block[0] >> 4), block[0] & 15);
     let mut p = *before;

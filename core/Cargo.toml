@@ -10,6 +10,11 @@ description  = "The hardware-independent half of onebitdawn: settings, form, UI,
 [lib]
 path = "src/lib.rs"
 
+[features]
+# The module player's code that runs for every sample in RAM (the
+# section esp-hal's `#[ram]` uses): the firmware turns it on.
+ram = []
+
 [dependencies]
 embassy-sync     = "0.7"
 embassy-time     = "0.5.0"

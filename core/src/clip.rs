@@ -266,6 +266,7 @@ impl<'a> Player<'a> {
     /// The level at point `k`, `None` past the end. Point 0 is the
     /// rail the line idles at, and so is the last. Asked for the points
     /// in order, which is all a tune can give.
+    #[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"), inline(never))]
     fn level(&mut self, k: usize) -> Option<i32> {
         if k < RAMP {
             return Some(-FULL + FULL * k as i32 / RAMP as i32);
@@ -280,8 +281,8 @@ impl<'a> Player<'a> {
                 Body::Pcm(pcm) => pcm.get(k - RAMP).copied().map(pcm_level),
                 Body::Adpcm(decoder) => decoder.next_sample().map(|s| s as i32 * step / xm::STEP),
                 Body::Tune(tune) => tune.next_sample().map(|s| s as i32 * step / xm::STEP),
-                Body::Sid(tune) => tune.next_sample().map(|s| s as i32 * step / xm::STEP),
-                Body::Ay(tune) => tune.next_sample().map(|s| s as i32 * step / xm::STEP),
+                Body::Sid(tune) => sid_sample(tune).map(|s| s as i32 * step / xm::STEP),
+                Body::Ay(tune) => ay_sample(tune).map(|s| s as i32 * step / xm::STEP),
             };
             match level {
                 Some(level) => return Some(level),
@@ -373,6 +374,7 @@ impl<'a> Player<'a> {
     /// ramps included, a sample as `i16`, little-endian, with
     /// `SAMPLE_REST` after the end. Half the loop's level, `FULL` being
     /// twice an `i16`'s; full scale is `CONVERTER_LEVEL`'s share of the rail.
+    #[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"), inline(never))]
     fn fill_samples(&mut self, out: &mut [u8]) {
         for pair in out.as_chunks_mut::<SAMPLE_BYTES>().0 {
             let sample = match self.level(self.next) {
@@ -387,6 +389,7 @@ impl<'a> Player<'a> {
     }
 
     /// `fill` for the sigma-delta stream: a decision a bit.
+    #[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"), inline(never))]
     fn fill_bits(&mut self, out: &mut [u8]) {
         // The loop's scale here: levels times `OSR`, a step a bit.
         const FB: i32 = FULL * OSR as i32;
@@ -566,6 +569,21 @@ pub const fn is_unsupported(data: &[u8]) -> bool {
         k += 1;
     }
     false
+}
+
+/// A SID tune's next sample, and a PT3 module's. Functions of their
+/// own so that `Player::level`, which the firmware keeps in RAM for
+/// the module player's sake (the crate's `ram` feature), does not
+/// take the two other players there with it, 2 KB and 1.3: they are
+/// cheap, and a KB in RAM is a KB off the main stack.
+#[inline(never)]
+fn sid_sample(tune: &mut sid::Tune<'_>) -> Option<i16> {
+    tune.next_sample()
+}
+
+#[inline(never)]
+fn ay_sample(tune: &mut pt3::Tune<'_>) -> Option<i16> {
+    tune.next_sample()
 }
 
 /// Whether `data` is a beeper clip.

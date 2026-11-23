@@ -101,6 +101,7 @@ impl Shaper {
     /// One sample of the mix, 32768 for one voice at full level, as the
     /// modulator's: signed, in `STEP`ths of the 8-bit step a PCM clip
     /// has, so full scale is 127 of those. Whole steps unless `wide`.
+    #[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"), inline(never))]
     pub fn run(&mut self, x: i32) -> i16 {
         let mut y = x;
         for filter in &mut self.filter[..self.passes] {
