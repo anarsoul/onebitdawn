@@ -2940,8 +2940,35 @@ buzzer's, posted to `/clips`, on the buzzer):
     | Starlight & Aurora | 73 616 of 111 042 | | 66 % |
     | Synchronization, cut short | 29 482 of 120 000 | | 25 % |
 
-    Morning Mood, predicted, is the dearest clip now. This board has
-    no figure of `5ab7212` for any but the chip Morning.
+    Morning Mood, predicted, is the dearest clip now.
+
+    Before and after on that board, the speaker's pack on the line
+    output (the same file both times), `5ab7212` flashed for the one
+    and the commit of this for the other; no underruns either way:
+
+    | clip | `5ab7212` | after | |
+    | --- | --- | --- | --- |
+    | Trantor | 1374 of 126 530 ms | 1399 of 126 530 | 1 % |
+    | Halftime | 11 111 of 43 569 | 10 597 of 43 567 | 25.5 → 24.3 % |
+    | Keygen | 14 158 of 57 641 | 13 525 of 57 645 | 24.6 → 23.5 % |
+    | Morning Mood | 76 029 of 104 045 | 75 418 of 104 043 | 73.1 → 72.5 % |
+    | Morning Mood Chip | 85 041 of 104 039 | 66 417 of 104 040 | 81.7 → 63.8 % |
+    | Mountain King | 75 504 of 139 599 | 74 763 of 139 595 | 54.1 → 53.6 % |
+    | Suspended Seconds | 22 450 of 48 039 | 22 270 of 48 039 | 46.7 → 46.4 % |
+    | Starlight & Aurora | 74 362 of 111 039 | 73 616 of 111 042 | 67.0 → 66.3 % |
+    | Synchronization, cut at 120 s | 29 174 of 120 001 | 29 482 of 120 000 | 24.3 → 24.6 % |
+
+    The modules of 8-bit samples are a point cheaper, the predicted
+    ones half a point, which is under what two builds differ by; the
+    PT3 and the beeper clip are not this change's.
+  - A predicted sample's coefficients kept on the channel (the user,
+    2026-11-23), counted on the host and not built for the board: a
+    block has the predictor of the one before it in 21 % of Morning
+    Mood's blocks, 33 % of Mountain King's, 46 % of "Suspended
+    Seconds"' and 50 % of "Starlight & Aurora"'s, and Morning decodes
+    24 000 blocks a second, so the three coefficients read anew each
+    block (three checks, six byte loads, three clamps) are under a
+    percent of the processor by the code's count. Not done.
   - Owed: a clip heard (the board has no speaker and no buzzer), and
     the same on a clock with a panel.
 - test-clock is dearer than the bare board for the same tune at 8
