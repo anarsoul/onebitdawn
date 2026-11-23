@@ -102,6 +102,9 @@ has must come out the same.
   and 47 at 8 bits (`PLAN.md`). An instrument a module plays with 9xx
   is kept at 16 bits and not predicted, and the notes say so. The
   first two are clips a firmware up to v0.5 refuses with its pack.
+  A sample too short for its table to pay for itself (a wave of one
+  period: 64 samples are 128 bytes at 16 bits and 166 predicted) is
+  kept at 16 bits, the smaller and exact.
   A sample of 16 bits whose low bytes are all the same is one of 8
   and is written so, that byte dropped, whatever is asked: Keygen's
   lead is one (its low bytes nought), and its clip is what it was.

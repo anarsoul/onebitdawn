@@ -17,8 +17,10 @@
 //! whatever is asked. Each of the first two is a clip of
 //! a magic of its own, which a firmware from before it refuses; a
 //! module of 8-bit samples, or cut to them, is the clip there always
-//! was. One effect is written as another: R, where it changes no
-//! volume, as E9, which the player has.
+//! was. A sample too short for its table of predictors to pay for
+//! itself is kept at 16 bits, which is then the smaller, and exact.
+//! One effect is written as another: R, where it changes no volume,
+//! as E9, which the player has.
 //!
 //! The player cuts the bass, which the buzzer does not have, and
 //! limits hard; how is the clip's to say (`Shape`).
@@ -229,6 +231,8 @@ struct Instrument {
     /// written as its high bytes.
     sample: Vec<i16>,
     kept: Samples,
+    /// The sample predicted, if that is how it is kept.
+    packed: Vec<u8>,
     looped: (usize, usize),
     volume: u8,
     finetune: i8,
@@ -462,6 +466,15 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     }
 
     let byte = |n: usize, what: &str| u8::try_from(n).map_err(|_| format!("{n} {what}; the clip has room for 255"));
+    // A sample is predicted where that is the smaller: for a wave of
+    // one period the table alone is more than the 16 bits it would
+    // save, and those are kept as they are, exact.
+    for i in instruments.iter_mut().filter(|i| i.kept == Samples::Packed) {
+        i.packed = predicted(&i.sample, i.looped);
+        if i.packed.len() >= 2 * i.sample.len() {
+            (i.kept, i.packed) = (Samples::Wide, Vec::new());
+        }
+    }
     // The magic is the newest thing the clip has in it: a firmware
     // from before that refuses it.
     let has = |kept| instruments.iter().any(|i: &Instrument| i.kept == kept && !i.sample.is_empty());
@@ -515,7 +528,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         match kept {
             Samples::Cut => body.extend(i.sample.iter().map(|s| (s >> 8) as u8)),
             Samples::Wide => body.extend(i.sample.iter().flat_map(|s| s.to_le_bytes())),
-            Samples::Packed => body.extend(predicted(&i.sample, i.looped)),
+            Samples::Packed => body.extend(&i.packed),
         }
     }
     debug_assert_eq!(out.len(), tables);

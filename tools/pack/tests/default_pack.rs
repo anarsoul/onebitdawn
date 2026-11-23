@@ -245,6 +245,17 @@ fn a_16_bit_sample_is_predicted_unless_it_is_played_from_an_offset() {
         assert_eq!(&kept.data[..4], b"XMC3");
         assert!(kept.notes.iter().any(|n| n.contains("9xx")), "{:?}", kept.notes);
     }
+    // A sample too short to pay for its table of predictors is kept
+    // at 16 bits, the smaller and exact: 64 samples are 128 bytes so,
+    // and 8 + 90 + 4 * 17 predicted.
+    let short = (30, 34);
+    let tiny = |options: &str| {
+        let source = Source { data: module_of_16_bits(&wave[..64], short, &cells), file: "test.xm".into(), options: Spec::parse(&format!("test.xm:{options}")).options, label: None };
+        convert(&source, Output::Speaker).unwrap()
+    };
+    assert_eq!(&tiny("").data[..4], b"XMC3");
+    assert_eq!(tiny("").data, tiny("samples=16").data);
+    assert_eq!(&tiny("samples=8").data[..4], b"XMC2");
     // A sample of 16 bits whose low bytes are all the same is one of
     // 8: it is written so whatever is asked, the clip there always
     // was, and plays as the 16 bits would.
