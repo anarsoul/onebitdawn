@@ -46,7 +46,9 @@ host and the browser, over `core`. `CLAUDE.md` is a symlink to this file; edit t
   Do not claim hardware results.
 - Commit only when asked. Commit messages end with
   `Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>` (the user asked
-  for this trailer in this project).
+  for this trailer in this project) and have no other trailer or tag:
+  no `Claude-Session` line, nor any new one, unless the user asks for
+  it explicitly.
 - `master` is in feature freeze until v0.5 is tagged: it takes bug
   fixes only, no new features. New work goes on a separate branch,
   `next` for one; say so when a request is a feature rather than a
