@@ -164,11 +164,14 @@ espflash write-bin 0x2e0000 mine.bin && espflash reset   # or over USB
 ```
  The clock checks a pack (a SHA-256
 at its end) when it is uploaded and at every boot, and restarts after
-an upload. A pack with a clip in a version of its format the firmware
-does not play (made by a newer converter, or a very old one) is
-refused, by `onebitdawn-pack` and by the clock, which finds it only
-after writing the pack and is left with the note melodies until the
-next upload: update the firmware, or convert the clip again. The alarm sound is stored by its name (the one `/api` has, which the
+an upload. A clip in a version of its format the firmware does not
+play (made by a newer converter, or a very old one) is skipped: the
+clock takes the rest of the pack, the upload's answer and the Clips
+page say how many it left out, and an update of the firmware brings
+them back. A clock at v0.5 or before refuses such a pack whole, after
+writing it, and is left with the note melodies until the next upload:
+update the firmware, or convert the clip again. `onebitdawn-pack`
+does not put such a clip into a pack. The alarm sound is stored by its name (the one `/api` has, which the
 pack maker shows as Name), so an alarm keeps its sound through a new
 pack that still has that clip, wherever in the list; a sound that is
 no longer there is the beeps.

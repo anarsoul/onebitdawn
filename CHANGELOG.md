@@ -109,6 +109,10 @@ from `http://<ip>/update`; its settings survive the update.
   crates its files are built from, and of the bootloader and the
   radio's libraries in the images. The installer's and the pack
   maker's pages link it.
+- A clip of a version the firmware does not play no longer costs the
+  whole pack: the clock skips it and takes the rest, and the upload's
+  answer and the Clips page say how many it left out. (A clock at v0.5
+  or before still refuses such a pack.)
 
 - Three more clips in the default pack, made for this project from
   Grieg's first *Peer Gynt* suite: "Morning Mood" with an orchestra's

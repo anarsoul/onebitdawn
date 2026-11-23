@@ -225,7 +225,11 @@ into `OUT_DIR`.
   length, loop flag, API name (20 bytes) and label (32), the clips'
   data, a SHA-256 at the end.
 - `declared_len` from a header; `Pack::parse` with every check
-  (`PackError`); `clip(k)`.
+  (`PackError`); `clip(k)`. A clip of a kind there is in a version
+  the players do not read (`clip::is_unsupported`) is skipped, not
+  refused: `Pack` is the clips that play, `count` and `clip` number
+  those alone, and `skipped` and `skipped_clip` are the rest. A pack
+  with none that plays is `PackError::Unplayable`.
 - A clip whose magic is one of the kinds' with a version digit no
   player reads, older or newer, is refused (`clip::is_unsupported`),
   as the `ALARM_CLIP` assert and `onebitdawn-pack` do.

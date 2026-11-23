@@ -33,6 +33,11 @@
 //! whose magic an older firmware does not know and would play as PCM
 //! with no header, as noise (`clip::is_unsupported` knows only the
 //! kinds there are, and a new version of one of them).
+//!
+//! A clip of a kind there is in a version the players do not read (a
+//! newer converter's, or a very old one) is skipped and the pack kept:
+//! `Pack` is the clips that play, and says how many do not
+//! (`Pack::skipped`). A firmware up to v0.5 refused the pack for one.
 
 use sha2::{Digest, Sha256};
 
@@ -77,10 +82,11 @@ pub enum PackError {
     /// A label that is empty, not UTF-8, or has a control character or
     /// one of `< > & "`.
     Label(usize),
-    /// Less than a second of sound, or a clip of a format's version
-    /// the players do not read, an old one or a newer converter's
-    /// (`clip::is_unsupported`).
+    /// Less than a second of sound in a clip the players read.
     Clip(usize),
+    /// Not one clip of a format's version the players read: each is
+    /// an old one or a newer converter's (`clip::is_unsupported`).
+    Unplayable,
     Hash,
 }
 
@@ -96,7 +102,8 @@ impl PackError {
             PackError::Entry(_) => "clip pack: an entry points outside the pack, or the pack is for a newer firmware",
             PackError::Name(_) => "clip pack: a clip's name is taken or not a-z and _",
             PackError::Label(_) => "clip pack: a clip's label is empty or has characters a page cannot show",
-            PackError::Clip(_) => "clip pack: a clip is shorter than a second or of a version this firmware does not play",
+            PackError::Clip(_) => "clip pack: a clip is shorter than a second",
+            PackError::Unplayable => "clip pack: none of its clips is of a version this firmware plays",
             PackError::Hash => "clip pack hash mismatch: truncated or corrupt",
         }
     }
@@ -144,11 +151,16 @@ pub struct Clip<'a> {
     pub loops: bool,
 }
 
-/// A pack that passed `parse`.
+/// A pack that passed `parse`: the clips of it that play.
 #[derive(Clone, Copy, Debug)]
 pub struct Pack<'a> {
     data: &'a [u8],
+    /// Bit `i` for the pack's entry `i`, if its clip is one the
+    /// players read.
+    playable: u16,
 }
+
+const _: () = assert!(MAX_CLIPS <= u16::BITS as usize);
 
 impl<'a> Pack<'a> {
     /// The pack in `data`, which is all of it and nothing more, if it is
@@ -166,7 +178,7 @@ impl<'a> Pack<'a> {
         if table_end > body_end {
             return Err(PackError::Short);
         }
-        let pack = Pack { data };
+        let mut pack = Pack { data, playable: 0 };
         for k in 0..count {
             let e = &data[HEADER_LEN + k * ENTRY_LEN..][..ENTRY_LEN];
             let (at, len) = (u32_at(e, 0), u32_at(e, 4));
@@ -175,7 +187,7 @@ impl<'a> Pack<'a> {
                 return Err(PackError::Entry(k));
             }
             let name = field(&e[ENTRY_NAME..ENTRY_LABEL]).ok_or(PackError::Name(k))?;
-            let taken = (0..k).any(|j| pack.clip(j).is_some_and(|c| c.name == name));
+            let taken = (0..k).any(|j| pack.entry(j).is_some_and(|c| c.name == name));
             if name.is_empty()
                 || !name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
                 || taken
@@ -191,19 +203,38 @@ impl<'a> Pack<'a> {
         if Sha256::digest(&data[..body_end])[..] != data[body_end..] {
             return Err(PackError::Hash);
         }
-        // What is asked of a clip built in (`melody::BUILT_IN`).
+        // A clip of a version the players do not read is skipped; of
+        // one they read is asked what a clip built in is
+        // (`melody::BUILT_IN`).
         for k in 0..count {
-            let clip = pack.clip(k).ok_or(PackError::Entry(k))?.data;
-            if crate::clip::duration_ms(clip) < CLIP_MIN_MS || crate::clip::is_unsupported(clip) {
+            let clip = pack.entry(k).ok_or(PackError::Entry(k))?.data;
+            if crate::clip::is_unsupported(clip) {
+                continue;
+            }
+            if crate::clip::duration_ms(clip) < CLIP_MIN_MS {
                 return Err(PackError::Clip(k));
             }
+            pack.playable |= 1 << k;
+        }
+        if pack.playable == 0 {
+            return Err(PackError::Unplayable);
         }
         Ok(pack)
     }
 
-    /// The number of clips.
+    /// The number of clips that play.
     pub fn count(&self) -> usize {
-        self.data.get(5).map_or(0, |&n| n as usize)
+        self.playable.count_ones() as usize
+    }
+
+    /// The number the pack holds that this firmware does not play.
+    pub fn skipped(&self) -> usize {
+        self.entries() - self.count()
+    }
+
+    /// The pack's entries, played or not.
+    fn entries(&self) -> usize {
+        self.data.get(5).map_or(0, |&n| n as usize).min(MAX_CLIPS)
     }
 
     /// The pack's length in bytes, the hash included.
@@ -215,9 +246,19 @@ impl<'a> Pack<'a> {
         self.count() == 0
     }
 
-    /// Clip `k`, from 0; `None` past the last.
+    /// Clip `k` of those that play, from 0; `None` past the last.
     pub fn clip(&self, k: usize) -> Option<Clip<'a>> {
-        if k >= self.count() {
+        self.entry((0..self.entries()).filter(|&i| self.playable & 1 << i != 0).nth(k)?)
+    }
+
+    /// Clip `k` of those that do not, from 0: for naming it.
+    pub fn skipped_clip(&self, k: usize) -> Option<Clip<'a>> {
+        self.entry((0..self.entries()).filter(|&i| self.playable & 1 << i == 0).nth(k)?)
+    }
+
+    /// The pack's entry `k`, from 0, played or not.
+    fn entry(&self, k: usize) -> Option<Clip<'a>> {
+        if k >= self.entries() {
             return None;
         }
         let e = self.data.get(HEADER_LEN + k * ENTRY_LEN..)?.get(..ENTRY_LEN)?;
@@ -370,14 +411,41 @@ pub(crate) mod tests {
     #[test]
     fn clips_are_held_to_what_a_built_in_one_is() {
         assert_eq!(Pack::parse(&build(&[("short", "Short", false, &[128; 7999])])).unwrap_err(), PackError::Clip(0));
-        assert_eq!(Pack::parse(&build(&[("ok", "Ok", false, &SECOND), ("old", "Old", true, b"BPR1\0\0\0\0")])).unwrap_err(), PackError::Clip(1));
-        assert_eq!(Pack::parse(&build(&[("old", "Old", true, b"XMC1....")])).unwrap_err(), PackError::Clip(0));
+        assert_eq!(Pack::parse(&build(&[("ok", "Ok", false, &SECOND), ("short", "Short", false, &[128; 7999])])).unwrap_err(), PackError::Clip(1));
+        // A pack of nothing but clips in versions no player reads is no
+        // pack: an old one's, here.
+        assert_eq!(Pack::parse(&build(&[("old", "Old", true, b"XMC1....")])).unwrap_err(), PackError::Unplayable);
         // A version from a newer converter, behind a second of anything.
         for magic in [b"PCM2", b"ADP2", b"BPR4", b"XMC3", b"SID3", b"PT32"] {
             let mut clip = magic.to_vec();
             clip.extend_from_slice(&SECOND);
-            assert_eq!(Pack::parse(&build(&[("new", "New", false, &clip)])).unwrap_err(), PackError::Clip(0), "{:?}", core::str::from_utf8(magic));
+            assert_eq!(Pack::parse(&build(&[("new", "New", false, &clip)])).unwrap_err(), PackError::Unplayable, "{:?}", core::str::from_utf8(magic));
         }
+    }
+
+    #[test]
+    fn a_clip_no_player_reads_is_skipped_and_the_rest_kept() {
+        let mut newer = b"XMC9".to_vec();
+        newer.extend_from_slice(&SECOND);
+        let third: Vec<u8> = SECOND.iter().map(|b| b ^ 1).collect();
+        let data = build(&[("new", "New", true, &newer), ("ok", "Ok", false, &SECOND), ("old", "Old", true, b"BPR1\0\0\0\0"), ("last", "Last", true, &third)]);
+        let pack = Pack::parse(&data).unwrap();
+        // The pack is the two that play, in their order, as if the
+        // others were not there.
+        assert_eq!((pack.count(), pack.skipped(), pack.is_empty()), (2, 2, false));
+        let said = |c: Clip<'_>| (c.name.to_string(), c.label.to_string(), c.loops);
+        let of = |name: &str, label: &str, loops| (name.to_string(), label.to_string(), loops);
+        assert_eq!((0..5).filter_map(|k| pack.clip(k)).map(said).collect::<Vec<_>>(), [of("ok", "Ok", false), of("last", "Last", true)]);
+        assert_eq!((0..5).filter_map(|k| pack.skipped_clip(k)).map(said).collect::<Vec<_>>(), [of("new", "New", true), of("old", "Old", true)]);
+        assert_eq!((pack.clip(0).unwrap().data, pack.clip(1).unwrap().data), (&SECOND[..], &third[..]));
+        assert!(pack.clip(2).is_none() && pack.skipped_clip(2).is_none());
+        // A skipped clip's name is still a name: it is not given twice,
+        // nor is it one a clip that plays may take.
+        assert_eq!(Pack::parse(&build(&[("new", "New", true, &newer), ("new", "Ok", false, &SECOND)])).unwrap_err(), PackError::Name(1));
+        assert_eq!(Pack::parse(&build(&[("ok", "Ok", false, &SECOND), ("Bad", "New", true, &newer)])).unwrap_err(), PackError::Name(1));
+        // A pack with none skipped says so.
+        let whole = build(&[("ok", "Ok", false, &SECOND)]);
+        assert_eq!((Pack::parse(&whole).unwrap().count(), Pack::parse(&whole).unwrap().skipped()), (1, 0));
     }
 
     #[test]

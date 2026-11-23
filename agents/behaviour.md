@@ -232,6 +232,11 @@ Read-only keys; posting one is refused as an unknown key:
   refused before anything is erased and the pack in use stays. A hash
   mismatch after the write leaves the clock without a pack until the
   next upload. A good one restarts the clock (`heal::reboot`).
+- A clip of a kind there is in a version the firmware does not play
+  is skipped and the pack kept (`Pack::skipped`): it is not in the
+  list of sounds, the upload's answer and the Clips page give the
+  number left out, and an alarm set to one is the beeps until a
+  firmware plays it. A pack with nothing that plays is refused.
 - The melody setting is an index, and the record keeps the melody's
   API name beside it (version 14): read back, it is the melody of that
   name wherever the table in force has it, so an alarm keeps its clip

@@ -1653,6 +1653,51 @@ each a 400 with the zone left alone; the rules as sent; the old
 key's `180` and `-420` as fixed rules. The clock's own `PDT7` put
 back after each run.
 
+## A pack's clip this firmware does not play is skipped — built 2026-11-22, on the host only
+
+The user, 2026-11-22: "if we have an unsupported clip in the pack,
+can we skip the clip instead of rejecting the whole pack?"; and of
+where it goes, "while it is not a bug fix, it is a
+forward-compatibility fix which might be worth getting into the first
+public release". So it is a change of its own, written to apply to
+`master` as it is to `next`, and it is the user's to say which.
+
+Until now a pack with a clip of a version the firmware does not play
+was refused whole, at an upload after the write and at boot, and the
+clock ran on the note melodies. Every new version of a clip's format
+after the first public release would be that for every clock not yet
+updated, and for one rolled back. A firmware that skips can be given
+a newer pack and plays what it can of it.
+
+- `Pack::parse` skips a clip `clip::is_unsupported` says is of a
+  known kind's other version or has its header cut short, and keeps
+  the pack. `Pack` then is the clips that play: `count` and `clip`
+  number those alone, so the melody table, the pages, `/api` and the
+  discovery payload have nothing to learn. `skipped` and
+  `skipped_clip` are for saying so.
+- A pack none of whose clips plays is refused (`PackError::Unplayable`),
+  and so is one with a clip that plays and is shorter than a second
+  (`PackError::Clip`), as before: that is a pack made wrong, not a
+  newer one. Names are still held to the rules for every entry,
+  skipped or not.
+- What says so: the boot's log line and the upload's answer give the
+  skipped clips' number, and the Clips page says how many the pack
+  has that this firmware does not play.
+- An alarm whose sound is a skipped clip is the beeps, by the rule
+  for a name that is not there, and gets its sound back with a
+  firmware that plays it.
+- What does not change: a firmware up to v0.5 refuses such a pack
+  whole, and nothing done now can change that; a clip of a new *kind*
+  is still PCM with no header to a firmware that does not know its
+  magic, so such a pack must still set a reserved bit or the version.
+  The pack maker still refuses a clip made already that the players
+  do not read.
+
+Host: the tests of `pack.rs` and the Clips page's; the page is 3978
+bytes of 8032 at its worst. To check on a clock: a pack with a clip
+of an unknown version uploaded, the answer, the boot's log line, the
+Clips page and the list of sounds.
+
 ## "Starlight & Aurora" clicks on a speaker: the limiter off, its knee from 12 to 64; its hiss is the transistor's stage — built 2026-11-20, heard on test-clock and white-clock
 
 The user, with the speaker's pack on test-clock: "есть щелчки".

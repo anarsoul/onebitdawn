@@ -1214,6 +1214,9 @@ pub fn write_clips_page(out: &mut impl core::fmt::Write, hostname: &str, st: &St
                 write!(out, " of {}", kb(room))?;
             }
             out.write_str(".")?;
+            if pack.skipped() != 0 {
+                write!(out, " It has {} more that this firmware does not play: update the firmware for them.", pack.skipped())?;
+            }
         }
         (None, Some(room)) => write!(out, "No pack in flash ({} KB for one): the clips are those built into the firmware.", kb(room))?,
         (None, None) => out.write_str(
@@ -2521,6 +2524,17 @@ mod tests {
         let out = page(&st);
         assert!(out.contains(&format!("Pack in flash: 2 clips, {} KB of 1024.", len.div_ceil(1024))), "{out}");
         assert!(out.contains("<p>One's own · Two</p>"), "{out}");
+        // A clip of a version no player reads is not among them, and
+        // the page says the pack has it.
+        let mut newer = b"XMC9".to_vec();
+        newer.extend_from_slice(&[128; 8000]);
+        let data = crate::pack::build(&[("one", "One's own", true, &[128; 8000]), ("new", "Newer", false, &newer), ("two", "Two", false, &[128; 8000])]);
+        let len = data.len();
+        melody::install(Some(crate::pack::Pack::parse(Vec::leak(data)).unwrap()));
+        let out = page(&st);
+        let said = format!("Pack in flash: 2 clips, {} KB of 1024. It has 1 more that this firmware does not play: update the firmware for them.", len.div_ceil(1024));
+        assert!(out.contains(&said), "{out}");
+        assert!(out.contains("<p>One's own · Two</p>") && !out.contains("Newer"), "{out}");
         let mut json = String::new();
         write_json(&mut json, &Settings::DEFAULT, &st).unwrap();
         assert!(json.contains(r#""slot":"ota_1","clips":"pack","mode":"sta""#), "{json}");

@@ -102,8 +102,9 @@ pub fn init() {
     match load() {
         Ok(pack) => {
             info!(
-                "clips: pack of {} clips, {} of {size} bytes at {offset:#x}, mapped at {addr:#x}, checked in {} ms",
+                "clips: pack of {} clips and {} of a version this firmware does not play, {} of {size} bytes at {offset:#x}, mapped at {addr:#x}, checked in {} ms",
                 pack.count(),
+                pack.skipped(),
                 pack.len(),
                 from.elapsed().as_millis()
             );
@@ -160,7 +161,10 @@ fn load() -> Result<Pack<'static>, PackError> {
 /// What a finished upload reports back.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Done {
+    /// The clips that play, and those of a version this firmware does
+    /// not, which are skipped.
     pub clips: usize,
+    pub skipped: usize,
     pub bytes: usize,
 }
 
@@ -223,8 +227,8 @@ pub async fn install(first: &[u8], total: usize, body: &mut impl Read) -> Result
     unsafe { Cache_Invalidate_Addr((addr as u32) & !(PAGE - 1), (region.offset % PAGE + region.size).div_ceil(PAGE) * PAGE) };
     match load() {
         Ok(pack) => {
-            info!("clips: pack of {} clips written, {written} bytes", pack.count());
-            Ok(Done { clips: pack.count(), bytes: written })
+            info!("clips: pack of {} clips written, {} more skipped, {written} bytes", pack.count(), pack.skipped());
+            Ok(Done { clips: pack.count(), skipped: pack.skipped(), bytes: written })
         }
         Err(e) => {
             warn!("clips: the pack written is refused: {e:?} ({}); erasing its header", e.text());

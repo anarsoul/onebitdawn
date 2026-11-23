@@ -435,8 +435,11 @@ release from that one on, with the newer one's data in flash:
   mark back with its own version.
 - **A clip pack** of version 1 and every clip format in it today are
   read by every later firmware. A firmware refuses a pack of another
-  version or with a reserved byte or flag bit set, and a known kind's
-  clip of a version it does not play; a clip of a *new* kind it would
+  version or with a reserved byte or flag bit set. A known kind's
+  clip of a version it does not play it skips, keeping the rest of
+  the pack (a firmware up to v0.5 refuses the pack for one, so a new
+  version of a clip is still not for a default pack an older clock
+  may be given); a clip of a *new* kind it would
   play as PCM with no header, so a pack that holds one must set a
   reserved bit or the version (`core/src/pack.rs`'s header).
 - **`/api`** keys, the `set/` keys and the MQTT topics, the device id
