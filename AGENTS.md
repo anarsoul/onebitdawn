@@ -304,6 +304,14 @@ Each with its measurements in `agents/hardware.md`.
 - **Flash writes** run with interrupts off, so the scan stalls. The
   persist task debounces and skips a write that would not change the
   record; an upload stops the scan first.
+- **A module's sample of 16 bits is at an even address**: the
+  converter puts it at an even offset in the clip, the pack maker
+  such a clip at an even offset in the pack, `core/build.rs` aligns a
+  clip built in. The player reads it as `&[i16]` (`xm::words`, the
+  one `unsafe` of `core/`, with its proof), one load a sample; at an
+  odd address it is not played, and a pack skips the clip
+  (`xm::is_misplaced`). The chip loads unaligned as well, but the
+  compiler is not told so: that is an unstable target feature.
 - **One flash handle.** `storage::with_flash` is the only way to the
   flash, one blocking operation at a time, never across an await. A
   second `FlashStorage` does not work.
@@ -445,7 +453,8 @@ release from that one on, with the newer one's data in flash:
   clip of a version it does not play it skips, keeping the rest of
   the pack (a firmware up to v0.5 refuses the pack for one, so a new
   version of a clip is still not for a default pack an older clock
-  may be given); a clip of a *new* kind it would
+  may be given), and so it does a module with a 16-bit sample at an
+  odd address, which only another maker's pack has; a clip of a *new* kind it would
   play as PCM with no header, so a pack that holds one must set a
   reserved bit or the version (`core/src/pack.rs`'s header).
 - **`/api`** keys, the `set/` keys and the MQTT topics, the device id

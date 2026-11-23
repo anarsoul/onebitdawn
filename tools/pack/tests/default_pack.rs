@@ -217,7 +217,8 @@ fn a_16_bit_sample_is_predicted_and_one_played_from_an_offset_has_seek_points() 
     assert_eq!((&cut.data[..4], &wide.data[..4], &packed.data[..4]), (&b"XMC2"[..], &b"XMC3"[..], &b"XMC4"[..]));
     // Predicted is what a 16-bit sample is unless told.
     assert_eq!(made(&cells, "").data, packed.data);
-    assert_eq!(wide.data.len(), cut.data.len() + wave.len());
+    // A byte more a sample, and one before them for an even offset.
+    assert_eq!(wide.data.len(), cut.data.len() + wave.len() + (cut.data.len() - wave.len()) % 2);
     assert_eq!(packed.data.len(), cut.data.len() - wave.len() + PACKED_HEAD + wave.len().div_ceil(BLOCK) * BLOCK_BYTES);
     assert_eq!(packed.notes.len(), 1, "{:?}", packed.notes);
     // Played, limiter and all, the predicted one is the 16 bits' to

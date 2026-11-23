@@ -71,7 +71,8 @@ fn clips() {
             _ => words.iter().map(|w| w[..1].to_ascii_uppercase() + &w[1..]).collect::<Vec<_>>().join(" "),
         };
         writeln!(names, "    ({name:?}, {label:?}),").unwrap();
-        writeln!(data, "    include_bytes!({:?}),", path.display().to_string()).unwrap();
+        // Aligned, for a module's samples of 16 bits (`xm::words`).
+        writeln!(data, "    &Aligned(*include_bytes!({:?})).0,", path.display().to_string()).unwrap();
         // The clips with a header are the ones made from music written
         // to loop: `clip::BEEPER_MAGIC`, `xm::MAGIC`, `sid::MAGIC` and
         // `pt3::MAGIC`.
@@ -81,7 +82,10 @@ fn clips() {
         count += 1;
     }
     let out = format!(
-        "pub const CLIP_COUNT: usize = {count};\n\
+        "#[repr(C, align(4))]\n\
+         #[allow(dead_code)]\n\
+         struct Aligned<T>(T);\n\
+         pub const CLIP_COUNT: usize = {count};\n\
          pub const CLIP_NAMES: [(&str, &str); CLIP_COUNT] = [\n{names}];\n\
          pub static CLIP_DATA: [&[u8]; CLIP_COUNT] = [\n{data}];\n\
          pub const CLIP_LOOPS: [bool; CLIP_COUNT] = [\n{loops}];\n"

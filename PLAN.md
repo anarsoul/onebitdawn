@@ -2735,15 +2735,233 @@ same with seek points before the blocks as without. The stack is
 37 440 bytes, 80 less, a channel's count of seek points. No clip in
 the tree changed: none has a 9xx on a 16-bit sample.
 
+**On test-clock, 2026-11-22** (`v0.5-rc5-9-gd982662`, flashed over USB
+by the user, who heard both packs on it first: "На слух всё хорошо";
+`/play`, each clip to its end, the serial log's `clip:` line, a `cat`
+of the port. The speaker's pack with `output` on the line, then the
+buzzer's, posted to `/clips`, on the buzzer):
+
+| clip | speaker's pack, line | buzzer's pack, buzzer | share |
+| --- | --- | --- | --- |
+| Trantor | 1377 of 126 533 ms | 1379 of 126 535 | 1 % |
+| Halftime | 11 122 of 43 571 | 11 122 of 43 569 | 26 % |
+| Keygen | 14 177 of 57 646 | 14 170 of 57 641 | 25 % |
+| Synchronization, cut short | 61 587 of 244 175 | 29 218 of 119 997 | 25 %, 24 % |
+| Morning Mood | 76 033 of 104 039 | 76 134 of 104 043 | 73 % |
+| Morning Mood Chip | 85 057 of 104 039 | 85 066 of 104 044 | 82 % |
+| Mountain King | 75 518 of 139 591 | 75 507 of 139 593 | 54 % |
+| Suspended Seconds | 22 453 of 48 044 | 22 425 of 48 041 | 47 % |
+| Starlight & Aurora | 74 371 of 111 038 | | 67 % |
+
+- No underruns and no stray positions in any, on either output; no
+  warning in the log, the heap at 54 080 bytes, no gateway probe
+  failed, the watchdog's count 0. The output costs nothing: the two
+  columns are the same to a tenth of a percent.
+- "Starlight & Aurora" predicted is cheaper than at 16 bits (80 of
+  111 s on this board, 2026-11-20), and "Suspended Seconds" is what
+  it was (23 of 48 s).
+- Morning Mood Chip at 82 % is the dearest clip there has been. With
+  it playing, `/api` asked every four seconds, 24 times: none failed,
+  the median about 0.2 s, 22 under 0.41 s and two of 1.3 and 1.4 s;
+  the watchdog's longest feed gap went from 1420 to 1500 ms
+  (`DEADLINE_MS` is 10 s).
+- What the prediction costs, from `packs/clips-default-speaker-8bit.bin`
+  (made 2026-11-20, its modules' samples at 8 bits) on the same board
+  and firmware, line output: Morning Mood 75 814 of 104 042 ms (73 %),
+  Morning Mood Chip 72 996 of 104 044 (70 %), Mountain King 73 759 of
+  139 598 (53 %), "Starlight & Aurora" 77 526 of 111 035 (70 %). So
+  Morning and Mountain King cost nothing more predicted, and the chip
+  Morning twelve points more. The chip Morning is not predicted: its
+  seven instruments are waves of 64 samples, too short to repay a
+  table, and are kept at 16 bits (`XMC3`; the other three modules are
+  `XMC4` with every instrument predicted). So the twelve points are
+  the 16-bit read's (`sample_at`: `word`, two byte reads a sample,
+  two samples a mixed one for interpolation, twenty channels) and not
+  a decoder's. A predicted sample is read from the channel's two
+  blocks in RAM, one `i16`, which is why decoding costs no more than
+  reading 8 bits from the flash did (the user's guess, 2026-11-22:
+  reading the flash is dearer than decoding). How much of an 8-bit
+  module's cost is cache misses is not measured.
+- The chip Morning three ways from the one module, the same board,
+  line output: `samples=8` 73 003 of 104 041 ms (70 %), `samples=16`
+  85 026 of 104 046 (82 %), and with the converter's rule taken out
+  for the try, so its 64-sample waves are predicted (`XMC4`, 18 580
+  bytes, 266 more), 75 929 of 104 046 (73 %). No underruns in any. So
+  the twelve points are the 16-bit read alone, and predicting a short
+  sample too gives nine of them back for 38 bytes an instrument.
+- Why the read costs so much: the mixer runs at twice the clip's
+  rate, 62 500 times a second, over every sounding channel, so with
+  twenty an instruction in the loop's body is some 0.8 % of the
+  processor, and the 16-bit read is two more loads, two more bounds
+  checks and the shifts for each of the two samples (the disassembly
+  of `Player::level`, where `mix` is inlined). The 64-sample loop's
+  wrap, a division, is some hundreds of times a second a channel and
+  not it. One bounds check for the two bytes changed nothing for
+  "Starlight & Aurora" on 2026-11-20, where few channels are wide.
+- From Halftime's four channels and the chip Morning's twenty at 8
+  bits, a channel is some 2.7 % of the processor, about 70 cycles a
+  mixed sample, and what is not the channels' about 15 %.
+- An aligned 16-bit load tried, 2026-11-23 (the user: is it the
+  alignment, and "давай померяем lh в прошивке"). `sample_at` for a
+  16-bit sample as one check and one `i16` read through a pointer
+  (`unsafe`; the samples' offsets in the clip and the clips' in the
+  pack are even, the partition's mapping too), which the compiler
+  makes one `lh` where `word` is two `lbu`, two checks and the
+  shifts: there was no unaligned load before, the two bytes were
+  loaded apart. The trial over the air into `ota_1`, the same A/B
+  pack, line output: `samples=16` 74 345 of 104 039 ms (71 %, from
+  82 %), and `samples=8`, whose code did not change, 75 648 of
+  104 043 (73 %, from 70 %). So the one load gives all twelve points
+  back, a 16-bit sample then costing no more than an 8-bit one, and
+  the same clip moves two or three points between two builds for no
+  reason of its own. Not kept: the tree's `xm.rs` is as it was, the
+  trial's diff is not in the tree.
+- The flash's cache, from Espressif's documents (the IDF's "Memory
+  Types" for the chip, its datasheet and memory map, read
+  2026-11-23): what is mapped through the flash's MMU is read
+  through a cache in internal SRAM, data as well as code, 16 KB,
+  eight ways, read-only, and cached data is as fast as other internal
+  memory. The pack's mapping is in the data bus's range, so the chip
+  Morning's 896 bytes of samples are in it; what a large module's
+  misses cost is still not measured.
+- The cache counted, 2026-11-23 (the user: does a read fill a cache
+  line each time, and are the two bytes of a sample pushed out
+  between them). A trial build logs `EXTMEM`'s counters over the
+  fills alone, with `CACHE_TRACE_ENA` set: accesses and misses of the
+  data bus to the flash, misses of the instruction bus (its count of
+  accesses stops at 2^32). The ROM gives the line as 32 bytes. Line
+  output, each clip through, about 104 s:
+
+  | clip | filling | data accesses | data misses | code misses |
+  | --- | --- | --- | --- | --- |
+  | chip Morning, 8 bits | 72 252 ms | 220.2 M | 35 742 | 121 114 |
+  | chip Morning, 16 bits | 84 201 | 434.0 M | 35 431 | 105 365 |
+  | chip Morning, predicted | 74 076 | 77.7 M | 50 933 | 184 469 |
+  | Morning, 8 bits | 74 922 | 220.0 M | 1 216 493 | 439 662 |
+  | Morning, predicted | 74 097 | 63.9 M | 1 397 580 | 628 522 |
+
+  A line is filled on a miss and not on a read, and the misses are
+  few: one read in 6000 for the chip Morning, one in 180 for Morning
+  at 8 bits. The 16-bit read misses no more than the 8-bit one; it
+  is 214 M more reads, as many again as the samples' at 8 bits
+  (two a channel a mixed sample, some sixteen channels sounding), and
+  12 s more: 56 ns, nine cycles, a read with its check and its shift.
+  What the misses cost, from the two Mornings at 8 bits, the same
+  count of reads: 1.5 M more misses, code and data, and 2.7 s more,
+  under 2 us a miss if nothing else differs, so some 3 s of Morning's
+  75. The code misses too, the more the larger the samples: it is in
+  the flash and shares the 16 KB with them. The trial is not in the
+  tree; the clock is back on `d982662` with the speaker's pack.
+- The accessors, 2026-11-23 (the user: "Твои функции аксессоры
+  по-сути и есть bottleneck, надо решать где-то там"). What was
+  tried, on the bare bench board (`another-bench`, `/dev/ttyACM0`,
+  no speaker; test-clock was unplugged), and what is kept.
+  - Does the chip load unaligned (the user: "если данные не
+    выровнены - проверяем работает ли без выравнивания")? `lhu` and
+    `lw` in inline assembly against the bytes: every offset of 96
+    bytes of RAM, of the flash's read-only data and of a clip, and
+    the 32 bytes round an MMU page's edge, cache lines' edges among
+    them: no load wrong, no exception. Over an empty loop's 50 ns:
+    `lh` 6 to 12 ns at an even address, 12 to 15 at an odd one, two
+    `lbu` and the shift 37 to 43; `lw` 6 aligned, 25 at an odd
+    address. The clips of the pack that board had were at odd
+    addresses.
+  - With the compiler told so (`-Ctarget-feature=+unaligned-scalar-mem`,
+    in one word, since riscv-rt's build script gives up on a
+    `target-feature=` it takes for an ISA extension), a sample read
+    from the channel's own bytes with `i16::from_le_bytes`, no
+    `unsafe`: the chip Morning 65 to 66 % at 8 bits and at 16, at an
+    even address and at an odd one, from 70 and 82 %. Not kept: the
+    feature is unstable and the compiler warns it will be a hard
+    error (rust-lang/rust#162235, a tracking issue: once
+    `-Zllvm-target-feature` and build-std are stable; rustc knows
+    the feature since #110884, nobody has asked for it to be stable
+    in #150257, read 2026-11-23), and the predicted clips were no
+    cheaper for it (the speaker's pack with the flag: Morning 72 %,
+    Mountain King 53, "Starlight & Aurora" 66, "Suspended Seconds"
+    46).
+  - The two samples the mixer goes between with one load, tried
+    with the flag (the user: "читай парами где надо"): 32 bits for a
+    16-bit sample's two, 16 for an 8-bit one's. The four clips
+    68 007, 67 371, 67 735 and 68 000 ms against 68 175, 67 554,
+    68 226 and 68 176: half a second of 104 at most, under what two
+    builds differ by. Not kept. The loads are a few cycles of a
+    channel's hundred or so a mixed sample; what is left is the
+    channel's state read and written each sample, the loop's and
+    the end's tests, the ramp and the multiplies.
+  - Kept (the user: align the samples and do without the feature,
+    with no way round by bytes, 16-bit clips not being out yet). A
+    channel keeps its sample, `held` for 8 bits and `words` for 16,
+    and the mixer reads from that: one bounds check, against the
+    sample's own end. `words` is `&[i16]` by `align_to`, the one
+    `unsafe` of `core/`, its proof beside it; at an odd address it
+    is empty and the sample silence. The converter puts a 16-bit
+    sample at an even offset in its clip, the pack maker a clip with
+    one at an even offset in the pack (a byte of 0 before it; the
+    pack's version and layout are what they were, and a firmware of
+    v0.5 reads the offset as it does any), `core/build.rs` aligns the
+    clips built in, and `Pack::parse` skips a clip `xm::is_misplaced`
+    names, as it does one of a version it does not play. A clip cut
+    inside a 16-bit sample plays that half sample as 0, where it was
+    its low byte.
+  - Host: a tune of each width from an even address and an odd one
+    (the 16 bits' silent at the odd one, the 8 bits' the same), one
+    cut inside its last sample, a pack with the module after a clip
+    of an odd length and the same with the module moved a byte; the
+    196 tests of `core/`, with the clips built in as well, the pack
+    maker's, both crates' clippy and the firmware's. The player's
+    output before and after (`CLIP_PCM_DUMP`, `5ab7212` in a
+    worktree) for the six module clips of `clips/`, the speaker's
+    seven and the chip Morning at 8 and at 16 bits: the same, byte
+    for byte, all fifteen. Both default packs come out byte for byte
+    as they were: their 16-bit clip was at an even offset already.
+    The main stack is 37 120 bytes, 320 less: the two slices.
+  - On `another-bench`, each clip through, no underruns and no stray
+    positions in any, heap 54 080, the watchdog's longest feed gap
+    1262 ms. The chip Morning from one module, line output:
+
+    | clip, its offset in the pack | `5ab7212` | kept |
+    | --- | --- | --- |
+    | 8 bits, even | 72 986 of 104 045 ms, 70 % | 67 692, 65 % |
+    | 8 bits, odd | | 67 679, 65 % |
+    | 16 bits, even | 85 017, 82 % | 66 400, 64 % |
+    | 16 bits, odd | 85 035, 82 % | skipped: "4 clips … 1 more that this firmware does not play" |
+
+    The default packs, as made by the new pack maker:
+
+    | clip | speaker's pack, line | buzzer's pack, buzzer | share |
+    | --- | --- | --- | --- |
+    | Halftime | 10 597 of 43 567 ms | 10 596 of 43 565 | 24 % |
+    | Keygen | 13 525 of 57 645 | 13 539 of 57 644 | 23 % |
+    | Morning Mood | 75 418 of 104 043 | 75 465 of 104 043 | 72 % |
+    | Morning Mood Chip | 66 417 of 104 040 | 66 432 of 104 042 | 64 % |
+    | Mountain King | 74 763 of 139 595 | 74 735 of 139 597 | 54 % |
+    | Suspended Seconds | 22 270 of 48 039 | 22 244 of 48 038 | 46 % |
+    | Starlight & Aurora | 73 616 of 111 042 | | 66 % |
+    | Synchronization, cut short | 29 482 of 120 000 | | 25 % |
+
+    Morning Mood, predicted, is the dearest clip now. This board has
+    no figure of `5ab7212` for any but the chip Morning.
+  - Owed: a clip heard (the board has no speaker and no buzzer), and
+    the same on a clock with a panel.
+- test-clock is dearer than the bare board for the same tune at 8
+  bits (Morning 73 % against 66 %, the chip 70 against 64, Mountain
+  King 53 against 48, 2026-11-19), a panel and its tasks being there.
+- The board was left with the speaker's pack, as found, `output` on
+  the buzzer and the melody Morning Mood, as found (the melody put back by
+  hand: a pack without the chosen clip, as the A/B packs were, leaves
+  it on the beeps), and on the firmware as found, built again from
+  `d982662` and sent over the air after the trial: it is in `ota_0`.
+
 ## Checks still owed
 
-- 16 bits predicted, on a clock (2026-11-22, on `next`, above): both
-  default packs, the `clip:` line's time filling and its underruns
-  for "Starlight & Aurora" (80 of 111 s at 16 bits on test-clock) and
-  "Suspended Seconds", a sound file made with the defaults, and the
-  user's ear against the 16 bits and against what there was.
-- "Suspended Seconds" (2026-11-19, in `HISTORY.md`): the processor's
-  share while it plays, from a clock's serial log.
+- 16 bits predicted, on a clock (2026-11-22, on `next`, above; both
+  default packs timed and heard on test-clock that day): a sound file
+  made with the defaults.
+- The module player's samples read from the channel's own slices,
+  16 bits as `&[i16]` (2026-11-23, above; built and timed on the
+  bare bench board): a clip heard, and the figures on a clock with a
+  panel.
 
 - The pack maker (2026-11-19): the release workflow's three builds of
   the command (Linux, Windows, macOS) and the deploy of `docs/pack/`

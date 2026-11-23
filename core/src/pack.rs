@@ -208,7 +208,11 @@ impl<'a> Pack<'a> {
         // (`melody::BUILT_IN`).
         for k in 0..count {
             let clip = pack.entry(k).ok_or(PackError::Entry(k))?.data;
-            if crate::clip::is_unsupported(clip) {
+            // And so is a module with a sample of 16 bits at an odd
+            // address, which the player does not read: the partition
+            // is mapped at an even one, so the offsets say.
+            let at = u32_at(&data[HEADER_LEN + k * ENTRY_LEN..], 0);
+            if crate::clip::is_unsupported(clip) || crate::xm::is_misplaced(clip, at) {
                 continue;
             }
             if crate::clip::duration_ms(clip) < CLIP_MIN_MS {

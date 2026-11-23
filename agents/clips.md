@@ -95,7 +95,11 @@ has must come out the same.
 - A module's 16-bit samples are kept predicted (`XMC4`: 8 bits a
   sample and a sixteenth more, behind a table of predictors fitted
   to each sample; `xmc::predicted`), the default since 2026-11-22.
-  `samples=16` keeps them as they are (`XMC3`, twice the bytes) and
+  `samples=16` keeps them as they are (`XMC3`, twice the bytes, each
+  sample at an even offset in the clip and the clip at an even
+  offset in a pack, a byte of 0 before either where it takes one: the
+  clock reads them as 16-bit words; a sample too short to repay its
+  predictors is kept so in an `XMC3` clip whatever was asked) and
   `samples=8` cuts them to 8, rounded, which is the clip there always
   was (`XMC2`). The two tunes made here, their mix before the
   limiter against the mix of the 16 bits: 67 and 69 dB predicted, 44

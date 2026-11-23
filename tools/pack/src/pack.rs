@@ -30,9 +30,17 @@ pub fn check_names(file: &str, name: &str, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Where a clip that would start at `at` does: at the next even
+/// offset, if it is a module with samples of 16 bits, which the clock
+/// reads two bytes at a load and only from an even address
+/// (`xm::is_misplaced`). The byte between is 0.
+fn placed(clip: &Clip, at: usize) -> usize {
+    at + onebitdawn_core::xm::is_misplaced(&clip.data, at) as usize
+}
+
 /// The pack's length with these clips in it.
 pub fn total(clips: &[Clip]) -> usize {
-    HEADER_LEN + clips.len() * ENTRY_LEN + clips.iter().map(|c| c.data.len()).sum::<usize>() + HASH_LEN
+    clips.iter().fold(HEADER_LEN + clips.len() * ENTRY_LEN, |at, c| placed(c, at) + c.data.len()) + HASH_LEN
 }
 
 /// A pack of these clips, in this order.
@@ -58,6 +66,7 @@ pub fn build(clips: &[Clip]) -> Result<Vec<u8>, String> {
     out.extend_from_slice(&(total as u32).to_le_bytes());
     let mut at = HEADER_LEN + clips.len() * ENTRY_LEN;
     for clip in clips {
+        at = placed(clip, at);
         out.extend_from_slice(&(at as u32).to_le_bytes());
         out.extend_from_slice(&(clip.data.len() as u32).to_le_bytes());
         out.extend_from_slice(&[clip.loops as u8, 0, 0, 0]);
@@ -73,6 +82,7 @@ pub fn build(clips: &[Clip]) -> Result<Vec<u8>, String> {
         at += clip.data.len();
     }
     for clip in clips {
+        out.resize(placed(clip, out.len()), 0);
         out.extend_from_slice(&clip.data);
     }
     let hash = Sha256::digest(&out);
@@ -103,6 +113,42 @@ mod tests {
         assert!(two.name == "two" && two.label == "TWO" && two.loops && two.data.len() == 16008);
         assert!(!pack.clip(0).unwrap().loops);
         assert_eq!(made.len(), total(&[clip("one", false), clip("two", true)]));
+    }
+
+    #[test]
+    fn a_module_with_samples_of_16_bits_starts_at_an_even_offset() {
+        // The chip Morning keeps its waves at 16 bits; before it a
+        // clip of an odd length, and one of 8-bit samples after.
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../clips/");
+        let module = |file: &str, name: &str| Clip { data: std::fs::read(format!("{dir}{file}")).unwrap(), ..clip(name, true) };
+        let (wide, narrow) = (module("morning_mood_chip.xmc", "wide"), module("keygen.xmc", "narrow"));
+        assert_eq!((&wide.data[..4], &narrow.data[..4]), (&b"XMC3"[..], &b"XMC2"[..]));
+        let mut odd = clip("odd", false);
+        odd.data.push(128);
+        let clips = [odd, wide, narrow];
+        let made = build(&clips).unwrap();
+        assert_eq!(made.len(), total(&clips));
+        let pack = Pack::parse(&made).unwrap();
+        assert_eq!((pack.count(), pack.skipped()), (3, 0));
+        let at = |k: usize| pack.clip(k).unwrap().data.as_ptr() as usize - made.as_ptr() as usize;
+        let table = HEADER_LEN + 3 * ENTRY_LEN;
+        // One byte of nothing before the first module, none before
+        // the second, which has no use for an even offset.
+        assert_eq!(at(1), table + clips[0].data.len() + 1);
+        assert_eq!((at(1) % 2, made[at(1) - 1]), (0, 0));
+        assert_eq!(at(2), at(1) + clips[1].data.len());
+        assert_eq!(made.len(), at(2) + clips[2].data.len() + HASH_LEN);
+        // The same pack with that byte after the module and not before
+        // it, as another maker might write it: the clock skips the
+        // module, whose samples it would not read, and keeps the rest.
+        let mut moved = made[..made.len() - HASH_LEN].to_vec();
+        moved.copy_within(at(1)..at(2), at(1) - 1);
+        let entry = HEADER_LEN + ENTRY_LEN;
+        moved[entry..entry + 4].copy_from_slice(&((at(1) - 1) as u32).to_le_bytes());
+        let hash = Sha256::digest(&moved);
+        moved.extend_from_slice(&hash);
+        let pack = Pack::parse(&moved).unwrap();
+        assert_eq!((pack.count(), pack.skipped()), (2, 1));
     }
 
     #[test]

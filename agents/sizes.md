@@ -99,6 +99,7 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-18 | 39.9 → 39.3 KB | `xm::MAX_CHANNELS` from 8 to 16, 640 bytes of the clip task's future (both figures with the line output's setting in the tree) |
 | 2026-11-18 | 39.3 → 39.0 KB | `xm::MAX_CHANNELS` from 16 to 20, 304 bytes (40 264 → 39 960) |
 | 2026-11-22 | 38.3 → 36.6 KB | on `next`: a channel's two decoded blocks of a predicted sample, 84 bytes each of twenty, 1680 bytes (39 208 → 37 528, against `next`'s HEAD in a worktree) |
+| 2026-11-23 | 36.6 → 36.3 KB | on `next`: a channel's `held` and `words`, the slices of its sample, 16 bytes of twenty (37 440 → 37 120) |
 
 What takes it:
 

@@ -359,3 +359,45 @@ one blocking operation at a time, never across an await. A second
 chip-ID command over SPI1, and after the first handle has used the
 flash that read comes back 0, so every operation on the second handle
 fails its bounds check (measured 2026-10-22).
+
+## Unaligned loads
+
+The ESP32-C3 loads 16 and 32 bits from an address that is not a
+multiple of their size: RISC-V leaves it to the core, Espressif's
+documents do not say, and it was tried (2026-11-23, the bare bench
+board, `lhu` and `lw` in inline assembly against the bytes): every
+offset of 96 bytes of RAM, of the flash's read-only data and of a
+clip, and the 32 bytes round an MMU page's edge, cache lines' edges
+among them, with no load wrong and no exception. Over an empty
+loop's 50 ns a load, `lh` is 6 to 12 ns at an even address and 12 to
+15 at an odd one, where two `lbu` and the shift are 37 to 43; `lw`
+is 6 ns aligned and 25 at an odd address.
+
+The firmware is not built to use it. That takes the target feature
+`unaligned-scalar-mem`, with which `from_le_bytes` of two bytes of a
+slice is one load at any address: tried the same day, a module's
+16-bit samples read so were as cheap as now, and the whole firmware
+11 KB smaller. But the feature is unstable, the compiler warns that
+it will be a hard error one day (rust-lang/rust#162235: once
+`-Zllvm-target-feature` and build-std are stable; rustc knows the
+feature since #110884, its stabilisation is #150257's and nobody has
+asked there), and riscv-rt's build script gives up on it unless the
+flag is written in one word (`-Ctarget-feature=+…`;
+riscv-target-parser 0.1.3). So a module's 16-bit samples are kept at
+even addresses instead and read as `i16` (`agents/modules.md`,
+`xm.rs`), and everything else is read a byte at a time as before.
+
+## The flash's cache
+
+What is mapped through the flash's MMU, the clips' partition as well
+as the code and the read-only data, is read through one cache in
+internal SRAM: 16 KB, eight ways, lines of 32 bytes (the ROM's
+`Cache_Get_ICache_Line_Size`), filled from the flash on a miss and
+not on a read. `EXTMEM` counts the accesses and the misses of each
+bus once `CACHE_TRACE_ENA` is set (the instruction bus's count of
+accesses stops at 2^32). Counted over a module's fills on test-clock,
+2026-11-23: the chip Morning, 896 bytes of samples, misses one read
+in 6000; Morning, 150 KB of them, one in 180, and its code three
+times as often as the chip Morning's, the two sharing the cache. A
+miss is under 2 µs, so some 3 s of Morning's 75: the cost of a module
+is its instructions, not the flash.

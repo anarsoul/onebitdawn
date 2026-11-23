@@ -373,6 +373,7 @@ const BUILT_IN: &[Melody] = &{
         assert!(!crate::clip::is_old_beeper(CLIP_DATA[k]), "ALARM_CLIP: a beeper clip of the first format (BPR1); convert it again with scripts/zxbeeper.py");
         assert!(!crate::xm::is_old_tune(CLIP_DATA[k]), "ALARM_CLIP: a module of the first layout (XMC1); convert it again with onebitdawn-pack");
         assert!(!crate::clip::is_unsupported(CLIP_DATA[k]), "ALARM_CLIP: a clip of a version this firmware does not play, or with its header cut short; convert it again, or update the firmware");
+        assert!(!crate::xm::is_misplaced(CLIP_DATA[k], 0), "ALARM_CLIP: a module with a sample of 16 bits at an odd offset; convert it again with onebitdawn-pack");
         let mut j = 0;
         while j < TUNES.len() + k {
             assert!(!same(all[j].name, name) && !same(name, RANDOM_NAME), "ALARM_CLIP: two melodies with one name; rename the file");

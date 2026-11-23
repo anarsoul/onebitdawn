@@ -520,6 +520,11 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         body.extend(packed);
     }
     for i in &instruments {
+        // A sample of 16 bits at an even offset: the clock reads two
+        // bytes at a load, from an even address (`xm::is_misplaced`).
+        if !i.sample.is_empty() && i.kept == Samples::Wide && !(tables + body.len()).is_multiple_of(2) {
+            body.push(0);
+        }
         for n in [tables + body.len(), i.sample.len(), i.looped.0, i.looped.1] {
             out.extend(u32::try_from(n).map_err(|_| "a sample's loop is past what a clip can say")?.to_le_bytes());
         }

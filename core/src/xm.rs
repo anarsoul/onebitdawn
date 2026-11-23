@@ -20,7 +20,8 @@
 //! sample an instrument. A module that keeps samples of 16 bits is
 //! `WIDE_MAGIC`: the same layout, with an instrument's entry saying
 //! which of them are, and a firmware from before it refuses the clip
-//! and does not play their bytes as 8-bit ones. One that keeps a
+//! and does not play their bytes as 8-bit ones; each such sample is at
+//! an even offset, and the clip at an even one of its pack (`words`). One that keeps a
 //! 16-bit sample in 8 bits a sample, as what is left of each after
 //! the samples before it have predicted it (`adpcm::decode_block`,
 //! with a table of predictors fitted to the sample), is
@@ -201,11 +202,84 @@ enum Kind {
     Packed,
 }
 
-/// Sample `pos` of the samples at `data`, at 16 bits: one of 8 bits
-/// is its byte times 256. Not for a predicted one.
+/// The bytes of a sample that is not predicted: `len` samples from
+/// `at` in the clip, a byte each or two (`Kind::Wide`), or as many of
+/// them as the clip has. The mixer reads a sample from its own bytes
+/// and not from the clip: one bounds check, against the sample's own
+/// end, so a sample past it is 0 with nothing more to ask.
+fn held(d: &[u8], at: usize, len: usize, kind: Kind) -> &[u8] {
+    let bytes = match kind {
+        Kind::Narrow => len,
+        Kind::Wide => len.saturating_mul(2),
+        Kind::Packed => 0,
+    };
+    let rest = d.get(at..).unwrap_or(&[]);
+    &rest[..rest.len().min(bytes)]
+}
+
+/// A sample of 16 bits as the `i16`s it is, in the clip's byte order
+/// (`i16::from_le` reads one): what `held` gives, for the mixer to
+/// read a sample with one load of 16 bits and not two of a byte, which
+/// on twenty channels was twelve points of the processor.
+///
+/// Empty, so the sample is silence, if it does not start on an even
+/// address. The pack maker puts a clip that has such samples at an
+/// even offset in the pack and the converter each of them at an even
+/// one in the clip (`is_misplaced`, which a pack is checked with);
+/// the partition is mapped at an even address and a clip built into
+/// the firmware is aligned (`core/build.rs`). Half a sample at the
+/// end, where a clip was cut, is no sample.
+fn words(bytes: &[u8]) -> &[i16] {
+    // SAFETY: `align_to` asks only that the middle slice's type may be
+    // made of the bytes of the first's, as with a transmute. `i16` is
+    // two bytes with no padding and no value that is not one, so any
+    // two bytes of a `[u8]` are an `i16`; neither type has anything to
+    // drop or a cell in it, and the borrow is shared going in and
+    // coming out, for the same lifetime. That the middle starts at an
+    // address `i16` may be read from and lies within `bytes` is
+    // `align_to`'s own doing, not this call's. How it splits the bytes
+    // is not relied on for more than that: bytes left before the
+    // middle mean the sample is at an odd address, and it is then not
+    // played at all.
+    let (before, words, _) = unsafe { bytes.align_to::<i16>() };
+    if before.is_empty() { words } else { &[] }
+}
+
+/// Whether a clip with the pack's offset `at` (0 for one that is
+/// aligned by itself) has a 16-bit sample at an odd address, which
+/// `words` does not play. A pack skips the clip: it is not this
+/// project's converter's.
+pub const fn is_misplaced(data: &[u8], at: usize) -> bool {
+    const fn get(d: &[u8], at: usize) -> usize {
+        if at < d.len() { d[at] as usize } else { 0 }
+    }
+    if !is_tune(data) {
+        return false;
+    }
+    let instruments = HEADER + get(data, 7) + PATTERN_ENTRY * get(data, 8);
+    let mut i = 0;
+    while i < get(data, 9) {
+        let entry = instruments + INSTRUMENT_ENTRY * i;
+        // The sample's flags (`Instrument::kind`) and its offset's low byte.
+        if get(data, entry + 29) & 3 == 1 && !(at + get(data, entry)).is_multiple_of(2) {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Sample `pos` of a sample of 8 bits (`held`), at 16: its byte times
+/// 256. 0 past its end.
 #[inline(always)]
-fn sample_at(d: &[u8], data: usize, kind: Kind, pos: u32) -> i32 {
-    if kind == Kind::Wide { word(d, data + 2 * pos as usize) as i16 as i32 } else { (byte(d, data + pos as usize) as i8 as i32) << 8 }
+fn narrow_at(held: &[u8], pos: u32) -> i32 {
+    held.get(pos as usize).map_or(0, |&s| (s as i8 as i32) << 8)
+}
+
+/// Sample `pos` of a sample of 16 bits (`words`). 0 past its end.
+#[inline(always)]
+fn wide_at(words: &[i16], pos: u32) -> i32 {
+    words.get(pos as usize).map_or(0, |&s| i16::from_le(s) as i32)
 }
 
 /// No block of a channel's is decoded.
@@ -213,7 +287,7 @@ const NO_BLOCK: u32 = u32::MAX - 2;
 
 /// Block `b` of the channel's predicted sample into a half of its
 /// buffer, after the block before it; silence past the sample's end.
-fn fill(d: &[u8], ch: &mut Channel, b: u32, half: usize) {
+fn fill(d: &[u8], ch: &mut Channel<'_>, b: u32, half: usize) {
     let out: &mut [i16; BLOCK] = if half == 0 { ch.blocks.first_chunk_mut().unwrap() } else { ch.blocks.last_chunk_mut().unwrap() };
     let first = b as usize * BLOCK;
     #[cfg(test)]
@@ -241,7 +315,7 @@ fn fill(d: &[u8], ch: &mut Channel, b: u32, half: usize) {
 /// no seek points hit far in is decoded from its start: the converter
 /// gives seek points to those a module does that to.
 #[inline(never)]
-fn refill(d: &[u8], ch: &mut Channel, block: u32) {
+fn refill(d: &[u8], ch: &mut Channel<'_>, block: u32) {
     if block == ch.block.wrapping_add(1) {
         ch.blocks.copy_within(BLOCK.., 0);
     } else {
@@ -385,7 +459,7 @@ impl Cell {
 }
 
 #[derive(Clone, Copy, Default)]
-struct Channel {
+struct Channel<'a> {
     cell: Cell,
     /// The instrument last named, from 1; 0 for none yet.
     instrument: u8,
@@ -395,6 +469,10 @@ struct Channel {
     loop_start: u32,
     loop_len: u32,
     kind: Kind,
+    /// Its bytes, if its samples are a byte each (`held`), and its
+    /// samples, if they are 16 bits (`words`); empty otherwise.
+    held: &'a [u8],
+    words: &'a [i16],
     /// Of a predicted sample: two blocks as decoded, the one `pos` is
     /// in and the next, which block the first is (`NO_BLOCK` for
     /// none), the three samples before the next to be decoded, the
@@ -482,7 +560,7 @@ pub struct Tune<'a> {
     /// What the notes cut short were adding to the mix when they were
     /// cut, on its way to nothing (`sounding_now`).
     cut: i32,
-    channel: [Channel; MAX_CHANNELS],
+    channel: [Channel<'a>; MAX_CHANNELS],
     /// The high-pass and the limiter the mix ends in.
     shaper: Shaper,
     /// Mixed samples an output sample: 4 at `PCM_HZ`, 2 at twice it.
@@ -697,6 +775,8 @@ impl<'a> Tune<'a> {
                 ch.fresh = true;
                 (ch.data, ch.len, ch.loop_start, ch.loop_len) = i.sample();
                 ch.kind = i.kind();
+                let bytes = held(self.d, ch.data as usize, ch.len as usize, ch.kind);
+                (ch.held, ch.words) = if ch.kind == Kind::Wide { (&[][..], words(bytes)) } else { (bytes, &[][..]) };
                 ch.block = NO_BLOCK;
                 ch.seeks = i.seeks();
                 ch.loop_first = word(self.d, ch.data as usize + 6) as i16 as i32;
@@ -737,12 +817,12 @@ impl<'a> Tune<'a> {
             }
             ch.blocks[ch.pos as usize % BLOCK] as i32
         } else {
-            sample_at(self.d, ch.data as usize, ch.kind, ch.pos)
+            if ch.kind == Kind::Wide { wide_at(ch.words, ch.pos) } else { narrow_at(ch.held, ch.pos) }
         };
         (sample * (ch.gain >> 8)) >> 12
     }
 
-    fn key_off(ch: &mut Channel, instrument: Option<Instrument>) {
+    fn key_off(ch: &mut Channel<'_>, instrument: Option<Instrument>) {
         ch.key_on = false;
         // With no envelope there is nothing to fade along: silence.
         if instrument.is_none_or(|i| i.envelope_flags() & 1 == 0) {
@@ -870,12 +950,12 @@ impl<'a> Tune<'a> {
         }
     }
 
-    fn volume_slide(ch: &mut Channel) {
+    fn volume_slide(ch: &mut Channel<'_>) {
         let (up, down) = (ch.slide >> 4, ch.slide & 0xF);
         ch.volume = if up != 0 { (ch.volume + up).min(64) } else { ch.volume.saturating_sub(down) };
     }
 
-    fn tone_portamento(ch: &mut Channel) {
+    fn tone_portamento(ch: &mut Channel<'_>) {
         let speed = ch.tone_speed as i32 * 4;
         ch.period = if ch.period < ch.target { (ch.period + speed).min(ch.target) } else { (ch.period - speed).max(ch.target) };
     }
@@ -883,7 +963,7 @@ impl<'a> Tune<'a> {
     /// A sine of at most `depth * 255 / 32` period units either way,
     /// down in pitch first, as FastTracker's goes (the instrument's
     /// own goes up first).
-    fn vibrato(ch: &mut Channel) {
+    fn vibrato(ch: &mut Channel<'_>) {
         let wave = (SINE[(ch.vibrato_pos >> 2 & 31) as usize] as i32 * ch.vibrato_depth as i32) >> 5;
         ch.vibrato = if ch.vibrato_pos & 0x80 == 0 { wave } else { -wave };
         ch.vibrato_pos = ch.vibrato_pos.wrapping_add(ch.vibrato_speed << 2);
@@ -891,7 +971,7 @@ impl<'a> Tune<'a> {
 
     /// The level of the instrument's envelope at the channel's frame,
     /// 0 to 64, and the frame moved on.
-    fn envelope(ch: &mut Channel, instrument: Instrument) -> u32 {
+    fn envelope(ch: &mut Channel<'_>, instrument: Instrument) -> u32 {
         let flags = instrument.envelope_flags();
         let points = instrument.points();
         if flags & 1 == 0 || points == 0 {
@@ -984,12 +1064,11 @@ impl<'a> Tune<'a> {
                 let b = if ch.loop_len != 0 && ch.pos + 1 >= ch.loop_start + ch.loop_len { ch.loop_first } else { ch.blocks[i + 1] as i32 };
                 (ch.blocks[i] as i32, b)
             } else {
-                let at = |pos: u32| sample_at(self.d, ch.data as usize, ch.kind, pos);
                 let mut after = ch.pos + 1;
                 if ch.loop_len != 0 && after >= ch.loop_start + ch.loop_len {
                     after -= ch.loop_len;
                 }
-                (at(ch.pos), if after < ch.len { at(after) } else { 0 })
+                if ch.kind == Kind::Wide { (wide_at(ch.words, ch.pos), wide_at(ch.words, after)) } else { (narrow_at(ch.held, ch.pos), narrow_at(ch.held, after)) }
             };
             let sample = a + (((b - a) * (ch.frac >> 8) as i32) >> 8);
             if ch.ramp != 0 {
@@ -1143,6 +1222,11 @@ mod tests {
             }
         }
         for i in instruments {
+            // A sample of 16 bits at an even offset, as the converter
+            // puts one.
+            if !i.wide.is_empty() && !i.packed && !(tables + body.len()).is_multiple_of(2) {
+                body.push(0);
+            }
             d.extend(((tables + body.len()) as u32).to_le_bytes());
             d.extend((if i.wide.is_empty() { i.sample.len() } else { i.wide.len() } as u32).to_le_bytes());
             d.extend(i.loop_start.to_le_bytes());
@@ -1551,6 +1635,73 @@ mod tests {
         assert!(between > n / 2, "{between} of {n}");
     }
 
+    /// `clip` at an address that is even, or odd: a copy with room
+    /// for either, and where in it the clip is.
+    fn placed(clip: &[u8], odd: bool) -> (Vec<u8>, usize) {
+        let mut room = vec![0u8; clip.len() + 1];
+        let shift = !(room.as_ptr() as usize).is_multiple_of(2) as usize ^ odd as usize;
+        room[shift..shift + clip.len()].copy_from_slice(clip);
+        (room, shift)
+    }
+
+    #[test]
+    fn a_sample_of_16_bits_is_played_from_an_even_address_alone() {
+        // A wave with something in every low byte, a loop off its
+        // first sample, a second note 256 samples in and one that
+        // runs off its sample's end; and the same at 8 bits.
+        let wave: Vec<i16> = (0..600).map(|i| (30000.0 * (i as f64 * 0.21).sin()) as i16 | 1).collect();
+        let cells = [(0, (C4, 1, 0, 0, 0)), (3, (C4 + 7, 1, 0x30, 9, 1)), (5, (C4 + 12, 2, 0, 0, 0))];
+        let clip = |wide: bool| {
+            let sample = if wide { vec![] } else { wave.iter().map(|&s| (s >> 8) as i8).collect() };
+            let looped = Ins { sample, wide: if wide { wave.clone() } else { vec![] }, loop_start: 100, loop_len: 500, ..square(32) };
+            let once = Ins { loop_len: 0, ..looped.clone() };
+            module(1, 6, 125, &[0], &[pattern(8, &cells)], &[looped, once])
+        };
+        let at = |clip: &[u8], odd: bool| {
+            let (room, shift) = placed(clip, odd);
+            let d = &room[shift..shift + clip.len()];
+            assert_eq!(!(d.as_ptr() as usize).is_multiple_of(2), odd);
+            mixed(d)
+        };
+        for wide in [true, false] {
+            let clip = clip(wide);
+            let even = at(&clip, false);
+            assert!(even.iter().any(|&s| s != 0));
+            // At an odd address a sample of 16 bits is not read at
+            // all, and is silence for as long; one of 8 bits is the
+            // same anywhere.
+            let odd = at(&clip, true);
+            assert_eq!(odd.len(), even.len());
+            assert_eq!(odd == even, !wide);
+            assert_eq!(odd.iter().all(|&s| s == 0), wide);
+            // The converter's clip is not misplaced, by itself or at
+            // an even offset of a pack; at an odd one it is, if it has
+            // such a sample.
+            assert!(!is_misplaced(&clip, 0) && !is_misplaced(&clip, 1000));
+            assert_eq!(is_misplaced(&clip, 1001), wide);
+            // A clip that ends inside its last sample plays what it
+            // has of it and nothing after: the same clip with that
+            // sample's end silent.
+            let cut = 150 * if wide { 2 } else { 1 };
+            let mut silent = clip.clone();
+            let end = silent.len();
+            silent[end - cut..].fill(0);
+            assert!(at(&clip[..end - cut], false) == at(&silent, false) && at(&silent, false) != even);
+            // Half a sample is no sample.
+            if wide {
+                silent[end - cut - 1] = 0;
+                silent[end - cut - 2] = 0;
+                assert!(at(&clip[..end - cut - 1], false) == at(&silent, false));
+            }
+        }
+        // And a sample the clip itself has at an odd offset.
+        let mut moved = clip(true);
+        let entry = HEADER + 1 + PATTERN_ENTRY;
+        let was = u32::from_le_bytes(moved[entry..entry + 4].try_into().unwrap());
+        moved[entry..entry + 4].copy_from_slice(&(was + 1).to_le_bytes());
+        assert!(is_misplaced(&moved, 0) && is_misplaced(&moved, 1) && !is_misplaced(&clip(true), 0));
+    }
+
     #[test]
     fn a_sample_of_16_bits_is_played_as_one() {
         // The same wave both ways, the wide one its bytes times 256:
@@ -1565,7 +1716,8 @@ mod tests {
         let (a, b) = (play(&narrow), play(&wide));
         assert_eq!((&a[..4], &b[..4]), (&MAGIC[..], &WIDE_MAGIC[..]));
         assert!(is_tune(&b) && !crate::clip::is_unsupported(&b));
-        assert_eq!(b.len(), a.len() + wave.len());
+        // A byte more a sample, and one to put them at an even offset.
+        assert_eq!(b.len(), a.len() + wave.len() + a.len() % 2);
         let (ma, mb) = (mixed(&a), mixed(&b));
         assert_eq!(ma.len(), mb.len());
         if let Some(i) = (0..ma.len()).find(|&i| ma[i] != mb[i]) {
@@ -1637,7 +1789,9 @@ mod tests {
                 assert_eq!((&a[..4], &b[..4]), (&WIDE_MAGIC[..], &PACKED_MAGIC[..]));
                 assert!(is_tune(&b) && !crate::clip::is_unsupported(&b));
                 let points = if seeks { seek_points(len) * SEEK_BYTES } else { 0 };
-                assert_eq!(b.len(), a.len() - 2 * len + PACKED_HEAD + points + len.div_ceil(BLOCK) * BLOCK_BYTES);
+                // The 16 bits' clip may have a byte before them, for an even offset.
+                let packed = PACKED_HEAD + points + len.div_ceil(BLOCK) * BLOCK_BYTES;
+                assert!(a.len() - 2 * len - (b.len() - packed) <= 1);
                 let mb = mixed(&b);
                 assert_eq!(ma.len(), mb.len());
                 if let Some(i) = (0..ma.len()).find(|&i| ma[i] != mb[i]) {

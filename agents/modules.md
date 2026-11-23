@@ -226,8 +226,9 @@ into `OUT_DIR`.
   data, a SHA-256 at the end.
 - `declared_len` from a header; `Pack::parse` with every check
   (`PackError`); `clip(k)`. A clip of a kind there is in a version
-  the players do not read (`clip::is_unsupported`) is skipped, not
-  refused: `Pack` is the clips that play, `count` and `clip` number
+  the players do not read (`clip::is_unsupported`), or a module with
+  a 16-bit sample at an odd offset of the pack (`xm::is_misplaced`),
+  is skipped, not refused: `Pack` is the clips that play, `count` and `clip` number
   those alone, and `skipped` and `skipped_clip` are the rest. A pack
   with none that plays is `PackError::Unplayable`.
 - A clip whose magic is one of the kinds' with a version digit no
@@ -386,6 +387,23 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   all on 2026-11-18).
 - It mixes at 32 kHz and averages to 16 kHz (8 if the clip asks; at
   62.5 kHz to 31.25 for a clip at `clip::FAST_HZ`).
+- A channel keeps its sample and the mixer reads from that, not from
+  the clip: one bounds check a sample, against the sample's own end.
+  For 8 bits it is the sample's bytes (`held`, as many as the clip
+  has); for 16 bits the same as `&[i16]` (`words`, the crate's one
+  `unsafe`: `align_to`, its proof beside it), one load a sample,
+  where two bytes read apart were twelve points of the processor on
+  twenty channels. That needs the sample at an even address: the
+  converter puts a 16-bit sample at an even offset in the clip and
+  the pack maker a clip that has one at an even offset in the pack
+  (a byte of 0 before it), `core/build.rs` aligns the clips built in
+  (`Aligned`), and the partition is mapped at an even address. At an
+  odd address `words` is empty and the sample silence;
+  `is_misplaced` says so of a clip beforehand, and `Pack::parse`
+  skips such a clip as it does one of a version it does not play
+  (`melody`'s assert refuses one built in). The mixer's loop runs
+  62 500 times a second for every sounding channel: a load or a
+  check in it is most of a percent of the processor with twenty.
 - A predicted sample is 16 bits in 8 a sample: 8 bytes for the loop
   (`PACKED_LOOP`), the table of predictors fitted to the sample, then
   `adpcm.rs`'s blocks. It cannot be read from the middle, so a
