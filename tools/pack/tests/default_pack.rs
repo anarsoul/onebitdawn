@@ -194,7 +194,7 @@ fn module_of_16_bits(sample: &[i16], looped: (u32, u32), cells: &[[u8; 5]]) -> V
 }
 
 #[test]
-fn a_16_bit_sample_is_predicted_unless_it_is_played_from_an_offset() {
+fn a_16_bit_sample_is_predicted_and_one_played_from_an_offset_has_seek_points() {
     use onebitdawn_core::adpcm::{BLOCK, BLOCK_BYTES};
     use onebitdawn_core::xm::{PACKED_HEAD, Tune};
     // A struck string of a kind: partials, a fall, a loop off a
@@ -239,11 +239,23 @@ fn a_16_bit_sample_is_predicted_unless_it_is_played_from_an_offset() {
     println!("a struck string against its 16 bits: packed {near:.1} dB, 8 bits {far:.1} dB");
     assert!(near > 45.0 && far < 25.0, "packed {near:.1} dB, 8 bits {far:.1} dB");
     // A 9xx on the instrument, or on a cell that names none: the
-    // sample stays at 16 bits, and the notes say so.
+    // sample is predicted all the same, with its seek points, six
+    // bytes for each 256 samples but the first, and the note that
+    // starts 512 samples in plays as the 16 bits' does.
     for offset in [[49, 1, 0, 9, 2], [49, 0, 0, 9, 2]] {
-        let kept = made(&[note, rest, offset, rest], "samples=packed");
-        assert_eq!(&kept.data[..4], b"XMC3");
-        assert!(kept.notes.iter().any(|n| n.contains("9xx")), "{:?}", kept.notes);
+        let cells = [note, rest, offset, rest];
+        let (sought, as_it_is) = (made(&cells, ""), made(&cells, "samples=16"));
+        assert_eq!((&sought.data[..4], &as_it_is.data[..4]), (&b"XMC4"[..], &b"XMC3"[..]));
+        assert_eq!(sought.data.len(), packed.data.len() + onebitdawn_core::xm::seek_points(wave.len()) * onebitdawn_core::xm::SEEK_BYTES);
+        assert_eq!(sought.notes.len(), 1, "{:?}", sought.notes);
+        let (a, b) = (play(&as_it_is), play(&sought));
+        assert_eq!(a.len(), b.len());
+        let signal: f64 = a.iter().map(|s| s * s).sum();
+        let noise: f64 = a.iter().zip(&b).map(|(a, b)| (a - b) * (a - b)).sum();
+        let db = 10.0 * (signal / noise).log10();
+        // Limiter and all, as above; that the seek points give the
+        // decoder's own samples is the player's test.
+        assert!(db > 40.0, "a note from an offset: {db:.1} dB");
     }
     // A sample too short to pay for its table of predictors is kept
     // at 16 bits, the smaller and exact: 64 samples are 128 bytes so,

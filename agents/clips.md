@@ -100,7 +100,9 @@ has must come out the same.
   was (`XMC2`). The two tunes made here, their mix before the
   limiter against the mix of the 16 bits: 67 and 69 dB predicted, 44
   and 47 at 8 bits (`PLAN.md`). An instrument a module plays with 9xx
-  is kept at 16 bits and not predicted, and the notes say so. The
+  is predicted with seek points, the decoder's state every 256
+  samples (2 % more), so that a note far into it does not decode all
+  that is before it. The
   first two are clips a firmware up to v0.5 refuses with its pack.
   A sample too short for its table to pay for itself (a wave of one
   period: 64 samples are 128 bytes at 16 bits and 166 predicted) is

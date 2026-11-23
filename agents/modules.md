@@ -393,8 +393,12 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   the next (`Channel::blocks`), the mixer reads those, and `refill`
   decodes the next block when the position enters one: the loop's
   wrap from the head's samples, any other move (9xx, a step over a
-  block) forward from the nearest of where it is, the loop's block
-  and the start. The test is
+  block) forward from the nearest of where it is, the loop's block,
+  a seek point and the start. Seek points (`SEEK`, bit 2 of the
+  sample's flags) are the decoder's state every 256 samples, which
+  the converter writes for an instrument a module plays with 9xx: a
+  9FF then costs two blocks and not 4082
+  (`a_note_far_into_a_predicted_sample_starts_from_a_seek_point`). The test is
   `a_predicted_sample_is_played_as_what_it_decodes_to` (against the
   same samples at 16 bits, to the sample); the encoder is
   `xmc::predicted` over `adpcm::predicted` in the pack maker.

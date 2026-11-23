@@ -2681,6 +2681,46 @@ predicting it would not be the smaller (`xmc.rs`), and that clip is
 `XMC3`. The buzzer's pack is 765 228 bytes and the speaker's
 1 001 663 of 1 179 648. Not heard.
 
+**Seek points for 9xx, 2026-11-22.** A review's finding the user
+brought: a 9xx on a predicted sample decodes from the sample's start
+or its loop's block to where the note starts, 9FF being 65 280
+samples, 4080 blocks, before the mixer has one sample: a burst far
+over a chunk's budget. No clip the converter made could do it, an
+instrument played with 9xx being kept at 16 bits; one from elsewhere
+could. Of the local modules only `xm/children.xm` has 9xx, on three
+8-bit samples. The user chose the variant that costs nothing where
+no 9xx is: "Go with the second variant".
+
+- A predicted sample of an instrument the module plays with 9xx has
+  seek points (bit 2 of the sample's flags): after the table, for
+  every 256 samples but the first, the three decoded samples before
+  that block, each an `i16`, the newest first, the state the loop's
+  head keeps for its own block. 6 bytes for 272 of blocks, 2.2 %.
+- `refill` starts from the nearest of where the channel is, the
+  loop's block, the seek point at or under the block asked for, and
+  the sample's start. An offset is a multiple of 256 samples, so a
+  9xx on such a sample decodes the two blocks any start does.
+- The converter predicts such an instrument now, with its seek
+  points, where it kept it at 16 bits: half the bytes. A 9xx on a
+  cell that names no instrument still counts for every instrument.
+- A predicted sample with no seek points that a clip from elsewhere
+  hits with 9xx is decoded from its start, as before: slow, and
+  right.
+
+To check, host: a long predicted sample hit with 9FF, the blocks
+`refill` decodes counted with the seek points and without, and the
+mix against the same samples at 16 bits. On a clock: a module with
+9xx on a 16-bit sample, the `clip:` line's time filling and its
+underruns; there is none here to try.
+
+Built the same day, host only. A sample of 70 000 hit with 9FF: the
+note's first sample decodes 2 blocks with the seek points and 4082
+without, the two-note tune 191 and 8335, and the mix is the 16 bits'
+to the sample both ways. The six tunes of the player's test play the
+same with seek points before the blocks as without. The stack is
+37 440 bytes, 80 less, a channel's count of seek points. No clip in
+the tree changed: none has a 9xx on a 16-bit sample.
+
 ## Checks still owed
 
 - 16 bits predicted, on a clock (2026-11-22, on `next`, above): both

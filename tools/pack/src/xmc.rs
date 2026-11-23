@@ -28,7 +28,7 @@
 use std::collections::BTreeMap;
 
 use onebitdawn_core::adpcm::BLOCK;
-use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, WIDE_MAGIC};
+use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, SEEK, WIDE_MAGIC, seek_points};
 
 use crate::bytes::{Data, text};
 use crate::shape::{rate_flag, section};
@@ -205,8 +205,12 @@ fn effect_name(effect: u8, param: u8) -> String {
 
 /// A 16-bit sample as the player's predicted one (`adpcm::predicted`):
 /// what the loop needs, the table of predictors fitted to the sample,
-/// then its blocks.
-pub fn predicted(sample: &[i16], looped: (usize, usize)) -> Vec<u8> {
+/// then its blocks. With `seeks`, for a sample a 9xx starts a note
+/// far into, its seek points before the blocks: for each `SEEK`
+/// samples but the first, the three samples before that block as the
+/// player decodes them, the newest first, so that such a note has
+/// nothing before it to decode.
+pub fn predicted(sample: &[i16], looped: (usize, usize), seeks: bool) -> Vec<u8> {
     let sound = crate::adpcm::predicted(sample);
     // For the loop: the three samples before the block it starts in,
     // the newest first, and its first sample, as the player decodes
@@ -221,6 +225,11 @@ pub fn predicted(sample: &[i16], looped: (usize, usize)) -> Vec<u8> {
     }
     let mut out: Vec<u8> = head.iter().flat_map(|h| h.to_le_bytes()).collect();
     out.extend(sound.table);
+    if seeks {
+        for k in 1..=seek_points(sample.len()) {
+            out.extend((1..=3).flat_map(|n| sound.decoded[k * SEEK - n].to_le_bytes()));
+        }
+    }
     out.extend(sound.blocks);
     out
 }
@@ -231,8 +240,10 @@ struct Instrument {
     /// written as its high bytes.
     sample: Vec<i16>,
     kept: Samples,
-    /// The sample predicted, if that is how it is kept.
+    /// The sample predicted, if that is how it is kept, and whether
+    /// with seek points: the module plays it from an offset (9xx).
     packed: Vec<u8>,
+    seeks: bool,
     looped: (usize, usize),
     volume: u8,
     finetune: i8,
@@ -319,7 +330,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
 
     // The instruments a 9xx starts off their first sample: a predicted
     // sample would be decoded from its start to get there, so those
-    // are not predicted. A 9xx on a cell that names no instrument is
+    // get seek points. A 9xx on a cell that names no instrument is
     // the channel's last, whichever that was: any of them.
     let mut offset: BTreeMap<usize, usize> = BTreeMap::new();
     for pattern in &cells {
@@ -385,10 +396,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
                 let low = wide.first().map_or(0, |s| s & 0xFF);
                 let narrow = wide.iter().all(|s| s & 0xFF == low);
                 entry.kept = if narrow { Samples::Cut } else { shape.samples };
-                if entry.kept == Samples::Packed && (offset.contains_key(&number) || offset.contains_key(&0)) {
-                    warn(format!("instrument {number}: played from an offset (9xx), kept at 16 bits and not packed"));
-                    entry.kept = Samples::Wide;
-                }
+                entry.seeks = offset.contains_key(&number) || offset.contains_key(&0);
                 // Cut to 8 bits it is rounded, not its low byte
                 // dropped; one that is of 8 bits has nothing to round.
                 let cut = |s: i16| if narrow { s & !0xFF } else { (((s as i32 + 128) >> 8).min(127) << 8) as i16 };
@@ -470,7 +478,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     // one period the table alone is more than the 16 bits it would
     // save, and those are kept as they are, exact.
     for i in instruments.iter_mut().filter(|i| i.kept == Samples::Packed) {
-        i.packed = predicted(&i.sample, i.looped);
+        i.packed = predicted(&i.sample, i.looped, i.seeks);
         if i.packed.len() >= 2 * i.sample.len() {
             (i.kept, i.packed) = (Samples::Wide, Vec::new());
         }
@@ -519,7 +527,9 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         out.extend(i.fade.to_le_bytes());
         out.extend(i.auto);
         let kept = if i.sample.is_empty() { Samples::Cut } else { i.kept };
-        out.extend([kept as u8, 0, 0]);
+        // The sample's flags: how it is kept, and bit 2 for a
+        // predicted one's seek points.
+        out.extend([kept as u8 | ((kept == Samples::Packed && i.seeks) as u8) << 2, 0, 0]);
         for p in 0..ENVELOPE_POINTS {
             let (x, y) = i.points.get(p).copied().unwrap_or((0, 0));
             out.extend(x.to_le_bytes());

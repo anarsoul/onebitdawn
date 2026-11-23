@@ -67,6 +67,20 @@ pub const PACKED_MAGIC: &[u8; 4] = b"XMC4";
 /// with no loop); then its table of predictors. The blocks follow.
 pub const PACKED_LOOP: usize = 8;
 pub const PACKED_HEAD: usize = PACKED_LOOP + adpcm::TABLE_BYTES;
+/// Samples between a predicted sample's seek points, which is what a
+/// 9xx's offset counts in: a sample an instrument is played from an
+/// offset of has, after its table and before its blocks, for each
+/// `SEEK` samples but the first the three samples before that block,
+/// the newest first, each an `i16` (`SEEK_BYTES`), so that a note
+/// starting there has nothing before it to decode.
+pub const SEEK: usize = 256;
+pub const SEEK_BYTES: usize = 6;
+const _: () = assert!(SEEK.is_multiple_of(BLOCK));
+
+/// The seek points of a sample of `len` samples that has them.
+pub const fn seek_points(len: usize) -> usize {
+    len.saturating_sub(1) / SEEK
+}
 /// The header: magic, channels, speed, tempo, orders, patterns,
 /// instruments, the limiter's drive and release (0 for `DRIVE` and
 /// `RELEASE_SHIFT`), the length in ms as `u32`; then the high-pass:
@@ -202,7 +216,9 @@ const NO_BLOCK: u32 = u32::MAX - 2;
 fn fill(d: &[u8], ch: &mut Channel, b: u32, half: usize) {
     let out: &mut [i16; BLOCK] = if half == 0 { ch.blocks.first_chunk_mut().unwrap() } else { ch.blocks.last_chunk_mut().unwrap() };
     let first = b as usize * BLOCK;
-    let at = ch.data as usize + PACKED_HEAD + b as usize * BLOCK_BYTES;
+    #[cfg(test)]
+    tests::FILLS.with(|n| n.set(n.get() + 1));
+    let at = ch.data as usize + PACKED_HEAD + ch.seeks as usize * SEEK_BYTES + b as usize * BLOCK_BYTES;
     let table = d.get(ch.data as usize + PACKED_LOOP..).unwrap_or(&[]);
     match d.get(at..).and_then(|rest| rest.first_chunk::<BLOCK_BYTES>()) {
         Some(block) if first < ch.len as usize => {
@@ -217,26 +233,39 @@ fn fill(d: &[u8], ch: &mut Channel, b: u32, half: usize) {
 }
 
 /// Makes `block` and the one after it the two the channel has
-/// decoded. The next block is the common case and costs a block; a
-/// loop's wrap starts from what the sample's head keeps for it;
-/// anything else (an offset, a retrigger, a step of more than a
-/// block) decodes forward from the nearest of where the channel is,
-/// the loop's block and the sample's start.
+/// decoded. The next block is the common case and costs a block.
+/// Anything else decodes forward from the nearest place there is a
+/// state to start from: where the channel is, the loop's block (what
+/// the sample's head keeps, for the loop's wrap), a seek point (for
+/// a 9xx, which lands on one), and the sample's start. A sample with
+/// no seek points hit far in is decoded from its start: the converter
+/// gives seek points to those a module does that to.
 #[inline(never)]
 fn refill(d: &[u8], ch: &mut Channel, block: u32) {
     if block == ch.block.wrapping_add(1) {
         ch.blocks.copy_within(BLOCK.., 0);
     } else {
-        let looped = (ch.loop_start / BLOCK as u32, ch.loop_len != 0);
-        let mut from = ch.block.wrapping_add(2);
-        if ch.block == NO_BLOCK || from > block || (looped.1 && looped.0 <= block && looped.0 > from) {
-            let head = ch.data as usize;
-            (from, ch.before) = if looped.1 && looped.0 <= block && looped.0 != 0 {
-                (looped.0, [word(d, head) as i16 as i32, word(d, head + 2) as i16 as i32, word(d, head + 4) as i16 as i32])
-            } else {
-                (0, [0; 3])
-            };
+        let head = ch.data as usize;
+        let three = |at: usize| [word(d, at) as i16 as i32, word(d, at + 2) as i16 as i32, word(d, at + 4) as i16 as i32];
+        // The latest start with its state kept, at or before the block.
+        let mut start = (0, [0; 3]);
+        let looped = ch.loop_start / BLOCK as u32;
+        if ch.loop_len != 0 && looped <= block && looped > start.0 {
+            start = (looped, three(head));
         }
+        let per = (SEEK / BLOCK) as u32;
+        let seek = (block / per).min(ch.seeks);
+        if seek * per > start.0 {
+            start = (seek * per, three(head + PACKED_HEAD + (seek as usize - 1) * SEEK_BYTES));
+        }
+        // Or on from where the channel is, if that is nearer.
+        let on = ch.block.wrapping_add(2);
+        let mut from = if ch.block != NO_BLOCK && on <= block && on >= start.0 {
+            on
+        } else {
+            ch.before = start.1;
+            start.0
+        };
         while from < block {
             fill(d, ch, from, 0);
             from += 1;
@@ -254,7 +283,8 @@ fn refill(d: &[u8], ch: &mut Channel, block: u32) {
 /// points, the fade as `u16`, the auto-vibrato's sweep, depth and rate,
 /// the sample's flags (1 for samples of 16 bits, little-endian, two
 /// bytes each; `WIDE_MAGIC`; 2 for a predicted sample, `PACKED_HEAD`
-/// and then its blocks; `PACKED_MAGIC`), two spare bytes, then twelve
+/// and then its blocks; `PACKED_MAGIC`; with 4 as well, its seek
+/// points between the two, `SEEK`), two spare bytes, then twelve
 /// points of frame and level as `u16` each.
 #[derive(Clone, Copy)]
 struct Instrument<'a> {
@@ -314,6 +344,12 @@ impl Instrument<'_> {
         }
     }
 
+    /// The seek points a predicted sample has: none unless its flags
+    /// say so.
+    fn seeks(&self) -> u32 {
+        if byte(self.d, self.at + 29) & 6 == 6 { seek_points(long(self.d, self.at + 4) as usize) as u32 } else { 0 }
+    }
+
     /// Point `i` of the envelope: its frame and its level, 0 to 64.
     fn point(&self, i: usize) -> (u32, u32) {
         let at = self.at + 32 + 4 * i.min(ENVELOPE_POINTS - 1);
@@ -365,6 +401,8 @@ struct Channel {
     /// newest first, and the sample at the loop's start.
     blocks: [i16; 2 * BLOCK],
     block: u32,
+    /// The seek points before its blocks, 0 for a sample with none.
+    seeks: u32,
     before: [i32; 3],
     loop_first: i32,
     playing: bool,
@@ -660,6 +698,7 @@ impl<'a> Tune<'a> {
                 (ch.data, ch.len, ch.loop_start, ch.loop_len) = i.sample();
                 ch.kind = i.kind();
                 ch.block = NO_BLOCK;
+                ch.seeks = i.seeks();
                 ch.loop_first = word(self.d, ch.data as usize + 6) as i16 as i32;
                 ch.period = period;
                 ch.target = period;
@@ -1019,8 +1058,14 @@ mod tests {
         auto: (u8, u8, u8),
         /// The sample at 16 bits, in place of `sample`, if it has any.
         wide: Vec<i16>,
-        /// And whether that is kept predicted.
+        /// And whether that is kept predicted, and with seek points.
         packed: bool,
+        seeks: bool,
+    }
+
+    std::thread_local! {
+        /// Blocks decoded on this thread, for a test to count.
+        pub(super) static FILLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     }
 
     use crate::adpcm::tests::{rung, table};
@@ -1028,7 +1073,7 @@ mod tests {
     /// A predicted sample as the converter writes one, with every
     /// predictor of `table` and every shift tried for each block, and
     /// the samples it decodes to.
-    fn pack(wave: &[i16], loop_start: usize, looped: bool) -> (Vec<u8>, Vec<i16>) {
+    fn pack(wave: &[i16], loop_start: usize, looped: bool, seeks: bool) -> (Vec<u8>, Vec<i16>) {
         let (blocks, decoded) = crate::adpcm::tests::blocks(&table(), wave);
         let mut head = [0i16; 4];
         if looped {
@@ -1040,6 +1085,11 @@ mod tests {
         }
         let mut data: Vec<u8> = head.iter().flat_map(|h| h.to_le_bytes()).collect();
         data.extend(table());
+        if seeks {
+            for k in 1..=seek_points(wave.len()) {
+                data.extend((1..=3).flat_map(|n| decoded[k * SEEK - n].to_le_bytes()));
+            }
+        }
         data.extend(blocks);
         (data, decoded)
     }
@@ -1047,7 +1097,7 @@ mod tests {
     /// A square wave of `period` samples, looped.
     fn square(period: usize) -> Ins {
         let sample = (0..period).map(|i| if i < period / 2 { 127 } else { -127 }).collect();
-        Ins { sample, loop_start: 0, loop_len: period as u32, volume: 64, finetune: 0, relative: 0, envelope: vec![], flags: 0, sustain: 0, fade: 0, auto: (0, 0, 0), wide: vec![], packed: false }
+        Ins { sample, loop_start: 0, loop_len: period as u32, volume: 64, finetune: 0, relative: 0, envelope: vec![], flags: 0, sustain: 0, fade: 0, auto: (0, 0, 0), wide: vec![], packed: false, seeks: false }
     }
 
     /// A cell: note, instrument, volume column, effect, parameter.
@@ -1099,7 +1149,7 @@ mod tests {
             d.extend(i.loop_len.to_le_bytes());
             d.extend([i.volume, i.finetune as u8, i.relative as u8, i.flags, i.envelope.len() as u8, i.sustain, 0, 0]);
             d.extend(i.fade.to_le_bytes());
-            d.extend([i.auto.0, i.auto.1, i.auto.2, if i.packed { 2 } else { !i.wide.is_empty() as u8 }, 0, 0]);
+            d.extend([i.auto.0, i.auto.1, i.auto.2, if i.packed { 2 | (i.seeks as u8) << 2 } else { !i.wide.is_empty() as u8 }, 0, 0]);
             for p in 0..ENVELOPE_POINTS {
                 let (x, y) = i.envelope.get(p).copied().unwrap_or((0, 0));
                 d.extend(x.to_le_bytes());
@@ -1108,7 +1158,7 @@ mod tests {
             if i.wide.is_empty() {
                 body.extend(i.sample.iter().map(|&s| s as u8));
             } else if i.packed {
-                body.extend(pack(&i.wide, i.loop_start as usize, i.loop_len != 0).0);
+                body.extend(pack(&i.wide, i.loop_start as usize, i.loop_len != 0, i.seeks).0);
             } else {
                 body.extend(i.wide.iter().flat_map(|s| s.to_le_bytes()));
             }
@@ -1533,7 +1583,7 @@ mod tests {
     #[test]
     fn a_predicted_sample_is_near_the_sample_it_was() {
         let wave = rung(1000);
-        let (data, decoded) = pack(&wave, 0, false);
+        let (data, decoded) = pack(&wave, 0, false, false);
         assert_eq!(data.len(), PACKED_HEAD + wave.len().div_ceil(BLOCK) * BLOCK_BYTES);
         assert_eq!(decoded.len(), wave.len());
         let signal: f64 = wave.iter().map(|&s| (s as f64).powi(2)).sum();
@@ -1574,23 +1624,29 @@ mod tests {
         ];
         for (n, &(loop_start, loop_len, cells)) in tunes.iter().enumerate() {
             let len = if loop_len == 0 { 777 } else { (loop_start + loop_len) as usize };
-            let (_, decoded) = pack(&wave[..len], loop_start as usize, loop_len != 0);
+            let (_, decoded) = pack(&wave[..len], loop_start as usize, loop_len != 0, false);
             let wide = Ins { wide: decoded, loop_start, loop_len, ..square(32) };
-            let packed = Ins { wide: wave[..len].to_vec(), packed: true, ..wide.clone() };
             let play = |ins: &Ins| module(1, 6, 125, &[0], &[pattern(12, cells)], core::slice::from_ref(ins));
-            let (a, b) = (play(&wide), play(&packed));
-            assert_eq!((&a[..4], &b[..4]), (&WIDE_MAGIC[..], &PACKED_MAGIC[..]));
-            assert!(is_tune(&b) && !crate::clip::is_unsupported(&b));
-            assert_eq!(b.len(), a.len() - 2 * len + PACKED_HEAD + len.div_ceil(BLOCK) * BLOCK_BYTES);
-            let (ma, mb) = (mixed(&a), mixed(&b));
-            assert_eq!(ma.len(), mb.len());
+            let a = play(&wide);
+            let ma = mixed(&a);
             assert!(ma.iter().any(|&s| s.abs() > 1000), "tune {n} is silence");
-            if let Some(i) = (0..ma.len()).find(|&i| ma[i] != mb[i]) {
-                panic!("tune {n}, sample {i}: {:?} and {:?}", &ma[i.saturating_sub(3)..i + 4], &mb[i.saturating_sub(3)..i + 4]);
+            // And the same with seek points before the blocks, used or not.
+            for seeks in [false, true] {
+                let packed = Ins { wide: wave[..len].to_vec(), packed: true, seeks, ..wide.clone() };
+                let b = play(&packed);
+                assert_eq!((&a[..4], &b[..4]), (&WIDE_MAGIC[..], &PACKED_MAGIC[..]));
+                assert!(is_tune(&b) && !crate::clip::is_unsupported(&b));
+                let points = if seeks { seek_points(len) * SEEK_BYTES } else { 0 };
+                assert_eq!(b.len(), a.len() - 2 * len + PACKED_HEAD + points + len.div_ceil(BLOCK) * BLOCK_BYTES);
+                let mb = mixed(&b);
+                assert_eq!(ma.len(), mb.len());
+                if let Some(i) = (0..ma.len()).find(|&i| ma[i] != mb[i]) {
+                    panic!("tune {n}, seek points {seeks}, sample {i}: {:?} and {:?}", &ma[i.saturating_sub(3)..i + 4], &mb[i.saturating_sub(3)..i + 4]);
+                }
             }
         }
         // Two channels on the one sample do not share what they decode.
-        let (_, decoded) = pack(&wave[..600], 100, true);
+        let (_, decoded) = pack(&wave[..600], 100, true, false);
         let wide = Ins { wide: decoded, loop_start: 100, loop_len: 500, ..square(32) };
         let packed = Ins { wide: wave[..600].to_vec(), packed: true, ..wide.clone() };
         let cells = [(0, (C4, 1, 0, 0, 0)), (1, (C4 + 7, 1, 0, 0, 0))];
@@ -1604,5 +1660,40 @@ mod tests {
         let whole = two(&packed);
         let mut t = Tune::new(&whole[..whole.len() - 300]);
         while t.next_sample().is_some() {}
+    }
+
+    #[test]
+    fn a_note_far_into_a_predicted_sample_starts_from_a_seek_point() {
+        // A long sample, a recording's length, and a note that starts
+        // 65 280 samples into it (9FF), 4080 blocks: with seek points
+        // the note's first sample costs the two blocks any start
+        // does; without, every block before it. The mix is the same
+        // samples' at 16 bits either way, through an offset that is on
+        // no seek point's block run's edge too (9FE, then on).
+        let wave: Vec<i16> = (0..70_000).map(|i| (20000.0 * ((i as f64 * 0.05).sin() + 0.4 * (i as f64 * 0.23).sin()) / 1.4) as i16).collect();
+        let (_, decoded) = pack(&wave, 0, false, false);
+        let wide = Ins { wide: decoded, ..square(32) };
+        let wide = Ins { loop_len: 0, ..wide };
+        let cells = [(0, (C4, 1, 0, 9, 0xFF)), (1, (C4 + 12, 1, 0, 9, 0xFE))];
+        let play = |ins: &Ins| module(1, 6, 125, &[0], &[pattern(2, &cells)], core::slice::from_ref(ins));
+        let reference = mixed(&play(&wide));
+        assert!(reference.iter().any(|&s| s.abs() > 1000));
+        let fills = |seeks: bool| {
+            let clip = play(&Ins { wide: wave.clone(), packed: true, seeks, ..wide.clone() });
+            // The first sample of the mix, and what it took.
+            let mut t = Tune::new(&clip);
+            FILLS.with(|n| n.set(0));
+            t.next_sample();
+            let first = FILLS.with(|n| n.get());
+            FILLS.with(|n| n.set(0));
+            assert_eq!(mixed(&clip), reference, "seek points {seeks}");
+            (first, FILLS.with(|n| n.get()))
+        };
+        let (with, without) = (fills(true), fills(false));
+        std::println!("9FF on a predicted sample: {} blocks for the first sample with seek points, {} without; the tune {} and {}", with.0, without.0, with.1, without.1);
+        assert_eq!(with.0, 2);
+        assert_eq!(without.0, 0xFF * SEEK / BLOCK + 2);
+        // The whole tune, two notes: the blocks it plays and no more.
+        assert!(with.1 < 400 && without.1 > 2 * 0xFE * SEEK / BLOCK, "{} and {}", with.1, without.1);
     }
 }
