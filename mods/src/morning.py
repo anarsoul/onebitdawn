@@ -32,10 +32,10 @@ def tune(kit="bright"):
 
     def held(name, path, note, rate, **how):
         sample = {k: how.pop(k) for k in ("attack", "loop", "skip", "fade", "bright") if k in how}
-        return m.instrument(Sample(name, path, note, rate, **sample), **how)
+        return m.instrument(Sample(name, path, note, rate, bits=16, **sample), **how)
 
     def wave(name, cycle, note, gain, **how):
-        return m.instrument(Sample.wave(name, cycle, note, gain=gain), **how)
+        return m.instrument(Sample.wave(name, cycle, note, gain=gain, bits=16), **how)
 
     if kit == "chip":
         # Plain waves, as a chiptune has them: a square for the flute,

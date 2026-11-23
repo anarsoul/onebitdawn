@@ -245,6 +245,13 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
   kept predicted (a clip for a firmware after v0.5). The hiss under its
   quiet piano on a speaker in the buzzer's place is the transistor's
   stage and not the clip: the line output has none (`PLAN.md`). The terms are those of "Suspended Seconds".
+- All their samples are of 16 bits since 2026-11-22, the recorded
+  ones and the waves made in the scripts alike
+  (`Sample.noise` and `Sample.pluck` take `bits=` for that); the
+  mixes before the limiter against the 16 bits' are 65 dB (Morning,
+  `bright`) and 64 (the Mountain King, `bright`) predicted, 46 and 41
+  at 8 bits. Morning's `chip` kit is seven waves of one period, kept
+  at 16 bits and exact.
 - "Serial Dawn" (`mods/src/serial_dawn.py`, `mods/serial-dawn.xm`)
   is a tune in the key generators' manner, written here, of waves and
   noise made in its script: pulses put about their mean, a swept sine

@@ -42,16 +42,16 @@ def tune(kit="bright"):
     ramp(85, 88, 196, 196)
 
     def struck(name, path, note, rate, length, **how):
-        return m.instrument(Sample(name, path, note, rate, length=length, **how))
+        return m.instrument(Sample(name, path, note, rate, length=length, bits=16, **how))
 
     def held(name, path, note, rate, release, **how):
-        return m.instrument(Sample(name, path, note, rate, **how), release=release)
+        return m.instrument(Sample(name, path, note, rate, bits=16, **how), release=release)
 
     def wave(name, cycle, note, gain, release, **how):
-        return m.instrument(Sample.wave(name, cycle, note, gain=gain), release=release, **how)
+        return m.instrument(Sample.wave(name, cycle, note, gain=gain, bits=16), release=release, **how)
 
     def plucked(name, cycle, note, seconds, decay, rate):
-        return m.instrument(Sample.pluck(name, cycle, note, seconds, decay, rate))
+        return m.instrument(Sample.pluck(name, cycle, note, seconds, decay, rate, bits=16))
 
     if kit == "chip":
         # Plain waves, as a chiptune has them.
@@ -65,7 +65,7 @@ def tune(kit="bright"):
         bass = plucked("bass pizz", saw(64, 8), 40, 0.6, 0.6, 11025)
         pizz = plucked("violin pizz", saw(), 69, 0.35, 0.3, 22050)
         timpani = plucked("timpani", triangle(), 47, 0.6, 0.6, 8000)
-        crash = m.instrument(Sample.noise("cymbals", 0.8, 22050, 0.7))
+        crash = m.instrument(Sample.noise("cymbals", 0.8, 22050, 0.7, bits=16))
     else:
         # VSCO 2 CE: its loud layers where there are any, and 10 dB
         # more of what is over 2 kHz. The soft ones as they are were

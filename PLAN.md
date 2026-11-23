@@ -2659,6 +2659,28 @@ if the low byte is the same, not only zero. Dropping it would also
 cost nothing"): that is an offset of under an 8-bit step, and it is
 dropped, not rounded.
 
+**The Grieg tunes at 16 bits, 2026-11-22** (the user: "Let's re-do
+Grieg pieces with 16-bit samples"). Every sample of `morning.py` and
+`mountain_king.py` is of 16 bits, both kits, the waves made in the
+scripts among them, and the four modules and three clips are made
+again. Mixes before the limiter against the mix of 16-bit samples,
+and the clips' bytes for the buzzer:
+
+| | at 8 bits | predicted | bytes at 8 bits | as made | at 16 bits |
+| --- | --- | --- | --- | --- | --- |
+| Morning, `bright` | 46.4 dB | 65.4 | 144 787 | 153 492 | 272 156 |
+| Morning, `chip` | 46.5 | exact | 17 866 | 18 314 | 18 314 |
+| the Mountain King, `bright` | 41.1 | 64.5 | 203 465 | 215 108 | 371 264 |
+| the Mountain King, `chip` (in no pack) | 45.3 | 55.2 | 80 822 | 84 524 | 125 978 |
+
+Morning's `chip` kit is seven waves of one period, 64 samples each:
+predicted, each was 166 bytes for the 128 it is at 16 bits, the table
+being 90 of them, and the clip was larger than the 16 bits' and not
+exact (59.0 dB). So the converter keeps a sample at 16 bits where
+predicting it would not be the smaller (`xmc.rs`), and that clip is
+`XMC3`. The buzzer's pack is 765 228 bytes and the speaker's
+1 001 663 of 1 179 648. Not heard.
+
 ## Checks still owed
 
 - 16 bits predicted, on a clock (2026-11-22, on `next`, above): both

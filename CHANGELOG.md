@@ -129,9 +129,9 @@ from `http://<ip>/update`; its settings survive the update.
 - A module's 16-bit sample that holds 8 bits (its low bytes all the
   same) is written as 8 bits, the same sound in a clip every firmware
   plays.
-- "Suspended Seconds" and "Starlight & Aurora" have their instruments
-  at 16 bits and their clips so; the speaker's pack is 958 KB with
-  both.
+- "Suspended Seconds", "Starlight & Aurora" and the three clips of
+  Grieg have their instruments at 16 bits and their clips so; the
+  buzzer's pack is 747 KB and the speaker's 978 KB of 1152.
 - A release has `onebitdawn-licenses-<tag>.txt`: the licences of the
   crates its files are built from, and of the bootloader and the
   radio's libraries in the images. The installer's and the pack

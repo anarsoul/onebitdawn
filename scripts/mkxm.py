@@ -439,15 +439,15 @@ class Sample:
         return cls(name, None, note, len(x), made=(x, len(x), 1.0, (0, len(x))), **how)
 
     @classmethod
-    def noise(cls, name, seconds, rate, decay, note=60, seed=1):
+    def noise(cls, name, seconds, rate, decay, note=60, seed=1, bits=8):
         """Noise that dies away, to a thousandth in `decay` seconds: a
         cymbal for a tune of plain waves. It plays as made at `note`."""
         n = int(seconds * rate)
         x = np.random.default_rng(seed).uniform(-1, 1, n) * np.exp(-6.9 * np.arange(n) / rate / decay)
-        return cls(name, None, note, rate, made=(x, rate, midi_hz(note), None))
+        return cls(name, None, note, rate, made=(x, rate, midi_hz(note), None), bits=bits)
 
     @classmethod
-    def pluck(cls, name, cycle, note, seconds, decay, rate):
+    def pluck(cls, name, cycle, note, seconds, decay, rate, bits=8):
         """A wave struck and left to die away, to a thousandth in
         `decay` seconds: a plucked string or a drum of plain waves."""
         cycle = np.asarray(cycle, dtype=np.float64)
@@ -455,7 +455,7 @@ class Sample:
         phase = (np.arange(n) * midi_hz(note) / rate) % 1.0 * len(cycle)
         x = np.interp(phase, np.arange(len(cycle) + 1), np.append(cycle, cycle[0]))
         x *= np.exp(-6.9 * np.arange(n) / rate / decay)
-        return cls(name, None, note, rate, made=(x, rate, midi_hz(note), None))
+        return cls(name, None, note, rate, made=(x, rate, midi_hz(note), None), bits=bits)
 
     def flatten(self, x, rate, attack, tick, depth):
         """Take the recording's fall to `attack` out of it and into
