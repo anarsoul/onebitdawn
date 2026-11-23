@@ -40,6 +40,33 @@ const BETA: f64 = 9.0;
 const BAND: f64 = 0.94;
 const POINTS: usize = 512;
 
+/// How a clip's samples are kept.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Format {
+    /// 16 bits predicted, a byte a sample and a sixteenth more
+    /// (`adpcm::predicted`): the default.
+    #[default]
+    Packed,
+    /// 16 bits as they are, two bytes a sample.
+    Wide,
+    /// IMA ADPCM, four bits a sample.
+    Adpcm,
+    /// 8 bits, dithered.
+    Pcm,
+}
+
+impl Format {
+    /// Its name in a note, and its bytes for `rate` samples.
+    fn said(self, rate: u32) -> (&'static str, u32) {
+        match self {
+            Format::Packed => ("16 bits predicted", rate + rate / 16),
+            Format::Wide => ("16-bit PCM", 2 * rate),
+            Format::Adpcm => ("ADPCM", rate / 2),
+            Format::Pcm => ("PCM", rate),
+        }
+    }
+}
+
 /// How the clip is cut and shaped.
 #[derive(Clone, Debug)]
 pub struct Shape {
@@ -48,8 +75,8 @@ pub struct Shape {
     pub skip: f64,
     /// 16000, or 8000 for half the flash, or 31250 for twice it.
     pub rate: u32,
-    /// Four bits a sample and not eight.
-    pub adpcm: bool,
+    /// How the samples are kept.
+    pub format: Format,
     /// The high-pass's corner in Hz, and how many times it is applied,
     /// 12 dB an octave each.
     pub highpass: f64,
@@ -64,7 +91,7 @@ impl Shape {
             Output::Buzzer => (900.0, 2, 20.0),
             Output::Speaker => (100.0, 1, 10.0),
         };
-        Shape { seconds: 0.0, skip: 0.0, rate: 16000, adpcm: true, highpass, passes, drive }
+        Shape { seconds: 0.0, skip: 0.0, rate: 16000, format: Format::Packed, highpass, passes, drive }
     }
 
     pub fn options(output: Output, options: &mut Options) -> Result<Self, String> {
@@ -72,10 +99,12 @@ impl Shape {
         shape.seconds = options.number("seconds", shape.seconds)?;
         shape.skip = options.number("skip", shape.skip)?;
         shape.rate = options.number("rate", shape.rate)?;
-        shape.adpcm = match options.text("format")?.as_deref() {
-            None | Some("adpcm") => true,
-            Some("pcm") => false,
-            Some(other) => return Err(format!("format={other}: adpcm or pcm")),
+        shape.format = match options.text("format")?.as_deref() {
+            None | Some("packed") => Format::Packed,
+            Some("pcm16") => Format::Wide,
+            Some("adpcm") => Format::Adpcm,
+            Some("pcm") => Format::Pcm,
+            Some(other) => return Err(format!("format={other}: packed, pcm16, adpcm or pcm")),
         };
         shape.highpass = options.number("highpass", shape.highpass)?;
         shape.passes = options.number("passes", shape.passes)?;
@@ -271,9 +300,13 @@ pub fn convert(file: &[u8], how: &Shape, notes: &mut Vec<String>) -> Result<Vec<
     let (sound, rate) = read(file)?;
     let whole = sound.len() as f64 / rate as f64;
     let sound = shape(sound, rate, how)?;
-    let out = if how.adpcm {
-        let samples: Vec<i16> = sound.iter().map(|s| (s * 32767.0).round().clamp(-32768.0, 32767.0) as i16).collect();
-        adpcm::clip(&samples, how.rate, adpcm::SEARCH)
+    let wide = || -> Vec<i16> { sound.iter().map(|s| (s * 32767.0).round().clamp(-32768.0, 32767.0) as i16).collect() };
+    let out = if how.format == Format::Packed {
+        adpcm::packed_clip(&wide(), how.rate)
+    } else if how.format == Format::Wide {
+        adpcm::wide_clip(&wide(), how.rate)
+    } else if how.format == Format::Adpcm {
+        adpcm::clip(&wide(), how.rate, adpcm::SEARCH)
     } else {
         // Eight bits want dither, or what is quiet turns to a buzz of
         // its own: two random numbers a sample, a step wide together.
@@ -293,10 +326,10 @@ pub fn convert(file: &[u8], how: &Shape, notes: &mut Vec<String>) -> Result<Vec<
     notes.push(format!(
         "{:.1} s of {whole:.1} at {rate} Hz, as {} at {} Hz: {} bytes, {} a second",
         sound.len() as f64 / how.rate as f64,
-        if how.adpcm { "ADPCM" } else { "PCM" },
+        how.format.said(how.rate).0,
         how.rate,
         out.len(),
-        how.rate / if how.adpcm { 2 } else { 1 }
+        how.format.said(how.rate).1
     ));
     Ok(out)
 }

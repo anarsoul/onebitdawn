@@ -329,8 +329,9 @@ class Sample:
     `bits` is 8, or 16 for a sample kept at twice the bytes: what 8
     bits round off is 43 to 45 dB under a piano note's attack, the
     hammer's peak being what full scale is, and under a quiet piano
-    alone that is heard as hiss. The clip then wants `samples=16` of
-    the pack maker, and a firmware that plays such samples.
+    alone that is heard as hiss. The pack maker keeps such a sample
+    predicted, in about a byte a sample, unless told `samples=16` or
+    `samples=8`, and the clip wants a firmware that plays it.
     """
 
     def __init__(self, name, path, note, rate, attack=0.25, loop=None, fade=None, length=None, skip=0.0, gain=1.0,

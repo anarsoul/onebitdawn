@@ -485,6 +485,10 @@ release from that one on, with the newer one's data in flash:
   must not persist, like `skip_next`, is left out of the record on
   purpose. Read-only status goes in `form::Status`, built in
   `http::status`, so `form.rs` stays clockless.
+- Predicted sound's predictor 0 is "no prediction": it is in the
+  decoder (`adpcm::coefficients`) and never in a clip's table, so no
+  encoder can fit it away. Keep it so; a table of fitted predictors
+  alone cannot reach full scale from anywhere.
 - Tables copied from the reference docs (`BLOCKS`, `SEGMAP`, `COM_SEQ`,
   `IS_WIRE`) are verbatim; cite `3rdparty/HU-058_ESPHome/docs/` when
   changing anything near them.

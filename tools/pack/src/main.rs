@@ -54,9 +54,13 @@ twenty channels; what a module uses that the player lacks is listed:
     raise=I:N     play instrument I that many octaves higher
     rate=HZ       31250 (the default), 16000 or 8000 samples a second
     bits=N        16 (the default) or 8
-    samples=16    keep a module's 16-bit samples, twice the bytes, where
-                  8 bits hiss under a quiet instrument; such a clip
-                  needs a firmware after v0.5
+    samples=packed|16|8
+                  a module's 16-bit samples: in 8 bits a sample and a
+                  sixteenth more, each predicted from the samples
+                  before it (the default: nearly the 16 bits' sound);
+                  as they are, twice the bytes; or cut to 8 bits,
+                  which hiss under a quiet instrument. The first two
+                  make a clip that needs a firmware after v0.5
 
 Commodore 64 tunes (.sid, PSID), whose code is run here to the point
 where the tune comes round:
@@ -87,12 +91,16 @@ ZX Spectrum tunes (.pt3, Pro Tracker 3 and Vortex Tracker II):
                   a low-pass on the noise, which takes its hiss
     highpass (100), passes, drive, release, knee, rate as above
 
-Sound files (.wav), 8 KB of the pack a second:
+Sound files (.wav), 17 KB of the pack a second:
     seconds=S     keep this much, faded out at its end
     skip=S        from this far in
     rate=HZ       16000 (the default), 8000 or 31250
-    format=adpcm|pcm
-                  four bits a sample (the default) or eight
+    format=packed|pcm16|adpcm|pcm
+                  16 bits in about a byte a sample, each predicted
+                  from the samples before it (the default); 16 bits as
+                  they are, twice that; IMA ADPCM, four bits a sample,
+                  half of it and rougher; or 8 bits. The first two
+                  need a firmware after v0.5
     highpass=HZ   the bass cut (900; 100 for a speaker)
     passes=N      times it is applied (2; 1 for a speaker)
     drive=DB      pushed into the limiter (20; 10 for a speaker)

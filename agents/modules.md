@@ -345,14 +345,33 @@ command, looped or once, and stops within a note.
   clock divider's two, written a second time by `settle_clock`
   (`agents/hardware.md`, "I2S0's clock divider").
 
-**`core/src/adpcm.rs`**: a PCM clip at four bits a sample, pure.
-`Decoder` reads IMA ADPCM in place behind the `ADP1` header (the rate,
-as `PCM1`'s), the codes two a byte with the high nibble first, as
-sox's raw `ima`; the state starts over when a looping clip goes round.
-It gives 16-bit samples in `xm::STEP`ths of PCM's step to
-`clip::Player`, as a tune does. The encoder is `tools/pack/src/adpcm.rs`,
-which keeps the four best paths through the coder's states. LZ does
-nothing for PCM (HISTORY.md, 2026-11-16).
+**`core/src/adpcm.rs`**: a sampled clip that is not a byte a sample,
+pure. `Decoder` reads each of three kinds in place and gives 16-bit
+samples in `xm::STEP`ths of PCM's step to `clip::Player`, as a tune
+does; the state starts over when a looping clip goes round.
+
+- `ADP1`: IMA ADPCM behind the rate (as `PCM1`'s), the codes two a
+  byte with the high nibble first, as sox's raw `ima`.
+- `ADP2`: 16 bits predicted. The rate, the number of samples, a table
+  of `TRAINED` predictors (three coefficients each, `i16` in 64ths,
+  held to `COEFFICIENT_MAX`), then blocks of `BLOCK_BYTES` for
+  `BLOCK` samples: a predictor and a shift, then each sample's
+  residual (`decode_block`, `decode_one`). Predictor 0 is no
+  prediction, in the decoder and not in the table
+  (`coefficients`): it is the one that reaches all of 16 bits
+  whatever came before, and a table of trained ones alone was 9 dB
+  worse than none on a loud recording. The test is
+  `predictor_0_predicts_nothing_whatever_the_table_holds`. A
+  module's predicted samples are the same blocks and table (`xm.rs`).
+- `PCM2`: the rate, then the samples of 16 bits.
+
+The encoders are `tools/pack/src/adpcm.rs`: ADPCM's keeps the four
+best paths through the coder's states; `predicted` fits the table to
+the sound (`train`: each block to the predictor that leaves the least
+of it, each predictor fitted again to its blocks, 25 times, with
+nothing random in it, so a sound has one table on the host and in the
+page) and then tries every predictor and shift for each block. LZ
+does nothing for PCM (HISTORY.md, 2026-11-16).
 
 **`core/src/xm.rs`**: a tracker module as a clip, pure.
 
@@ -361,11 +380,24 @@ nothing for PCM (HISTORY.md, 2026-11-16).
   file `tools/pack/src/xmc.rs` makes of a module, or the `XMC3` one
   of a module whose 16-bit samples were kept (`samples=16`: two bytes
   a sample, an instrument's entry saying which are; a firmware from
-  before it refuses the clip); no heap, twenty
+  before it refuses the clip), or the `XMC4` one of a module whose
+  16-bit samples were kept predicted (the pack maker's default); no heap, twenty
   channels (`xm::MAX_CHANNELS`; eight, then sixteen, then this,
   all on 2026-11-18).
 - It mixes at 32 kHz and averages to 16 kHz (8 if the clip asks; at
   62.5 kHz to 31.25 for a clip at `clip::FAST_HZ`).
+- A predicted sample is 16 bits in 8 a sample: 8 bytes for the loop
+  (`PACKED_LOOP`), the table of predictors fitted to the sample, then
+  `adpcm.rs`'s blocks. It cannot be read from the middle, so a
+  channel keeps two blocks decoded, the one its position is in and
+  the next (`Channel::blocks`), the mixer reads those, and `refill`
+  decodes the next block when the position enters one: the loop's
+  wrap from the head's samples, any other move (9xx, a step over a
+  block) forward from the nearest of where it is, the loop's block
+  and the start. The test is
+  `a_predicted_sample_is_played_as_what_it_decodes_to` (against the
+  same samples at 16 bits, to the sample); the encoder is
+  `xmc::predicted` over `adpcm::predicted` in the pack maker.
 - No step in the mix but a note's own attack: a level a tick changed
   is reached over about 2 ms (`RAMP_PER_SECOND`), and what a channel
   was sounding when a new note took it is carried on in `Tune::cut`

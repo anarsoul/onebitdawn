@@ -180,9 +180,17 @@ no longer there is the beeps.
   <img src="screenshots/clips.png" width="320" alt="The Clips page: the pack in use, its clips and the upload">
 </p>
 
-Sampled sound takes the most room: 8 KB of the pack a second as IMA
-ADPCM, which is what a `.wav` becomes, or 16 KB as PCM
-(`format=pcm`), a little cleaner. A ZX Spectrum beeper tune is
+Sampled sound takes the most room: 17 KB of the pack a second at
+16 kHz for what a `.wav` becomes, its samples of 16 bits kept in
+about a byte each (each as what is left of it after the samples
+before it have predicted it). `format=pcm16` keeps the 16 bits as
+they are, 32 KB a second; `format=adpcm` is IMA ADPCM, 8 KB a second
+and audibly rougher; `format=pcm` is 8 bits, 16 KB. A module's
+16-bit samples are kept the first way too; `samples=16` keeps them as
+they are and `samples=8` cuts them to 8 bits. A clock at v0.5 or
+before plays only ADPCM, 8-bit PCM and 8-bit samples, and refuses a
+pack with anything else in it: for one, give `format=adpcm` and
+`samples=8`. A ZX Spectrum beeper tune is
 recorded from a tape with `scripts/zxbeeper.py` (it needs SkoolKit)
 and its `.bpr` goes into a pack as it is.
 

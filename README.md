@@ -277,8 +277,8 @@ build's other variables and updates over the LAN included, is in
 
 ## Clips
 
-The alarm melodies that are not notes are clips: sampled sound (PCM or
-ADPCM), a ZX Spectrum beeper tune, FastTracker 2 modules, Commodore 64
+The alarm melodies that are not notes are clips: sampled sound (16
+bits kept in about a byte a sample, PCM or ADPCM), a ZX Spectrum beeper tune, FastTracker 2 modules, Commodore 64
 SID tunes and ZX Spectrum AY tunes (Pro Tracker 3), the last three
 played by the clock's own players and chip emulations. A clock's clips
 are a clip pack in a flash partition of their own, so they can be

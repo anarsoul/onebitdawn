@@ -188,7 +188,8 @@
       <dt><code>knee=100</code></dt><dd>The level the limiter starts at; above the tune's peaks it is off.</dd>
       <dt><code>raise=1:2</code></dt><dd>Play instrument 1 two octaves higher, for a bass line a buzzer cannot play.</dd>
       <dt><code>rate=16000</code></dt><dd>Samples a second, 31250 by default; 16000 and 8000 are less work for the clock.</dd>
-      <dt><code>samples=16</code></dt><dd>Keep a module's 16-bit samples as they are, at twice the bytes: under a quiet instrument 8 bits hiss. Such a clip needs a firmware after v0.5; an older one refuses the pack.</dd>
+      <dt><code>samples=16</code></dt><dd>A module's 16-bit samples are kept in 8 bits a sample and a sixteenth more, each predicted from the samples before it: nearly the sound of the 16 bits. This keeps them as they are, at twice the bytes. Either way the clip needs a firmware after v0.5; an older one refuses the pack.</dd>
+      <dt><code>samples=8</code></dt><dd>Cut them to 8 bits, for a clock at v0.5 or before: under a quiet instrument 8 bits hiss.</dd>
     </dl>
   </details>
   <details>
@@ -217,11 +218,13 @@
   </details>
   <details>
     <summary>Sound files: <code>.wav</code></summary>
-    <p class="small">Sampled sound takes the most room: 8 KB a second, so the partition holds under two and a half minutes of it.</p>
+    <p class="small">Sampled sound takes the most room: 17 KB a second, its 16-bit samples kept in about a byte each, so the partition holds a little over a minute of it. Such a clip needs a firmware after v0.5.</p>
     <dl>
       <dt><code>seconds=20</code></dt><dd>Keep this much, faded out at the end, from <code>skip=5</code> seconds in.</dd>
       <dt><code>rate=8000</code></dt><dd>Samples a second: 16000 by default, 8000 for half the room, 31250 for twice it.</dd>
-      <dt><code>format=pcm</code></dt><dd>Eight bits a sample and not ADPCM's four: twice the room, a little cleaner.</dd>
+      <dt><code>format=adpcm</code></dt><dd>IMA ADPCM, four bits a sample: half the room, audibly rougher, and what a clock at v0.5 or before plays.</dd>
+      <dt><code>format=pcm16</code></dt><dd>The 16 bits as they are: twice the room, nothing lost.</dd>
+      <dt><code>format=pcm</code></dt><dd>Eight bits a sample: the room of the default and not its sound; any firmware plays it.</dd>
       <dt><code>highpass=900</code></dt><dd>The bass cut (100 for a speaker) and <code>passes=2</code> how many times.</dd>
       <dt><code>drive=20</code></dt><dd>The dB pushed into the limiter (10 for a speaker), 0 for none.</dd>
     </dl>

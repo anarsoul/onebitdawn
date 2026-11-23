@@ -21,8 +21,9 @@ Nothing is arranged. The parts, and what plays each here:
   itself (`scripts/surgenotes.py`, into `xm/surge/acoustic-grand/`),
   soft and loud, and none played off its pitch. Its samples are of
   16 bits: at 8 the piano alone, as the tune starts, hisses (the
-  composer, on a speaker), so the clip is made with `samples=16` and
-  needs a firmware that plays them.
+  composer, on a speaker), and so are the bell's and the two sines';
+  the clip keeps them predicted, as the pack maker does unless told,
+  and needs a firmware that plays them.
 - The bell (his was JE-8086's "MKS80 Bell/Space") is made here after
   what his recording of the part measures as: a tone two octaves over
   the note that starts at once and dies slowly, a click at the twelfth
@@ -119,7 +120,7 @@ def bell(note, rate=12000, attack=1.1, loop=0.25):
     # at half a second, then under it.
     swell = np.interp(held, [0.0, 0.25, 0.4, 0.55, 0.75, 1.0, attack], [0.0, 0.0, 0.5, 1.4, 0.9, 0.6, 0.6])
     x += swell * np.sin(2 * math.pi * hz * t)
-    return Sample(f"bell {note}", None, note, rate, made=(x, rate, hz, (n, end)))
+    return Sample(f"bell {note}", None, note, rate, made=(x, rate, hz, (n, end)), bits=16)
 
 
 def sine(*over, n=128):
@@ -164,8 +165,8 @@ def tune(only=None):
 
     # The bell: four of them, none played more than two semitones off.
     bells = {note: m.instrument(bell(note), release=ROOM) for note in (62, 67, 72, 77)}
-    back = m.instrument(Sample.wave("sine", sine(0.06), 66), release=32, rise=1)
-    bass = m.instrument(Sample.wave("bass", sine(0.7, 0.6, 0.5, 0.4), 43), release=20, rise=2)
+    back = m.instrument(Sample.wave("sine", sine(0.06), 66, bits=16), release=32, rise=1)
+    bass = m.instrument(Sample.wave("bass", sine(0.7, 0.6, 0.5, 0.4), 43, bits=16), release=20, rise=2)
 
     keys = m.voices(list(range(0, 8)))
     rooms = m.voices(list(range(8, 14)))

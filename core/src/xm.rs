@@ -20,7 +20,11 @@
 //! sample an instrument. A module that keeps samples of 16 bits is
 //! `WIDE_MAGIC`: the same layout, with an instrument's entry saying
 //! which of them are, and a firmware from before it refuses the clip
-//! and does not play their bytes as 8-bit ones.
+//! and does not play their bytes as 8-bit ones. One that keeps a
+//! 16-bit sample in 8 bits a sample, as what is left of each after
+//! the samples before it have predicted it (`adpcm::decode_block`,
+//! with a table of predictors fitted to the sample), is
+//! `PACKED_MAGIC`, refused the same way.
 //!
 //! What plays: notes with the instrument's relative note and finetune
 //! on the linear frequency table, forward loops, the volume envelope
@@ -48,12 +52,21 @@
 //! a jump back.
 
 use crate::clip::{FAST_HZ, PCM_HZ};
+use crate::adpcm::{self, BLOCK, BLOCK_BYTES};
 use crate::shape::Shaper;
 
 /// The first bytes of a converted module.
 pub const MAGIC: &[u8; 4] = b"XMC2";
 /// And of one with a sample of 16 bits in it (`Instrument::wide`).
 pub const WIDE_MAGIC: &[u8; 4] = b"XMC3";
+/// And of one with a predicted sample in it (`Kind::Packed`).
+pub const PACKED_MAGIC: &[u8; 4] = b"XMC4";
+/// What a predicted sample starts with: for its loop, the three
+/// samples before the block the loop starts in, the newest first, and
+/// the sample at the loop's start, each an `i16` (nothing for a sample
+/// with no loop); then its table of predictors. The blocks follow.
+pub const PACKED_LOOP: usize = 8;
+pub const PACKED_HEAD: usize = PACKED_LOOP + adpcm::TABLE_BYTES;
 /// The header: magic, channels, speed, tempo, orders, patterns,
 /// instruments, the limiter's drive and release (0 for `DRIVE` and
 /// `RELEASE_SHIFT`), the length in ms as `u32`; then the high-pass:
@@ -138,7 +151,11 @@ pub use crate::shape::STEP;
 
 /// Whether `data` is a converted module.
 pub const fn is_tune(data: &[u8]) -> bool {
-    data.len() >= HEADER && data[0] == MAGIC[0] && data[1] == MAGIC[1] && data[2] == MAGIC[2] && (data[3] == MAGIC[3] || data[3] == WIDE_MAGIC[3])
+    data.len() >= HEADER
+        && data[0] == MAGIC[0]
+        && data[1] == MAGIC[1]
+        && data[2] == MAGIC[2]
+        && (data[3] == MAGIC[3] || data[3] == WIDE_MAGIC[3] || data[3] == PACKED_MAGIC[3])
 }
 
 /// How long the tune plays, as the converter worked it out.
@@ -158,11 +175,76 @@ fn long(d: &[u8], at: usize) -> u32 {
     word(d, at) as u32 | (word(d, at + 2) as u32) << 16
 }
 
+/// How an instrument's sample is kept.
+#[derive(Clone, Copy, Default, PartialEq)]
+enum Kind {
+    /// A byte a sample.
+    #[default]
+    Narrow,
+    /// Two bytes a sample, 16 bits.
+    Wide,
+    /// 16 bits predicted, in blocks (`adpcm::decode_block`).
+    Packed,
+}
+
 /// Sample `pos` of the samples at `data`, at 16 bits: one of 8 bits
-/// is its byte times 256.
+/// is its byte times 256. Not for a predicted one.
 #[inline(always)]
-fn sample_at(d: &[u8], data: usize, wide: bool, pos: u32) -> i32 {
-    if wide { word(d, data + 2 * pos as usize) as i16 as i32 } else { (byte(d, data + pos as usize) as i8 as i32) << 8 }
+fn sample_at(d: &[u8], data: usize, kind: Kind, pos: u32) -> i32 {
+    if kind == Kind::Wide { word(d, data + 2 * pos as usize) as i16 as i32 } else { (byte(d, data + pos as usize) as i8 as i32) << 8 }
+}
+
+/// No block of a channel's is decoded.
+const NO_BLOCK: u32 = u32::MAX - 2;
+
+/// Block `b` of the channel's predicted sample into a half of its
+/// buffer, after the block before it; silence past the sample's end.
+fn fill(d: &[u8], ch: &mut Channel, b: u32, half: usize) {
+    let out: &mut [i16; BLOCK] = if half == 0 { ch.blocks.first_chunk_mut().unwrap() } else { ch.blocks.last_chunk_mut().unwrap() };
+    let first = b as usize * BLOCK;
+    let at = ch.data as usize + PACKED_HEAD + b as usize * BLOCK_BYTES;
+    let table = d.get(ch.data as usize + PACKED_LOOP..).unwrap_or(&[]);
+    match d.get(at..).and_then(|rest| rest.first_chunk::<BLOCK_BYTES>()) {
+        Some(block) if first < ch.len as usize => {
+            adpcm::decode_block(&table[..table.len().min(adpcm::TABLE_BYTES)], &mut ch.before, block, out);
+            let left = ch.len as usize - first;
+            if left < BLOCK {
+                out[left..].fill(0);
+            }
+        }
+        _ => out.fill(0),
+    }
+}
+
+/// Makes `block` and the one after it the two the channel has
+/// decoded. The next block is the common case and costs a block; a
+/// loop's wrap starts from what the sample's head keeps for it;
+/// anything else (an offset, a retrigger, a step of more than a
+/// block) decodes forward from the nearest of where the channel is,
+/// the loop's block and the sample's start.
+#[inline(never)]
+fn refill(d: &[u8], ch: &mut Channel, block: u32) {
+    if block == ch.block.wrapping_add(1) {
+        ch.blocks.copy_within(BLOCK.., 0);
+    } else {
+        let looped = (ch.loop_start / BLOCK as u32, ch.loop_len != 0);
+        let mut from = ch.block.wrapping_add(2);
+        if ch.block == NO_BLOCK || from > block || (looped.1 && looped.0 <= block && looped.0 > from) {
+            let head = ch.data as usize;
+            (from, ch.before) = if looped.1 && looped.0 <= block && looped.0 != 0 {
+                (looped.0, [word(d, head) as i16 as i32, word(d, head + 2) as i16 as i32, word(d, head + 4) as i16 as i32])
+            } else {
+                (0, [0; 3])
+            };
+        }
+        while from < block {
+            fill(d, ch, from, 0);
+            from += 1;
+        }
+        fill(d, ch, block, 0);
+    }
+    fill(d, ch, block + 1, 1);
+    ch.block = block;
 }
 
 /// An instrument's entry in the file: where its sample is (offset,
@@ -171,8 +253,9 @@ fn sample_at(d: &[u8], data: usize, wide: bool, pos: u32) -> i32 {
 /// (1 on, 2 sustain, 4 loop), number of points, sustain point and loop
 /// points, the fade as `u16`, the auto-vibrato's sweep, depth and rate,
 /// the sample's flags (1 for samples of 16 bits, little-endian, two
-/// bytes each; `WIDE_MAGIC`), two spare bytes, then twelve points of
-/// frame and level as `u16` each.
+/// bytes each; `WIDE_MAGIC`; 2 for a predicted sample, `PACKED_HEAD`
+/// and then its blocks; `PACKED_MAGIC`), two spare bytes, then twelve
+/// points of frame and level as `u16` each.
 #[derive(Clone, Copy)]
 struct Instrument<'a> {
     d: &'a [u8],
@@ -222,9 +305,13 @@ impl Instrument<'_> {
         (byte(self.d, self.at + 26) as u32, byte(self.d, self.at + 27) as u32, byte(self.d, self.at + 28))
     }
 
-    /// Whether the sample is of 16 bits.
-    fn wide(&self) -> bool {
-        byte(self.d, self.at + 29) & 1 != 0
+    /// How the sample is kept.
+    fn kind(&self) -> Kind {
+        match byte(self.d, self.at + 29) & 3 {
+            0 => Kind::Narrow,
+            1 => Kind::Wide,
+            _ => Kind::Packed,
+        }
     }
 
     /// Point `i` of the envelope: its frame and its level, 0 to 64.
@@ -271,8 +358,15 @@ struct Channel {
     len: u32,
     loop_start: u32,
     loop_len: u32,
-    /// Its samples are of 16 bits, two bytes each.
-    wide: bool,
+    kind: Kind,
+    /// Of a predicted sample: two blocks as decoded, the one `pos` is
+    /// in and the next, which block the first is (`NO_BLOCK` for
+    /// none), the three samples before the next to be decoded, the
+    /// newest first, and the sample at the loop's start.
+    blocks: [i16; 2 * BLOCK],
+    block: u32,
+    before: [i32; 3],
+    loop_first: i32,
     playing: bool,
     /// Position in the sample, with 16 bits of fraction, and the step a
     /// mixed sample.
@@ -564,7 +658,9 @@ impl<'a> Tune<'a> {
                 self.cut += cut;
                 ch.fresh = true;
                 (ch.data, ch.len, ch.loop_start, ch.loop_len) = i.sample();
-                ch.wide = i.wide();
+                ch.kind = i.kind();
+                ch.block = NO_BLOCK;
+                ch.loop_first = word(self.d, ch.data as usize + 6) as i16 as i32;
                 ch.period = period;
                 ch.target = period;
                 ch.frac = 0;
@@ -591,12 +687,20 @@ impl<'a> Tune<'a> {
     /// starts where another is sounding takes its place within a
     /// sample, which is a step in the mix and a click; the step is
     /// carried on in `cut` and dies away there.
-    fn sounding_now(&self, c: usize) -> i32 {
-        let ch = &self.channel[c];
+    fn sounding_now(&mut self, c: usize) -> i32 {
+        let ch = &mut self.channel[c];
         if !ch.playing || ch.pos >= ch.len {
             return 0;
         }
-        (sample_at(self.d, ch.data as usize, ch.wide, ch.pos) * (ch.gain >> 8)) >> 12
+        let sample = if ch.kind == Kind::Packed {
+            if ch.pos / BLOCK as u32 != ch.block {
+                refill(self.d, ch, ch.pos / BLOCK as u32);
+            }
+            ch.blocks[ch.pos as usize % BLOCK] as i32
+        } else {
+            sample_at(self.d, ch.data as usize, ch.kind, ch.pos)
+        };
+        (sample * (ch.gain >> 8)) >> 12
     }
 
     fn key_off(ch: &mut Channel, instrument: Option<Instrument>) {
@@ -831,12 +935,23 @@ impl<'a> Tune<'a> {
             if !ch.playing {
                 continue;
             }
-            let at = |pos: u32| sample_at(self.d, ch.data as usize, ch.wide, pos);
-            let mut after = ch.pos + 1;
-            if ch.loop_len != 0 && after >= ch.loop_start + ch.loop_len {
-                after -= ch.loop_len;
-            }
-            let (a, b) = (at(ch.pos), if after < ch.len { at(after) } else { 0 });
+            let (a, b) = if ch.kind == Kind::Packed {
+                // From the two blocks decoded: the flash has no sample
+                // to read. A new block once in `BLOCK` samples.
+                if ch.pos / BLOCK as u32 != ch.block {
+                    refill(self.d, ch, ch.pos / BLOCK as u32);
+                }
+                let i = ch.pos as usize % BLOCK;
+                let b = if ch.loop_len != 0 && ch.pos + 1 >= ch.loop_start + ch.loop_len { ch.loop_first } else { ch.blocks[i + 1] as i32 };
+                (ch.blocks[i] as i32, b)
+            } else {
+                let at = |pos: u32| sample_at(self.d, ch.data as usize, ch.kind, pos);
+                let mut after = ch.pos + 1;
+                if ch.loop_len != 0 && after >= ch.loop_start + ch.loop_len {
+                    after -= ch.loop_len;
+                }
+                (at(ch.pos), if after < ch.len { at(after) } else { 0 })
+            };
             let sample = a + (((b - a) * (ch.frac >> 8) as i32) >> 8);
             if ch.ramp != 0 {
                 ch.ramp -= 1;
@@ -904,12 +1019,35 @@ mod tests {
         auto: (u8, u8, u8),
         /// The sample at 16 bits, in place of `sample`, if it has any.
         wide: Vec<i16>,
+        /// And whether that is kept predicted.
+        packed: bool,
+    }
+
+    use crate::adpcm::tests::{rung, table};
+
+    /// A predicted sample as the converter writes one, with every
+    /// predictor of `table` and every shift tried for each block, and
+    /// the samples it decodes to.
+    fn pack(wave: &[i16], loop_start: usize, looped: bool) -> (Vec<u8>, Vec<i16>) {
+        let (blocks, decoded) = crate::adpcm::tests::blocks(&table(), wave);
+        let mut head = [0i16; 4];
+        if looped {
+            let first = loop_start / BLOCK * BLOCK;
+            for (n, h) in head[..3].iter_mut().enumerate() {
+                *h = if first > n { decoded[first - 1 - n] } else { 0 };
+            }
+            head[3] = decoded[loop_start];
+        }
+        let mut data: Vec<u8> = head.iter().flat_map(|h| h.to_le_bytes()).collect();
+        data.extend(table());
+        data.extend(blocks);
+        (data, decoded)
     }
 
     /// A square wave of `period` samples, looped.
     fn square(period: usize) -> Ins {
         let sample = (0..period).map(|i| if i < period / 2 { 127 } else { -127 }).collect();
-        Ins { sample, loop_start: 0, loop_len: period as u32, volume: 64, finetune: 0, relative: 0, envelope: vec![], flags: 0, sustain: 0, fade: 0, auto: (0, 0, 0), wide: vec![] }
+        Ins { sample, loop_start: 0, loop_len: period as u32, volume: 64, finetune: 0, relative: 0, envelope: vec![], flags: 0, sustain: 0, fade: 0, auto: (0, 0, 0), wide: vec![], packed: false }
     }
 
     /// A cell: note, instrument, volume column, effect, parameter.
@@ -920,7 +1058,11 @@ mod tests {
 
     /// A converted module, as `tools/pack/src/xmc.rs` lays one out.
     fn module(channels: u8, speed: u8, tempo: u8, orders: &[u8], patterns: &[Vec<Row>], instruments: &[Ins]) -> Vec<u8> {
-        let mut d = if instruments.iter().any(|i| !i.wide.is_empty()) { WIDE_MAGIC.to_vec() } else { MAGIC.to_vec() };
+        let mut d = match () {
+            _ if instruments.iter().any(|i| i.packed) => PACKED_MAGIC.to_vec(),
+            _ if instruments.iter().any(|i| !i.wide.is_empty()) => WIDE_MAGIC.to_vec(),
+            _ => MAGIC.to_vec(),
+        };
         d.extend([channels, speed, tempo, orders.len() as u8, patterns.len() as u8, instruments.len() as u8, 0, 0]);
         d.extend(0u32.to_le_bytes());
         // 900 Hz at 8 kHz, second order, twice: `sox highpass 900` twice.
@@ -957,7 +1099,7 @@ mod tests {
             d.extend(i.loop_len.to_le_bytes());
             d.extend([i.volume, i.finetune as u8, i.relative as u8, i.flags, i.envelope.len() as u8, i.sustain, 0, 0]);
             d.extend(i.fade.to_le_bytes());
-            d.extend([i.auto.0, i.auto.1, i.auto.2, !i.wide.is_empty() as u8, 0, 0]);
+            d.extend([i.auto.0, i.auto.1, i.auto.2, if i.packed { 2 } else { !i.wide.is_empty() as u8 }, 0, 0]);
             for p in 0..ENVELOPE_POINTS {
                 let (x, y) = i.envelope.get(p).copied().unwrap_or((0, 0));
                 d.extend(x.to_le_bytes());
@@ -965,6 +1107,8 @@ mod tests {
             }
             if i.wide.is_empty() {
                 body.extend(i.sample.iter().map(|&s| s as u8));
+            } else if i.packed {
+                body.extend(pack(&i.wide, i.loop_start as usize, i.loop_len != 0).0);
             } else {
                 body.extend(i.wide.iter().flat_map(|s| s.to_le_bytes()));
             }
@@ -1384,5 +1528,81 @@ mod tests {
         let out = mixed(&module(1, 6, 125, &[0], &[pattern(8, &[(0, (C4, 1, 0, 0, 0))])], &[faint]));
         assert_eq!(out.iter().map(|s| s.abs()).max(), Some(4));
         assert!((pitch(&out) - 8363.0 / 32.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn a_predicted_sample_is_near_the_sample_it_was() {
+        let wave = rung(1000);
+        let (data, decoded) = pack(&wave, 0, false);
+        assert_eq!(data.len(), PACKED_HEAD + wave.len().div_ceil(BLOCK) * BLOCK_BYTES);
+        assert_eq!(decoded.len(), wave.len());
+        let signal: f64 = wave.iter().map(|&s| (s as f64).powi(2)).sum();
+        let noise: f64 = wave.iter().zip(&decoded).map(|(&a, &b)| (a as f64 - b as f64).powi(2)).sum();
+        let db = 10.0 * (signal / noise).log10();
+        // 8 bits a sample as they are would be under 50 dB.
+        std::println!("predicted: {db:.1} dB");
+        assert!(db > 60.0, "{db:.1} dB");
+        // A block is what `decode_one` makes of it, a sample at a time.
+        let mut before = [0i32; 3];
+        for (block, want) in data[PACKED_HEAD..].chunks(BLOCK_BYTES).zip(decoded.chunks(BLOCK)) {
+            for (&r, &w) in block[1..].iter().zip(want) {
+                let got = adpcm::decode_one(adpcm::coefficients(&table(), block[0] >> 4), block[0] & 15, before, r as i8);
+                assert_eq!(got, w as i32);
+                before = [got, before[0], before[1]];
+            }
+        }
+    }
+
+    #[test]
+    fn a_predicted_sample_is_played_as_what_it_decodes_to() {
+        // The same samples both ways, predicted and as decoded at 16
+        // bits: the same mix, to the sample. Each tune is a way the
+        // position can move: through a loop that starts and ends off a
+        // block's edge and is longer or shorter than a block, to a
+        // sample's end off a block's edge, 256 samples in (9xx), back
+        // to the start (E9x), a note cut by another, and a pitch that
+        // steps over whole blocks.
+        let wave = rung(1000);
+        let high = C4 + 60;
+        let tunes: [(u32, u32, &[At]); 6] = [
+            (0, 0, &[(0, (C4, 1, 0, 0, 0)), (6, (C4 + 5, 1, 0x30, 0, 0))]),
+            (100, 500, &[(0, (C4, 1, 0, 0, 0)), (5, (C4 + 7, 1, 0x30, 9, 1)), (9, (C4 - 12, 1, 0, 0xE, 0x92))]),
+            (37, 5, &[(0, (C4, 1, 0, 0, 0)), (4, (C4 + 12, 1, 0, 0, 0))]),
+            (16, 32, &[(0, (C4 + 24, 1, 0, 0, 0)), (3, (C4, 1, 0, 9, 2))]),
+            (0, 1000, &[(0, (high, 1, 0, 0, 0)), (2, (high, 1, 0, 9, 3))]),
+            (3, 990, &[(0, (high - 9, 1, 0, 0, 0)), (1, (C4, 1, 0, 0xE, 0x91))]),
+        ];
+        for (n, &(loop_start, loop_len, cells)) in tunes.iter().enumerate() {
+            let len = if loop_len == 0 { 777 } else { (loop_start + loop_len) as usize };
+            let (_, decoded) = pack(&wave[..len], loop_start as usize, loop_len != 0);
+            let wide = Ins { wide: decoded, loop_start, loop_len, ..square(32) };
+            let packed = Ins { wide: wave[..len].to_vec(), packed: true, ..wide.clone() };
+            let play = |ins: &Ins| module(1, 6, 125, &[0], &[pattern(12, cells)], core::slice::from_ref(ins));
+            let (a, b) = (play(&wide), play(&packed));
+            assert_eq!((&a[..4], &b[..4]), (&WIDE_MAGIC[..], &PACKED_MAGIC[..]));
+            assert!(is_tune(&b) && !crate::clip::is_unsupported(&b));
+            assert_eq!(b.len(), a.len() - 2 * len + PACKED_HEAD + len.div_ceil(BLOCK) * BLOCK_BYTES);
+            let (ma, mb) = (mixed(&a), mixed(&b));
+            assert_eq!(ma.len(), mb.len());
+            assert!(ma.iter().any(|&s| s.abs() > 1000), "tune {n} is silence");
+            if let Some(i) = (0..ma.len()).find(|&i| ma[i] != mb[i]) {
+                panic!("tune {n}, sample {i}: {:?} and {:?}", &ma[i.saturating_sub(3)..i + 4], &mb[i.saturating_sub(3)..i + 4]);
+            }
+        }
+        // Two channels on the one sample do not share what they decode.
+        let (_, decoded) = pack(&wave[..600], 100, true);
+        let wide = Ins { wide: decoded, loop_start: 100, loop_len: 500, ..square(32) };
+        let packed = Ins { wide: wave[..600].to_vec(), packed: true, ..wide.clone() };
+        let cells = [(0, (C4, 1, 0, 0, 0)), (1, (C4 + 7, 1, 0, 0, 0))];
+        let two = |ins: &Ins| {
+            let rows: Vec<Row> = (0..8).map(|r| if r == 0 { vec![cells[0].1, (0, 0, 0, 0, 0)] } else if r == 1 { vec![(0, 0, 0, 0, 0), cells[1].1] } else { vec![(0, 0, 0, 0, 0); 2] }).collect();
+            module(2, 6, 125, &[0], &[rows], core::slice::from_ref(ins))
+        };
+        assert_eq!(mixed(&two(&wide)), mixed(&two(&packed)));
+        // A clip cut short in a predicted sample is played to its end
+        // with nothing read past it.
+        let whole = two(&packed);
+        let mut t = Tune::new(&whole[..whole.len() - 300]);
+        while t.next_sample().is_some() {}
     }
 }

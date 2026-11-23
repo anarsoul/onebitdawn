@@ -33,6 +33,9 @@ upright at mezzo-forte and `soft` the same at pianissimo.
 `steinway-ff` is the Steinway at fortissimo, which is brighter by
 its strings; `soft-bright` and `upright-bright` are those two with
 their treble lifted, and `steinway-bright` is `steinway-ff` with it.
+
+The samples are of 16 bits (`bits=16`): what 8 bits round off is
+heard under the piano's tails as grit.
 """
 
 import os
@@ -108,7 +111,7 @@ def tune(kit="upright"):
                 ("C5", 22050, 1.1, 0.4), ("G5", 22050, 1.0, 0.4), ("C6", 22050, 0.8, 0.3), ("G6", 22050, 0.6, 0.25)):
             piano[pitch_of(name)] = m.instrument(best(lambda loop: Sample(
                 f"upright {layer} {name}", f"Keys/Upright Nr1/UR1_{name}_{layer}_RR1.wav", pitch_of(name), rate,
-                attack=attack, loop=loop, bright=bright, struck=(TICK, DEPTH), onset=0.2), loop), damp=DAMP)
+                attack=attack, loop=loop, bright=bright, struck=(TICK, DEPTH), onset=0.2, bits=16), loop), damp=DAMP)
     else:
         layer = "ff" if kit == "steinway-ff" else "mf"
         # The left microphone was over the bass strings and the right
@@ -120,7 +123,7 @@ def tune(kit="upright"):
             note = pitch_of(name)
             piano[note] = m.instrument(best(lambda loop: Sample(
                 f"steinway {layer} {name}", f"{IOWA}Piano.{layer}.{name}.aiff", note, rate, attack=attack, loop=loop,
-                bright=bright, struck=(TICK, DEPTH), onset=0.2, channel=0 if note < 60 else 1),
+                bright=bright, struck=(TICK, DEPTH), onset=0.2, channel=0 if note < 60 else 1, bits=16),
                 loop), damp=DAMP)
 
     def string(pitch):

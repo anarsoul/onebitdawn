@@ -5,21 +5,28 @@
 //! (`onebitdawn_core::xm`): the module rearranged for a player with no
 //! memory to unpack into. Tables of where each pattern and each
 //! instrument's sample is, the patterns as they are, the samples as
-//! plain signed bytes (an XM stores differences), 16-bit ones cut to
-//! 8, ping-pong loops unrolled. One sample an instrument, the first.
-//! One effect is written as another: R, where it changes no volume,
-//! as E9, which the player has.
-//! `samples=16` keeps the 16-bit ones as they are, two bytes each, in
-//! a clip of the player's other magic, which a firmware from before
-//! it refuses: under a quiet instrument what 8 bits round off is
-//! heard as hiss.
+//! plain signed bytes (an XM stores differences), ping-pong loops
+//! unrolled. One sample an instrument, the first. A sample of 16
+//! bits is kept in 8 bits a sample and a sixteenth more, each sample
+//! as what is left of it after the three before have predicted it
+//! (`predicted`): some 25 dB nearer the 16 bits than 8 bits are, for
+//! a piano, under which what 8 bits round off is heard as hiss.
+//! `samples=16` keeps it as it is, two bytes a sample, and
+//! `samples=8` cuts it to 8 bits. A sample of 16 bits whose low bytes
+//! are all the same is one of 8 and is written so, that byte dropped,
+//! whatever is asked. Each of the first two is a clip of
+//! a magic of its own, which a firmware from before it refuses; a
+//! module of 8-bit samples, or cut to them, is the clip there always
+//! was. One effect is written as another: R, where it changes no
+//! volume, as E9, which the player has.
 //!
 //! The player cuts the bass, which the buzzer does not have, and
 //! limits hard; how is the clip's to say (`Shape`).
 
 use std::collections::BTreeMap;
 
-use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, WIDE_MAGIC};
+use onebitdawn_core::adpcm::BLOCK;
+use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, WIDE_MAGIC};
 
 use crate::bytes::{Data, text};
 use crate::shape::{rate_flag, section};
@@ -39,6 +46,20 @@ const SILENT_VOLUMES: [u8; 3] = [0xC, 0xD, 0xE];
 
 /// The options a module takes.
 pub const OPTIONS: &[&str] = &["highpass", "passes", "drive", "release", "knee", "rate", "bits", "samples", "raise"];
+
+/// What becomes of a module's 16-bit samples.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Samples {
+    /// Cut to 8 bits, which every firmware plays; and what a sample
+    /// of 8 bits is.
+    #[default]
+    Cut,
+    /// Kept, two bytes a sample.
+    Wide,
+    /// Kept in 8 bits a sample, predicted: what `Shape` asks for
+    /// unless told.
+    Packed,
+}
 
 /// How the player is to shape the mix.
 #[derive(Clone, Debug)]
@@ -60,8 +81,8 @@ pub struct Shape {
     pub rate: u32,
     /// The width of the samples the player hands the modulator.
     pub bits: u8,
-    /// The width the module's 16-bit samples are kept at: 8 cuts them.
-    pub samples: u8,
+    /// How the module's 16-bit samples are kept.
+    pub samples: Samples,
     /// Instruments played octaves higher, by number from 1.
     pub raised: BTreeMap<usize, i32>,
 }
@@ -78,7 +99,7 @@ impl Shape {
             Output::Buzzer => (300.0, 0),
             Output::Speaker => (100.0, 10),
         };
-        Shape { drive: 0, release, knee: 0, highpass, passes: 1, rate: 31250, bits: 16, samples: 8, raised: BTreeMap::new() }
+        Shape { drive: 0, release, knee: 0, highpass, passes: 1, rate: 31250, bits: 16, samples: Samples::Packed, raised: BTreeMap::new() }
     }
 
     pub fn options(output: Output, options: &mut Options) -> Result<Self, String> {
@@ -90,7 +111,12 @@ impl Shape {
         shape.passes = options.number("passes", shape.passes)?;
         shape.rate = options.number("rate", shape.rate)?;
         shape.bits = options.number("bits", shape.bits)?;
-        shape.samples = options.number("samples", shape.samples)?;
+        shape.samples = match options.text("samples")?.as_deref() {
+            None | Some("packed") => Samples::Packed,
+            Some("16") => Samples::Wide,
+            Some("8") => Samples::Cut,
+            Some(_) => return Err("samples is 8, 16 or packed".into()),
+        };
         while let Some(item) = options.text("raise")? {
             let parsed = item.split_once(':').and_then(|(i, o)| Some((i.parse().ok()?, o.parse().ok()?)));
             let (instrument, octaves) = parsed.ok_or_else(|| format!("raise={item}: raise=INSTRUMENT:OCTAVES"))?;
@@ -104,9 +130,6 @@ impl Shape {
         }
         if !matches!(shape.bits, 8 | 16) {
             return Err("bits is 8 or 16".into());
-        }
-        if !matches!(shape.samples, 8 | 16) {
-            return Err("samples is 8 or 16".into());
         }
         Ok(shape)
     }
@@ -178,12 +201,34 @@ fn effect_name(effect: u8, param: u8) -> String {
     if effect == 0xE { format!("{letter}{:X}", param >> 4) } else { letter }
 }
 
+/// A 16-bit sample as the player's predicted one (`adpcm::predicted`):
+/// what the loop needs, the table of predictors fitted to the sample,
+/// then its blocks.
+pub fn predicted(sample: &[i16], looped: (usize, usize)) -> Vec<u8> {
+    let sound = crate::adpcm::predicted(sample);
+    // For the loop: the three samples before the block it starts in,
+    // the newest first, and its first sample, as the player decodes
+    // them.
+    let mut head = [0i16; PACKED_LOOP / 2];
+    if looped.1 != 0 && looped.0 < sound.decoded.len() {
+        let first = looped.0 / BLOCK * BLOCK;
+        for (n, h) in head[..3].iter_mut().enumerate() {
+            *h = if first > n { sound.decoded[first - 1 - n] } else { 0 };
+        }
+        head[3] = sound.decoded[looped.0];
+    }
+    let mut out: Vec<u8> = head.iter().flat_map(|h| h.to_le_bytes()).collect();
+    out.extend(sound.table);
+    out.extend(sound.blocks);
+    out
+}
+
 #[derive(Default)]
 struct Instrument {
-    /// The sample at 16 bits, and whether it is kept so: one that is
-    /// not is written as its high bytes.
+    /// The sample at 16 bits, and how it is kept: one cut to 8 bits is
+    /// written as its high bytes.
     sample: Vec<i16>,
-    wide: bool,
+    kept: Samples,
     looped: (usize, usize),
     volume: u8,
     finetune: i8,
@@ -268,6 +313,21 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         }
     }
 
+    // The instruments a 9xx starts off their first sample: a predicted
+    // sample would be decoded from its start to get there, so those
+    // are not predicted. A 9xx on a cell that names no instrument is
+    // the channel's last, whichever that was: any of them.
+    let mut offset: BTreeMap<usize, usize> = BTreeMap::new();
+    for pattern in &cells {
+        for row in pattern {
+            for &[note, ins, _volume, effect, _param] in row {
+                if effect == 9 && note != 0 && note != 97 {
+                    *offset.entry(ins as usize).or_default() += 1;
+                }
+            }
+        }
+    }
+
     let mut instruments = Vec::new();
     for number in 1..=instruments_n {
         let size = d.size(at)?;
@@ -303,14 +363,32 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
             let raw = d.slice(body, body.saturating_add(length));
             let mut values: Vec<i16> = Vec::with_capacity(raw.len());
             if kind & 0x10 != 0 {
-                entry.wide = shape.samples == 16;
                 let mut acc = 0u16;
-                for pair in raw.as_chunks::<2>().0 {
-                    acc = acc.wrapping_add(u16::from_le_bytes(*pair));
-                    // Cut to 8 bits it is rounded, not its low byte dropped.
-                    let cut = ((acc as i16 as i32 + 128) >> 8).min(127) << 8;
-                    values.push(if entry.wide { acc as i16 } else { cut as i16 });
+                let wide: Vec<i16> = raw
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|pair| {
+                        acc = acc.wrapping_add(u16::from_le_bytes(*pair));
+                        acc as i16
+                    })
+                    .collect();
+                // A sample of 16 bits whose low bytes are all the same
+                // is one of 8 in a 16-bit one's place, with an offset
+                // of under a step if they are not nought: it is
+                // written as 8 with that byte dropped, the same sound
+                // in a clip every firmware plays.
+                let low = wide.first().map_or(0, |s| s & 0xFF);
+                let narrow = wide.iter().all(|s| s & 0xFF == low);
+                entry.kept = if narrow { Samples::Cut } else { shape.samples };
+                if entry.kept == Samples::Packed && (offset.contains_key(&number) || offset.contains_key(&0)) {
+                    warn(format!("instrument {number}: played from an offset (9xx), kept at 16 bits and not packed"));
+                    entry.kept = Samples::Wide;
                 }
+                // Cut to 8 bits it is rounded, not its low byte
+                // dropped; one that is of 8 bits has nothing to round.
+                let cut = |s: i16| if narrow { s & !0xFF } else { (((s as i32 + 128) >> 8).min(127) << 8) as i16 };
+                values.extend(wide.iter().map(|&s| if entry.kept == Samples::Cut { cut(s) } else { s }));
                 loop_start /= 2;
                 loop_len /= 2;
             } else {
@@ -384,7 +462,16 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     }
 
     let byte = |n: usize, what: &str| u8::try_from(n).map_err(|_| format!("{n} {what}; the clip has room for 255"));
-    let mut out = if instruments.iter().any(|i| i.wide) { WIDE_MAGIC.to_vec() } else { MAGIC.to_vec() };
+    // The magic is the newest thing the clip has in it: a firmware
+    // from before that refuses it.
+    let has = |kept| instruments.iter().any(|i: &Instrument| i.kept == kept && !i.sample.is_empty());
+    let mut out = if has(Samples::Packed) {
+        PACKED_MAGIC.to_vec()
+    } else if has(Samples::Wide) {
+        WIDE_MAGIC.to_vec()
+    } else {
+        MAGIC.to_vec()
+    };
     out.extend([
         channels as u8,
         byte(speed as usize, "ticks a row")?,
@@ -418,16 +505,17 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         out.extend([i.volume, i.finetune as u8, i.relative as u8, i.flags, i.points.len() as u8, i.sustain, i.env_loop.0, i.env_loop.1]);
         out.extend(i.fade.to_le_bytes());
         out.extend(i.auto);
-        out.extend([i.wide as u8, 0, 0]);
+        let kept = if i.sample.is_empty() { Samples::Cut } else { i.kept };
+        out.extend([kept as u8, 0, 0]);
         for p in 0..ENVELOPE_POINTS {
             let (x, y) = i.points.get(p).copied().unwrap_or((0, 0));
             out.extend(x.to_le_bytes());
             out.extend(y.to_le_bytes());
         }
-        if i.wide {
-            body.extend(i.sample.iter().flat_map(|s| s.to_le_bytes()));
-        } else {
-            body.extend(i.sample.iter().map(|s| (s >> 8) as u8));
+        match kept {
+            Samples::Cut => body.extend(i.sample.iter().map(|s| (s >> 8) as u8)),
+            Samples::Wide => body.extend(i.sample.iter().flat_map(|s| s.to_le_bytes())),
+            Samples::Packed => body.extend(predicted(&i.sample, i.looped)),
         }
     }
     debug_assert_eq!(out.len(), tables);

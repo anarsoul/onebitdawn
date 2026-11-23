@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 Vasily Khoruzhick
 
-//! The IMA ADPCM encoder for `onebitdawn_core::adpcm`'s decoder: four
-//! bits a sample, half the flash of 8-bit PCM.
+//! The encoders for `onebitdawn_core::adpcm`'s decoder.
 //!
-//! The encoder keeps the `search` best paths through the coder's
-//! states (1 is the plain encoder, a sample's nearest code), which is
-//! a decibel less error for the same decoder.
+//! IMA ADPCM, four bits a sample, half the flash of 8-bit PCM: the
+//! encoder keeps the `search` best paths through the coder's states
+//! (1 is the plain encoder, a sample's nearest code), which is a
+//! decibel less error for the same decoder.
+//!
+//! Predicted sound, 16 bits in a byte a sample and a sixteenth more
+//! (`predicted`): a table of predictors fitted to the sound, then for
+//! each block the predictor and the shift that leave the least error.
+//! A module's 16-bit samples are kept the same way (`xmc.rs`).
 
-use onebitdawn_core::adpcm::{INDEX, MAGIC, STEPS};
+use onebitdawn_core::adpcm::{BLOCK, BLOCK_BYTES, COEFFICIENT_MAX, INDEX, MAGIC, PACKED_MAGIC, SHIFT_MAX, STEPS, TABLE_BYTES, TRAINED, WIDE_MAGIC, coefficients, decode_one};
 
 /// Paths the encoder keeps.
 pub const SEARCH: usize = 4;
@@ -126,6 +131,225 @@ pub fn clip(samples: &[i16], rate: u32, search: usize) -> Vec<u8> {
     let mut out = MAGIC.to_vec();
     out.extend(rate.to_le_bytes());
     out.extend(codes.as_chunks::<2>().0.iter().map(|pair| pair[0] << 4 | pair[1]));
+    out
+}
+
+/// Predicted sound: the table of its predictors, its blocks, and the
+/// samples the decoder makes of them.
+pub struct Predicted {
+    pub table: [u8; TABLE_BYTES],
+    pub blocks: Vec<u8>,
+    pub decoded: Vec<i16>,
+}
+
+/// What a block says of how well a predictor would do on it, without
+/// its samples: for the three samples before each of its own, their
+/// products with each other (`rr`), with the sample (`r`), and the
+/// samples' own squares.
+#[derive(Clone, Copy, Default)]
+struct Sums {
+    rr: [[f64; 3]; 3],
+    r: [f64; 3],
+    yy: f64,
+}
+
+impl Sums {
+    fn add(&mut self, other: &Sums) {
+        for i in 0..3 {
+            for j in 0..3 {
+                self.rr[i][j] += other.rr[i][j];
+            }
+            self.r[i] += other.r[i];
+        }
+        self.yy += other.yy;
+    }
+
+    /// The squares of what predictor `a` leaves of the block.
+    fn left(&self, a: &[f64; 3]) -> f64 {
+        let mut e = self.yy;
+        for i in 0..3 {
+            e -= 2.0 * a[i] * self.r[i];
+            for j in 0..3 {
+                e += a[i] * self.rr[i][j] * a[j];
+            }
+        }
+        e
+    }
+
+    /// The predictor that leaves the least, with `ridge` on the
+    /// diagonal so that silence and a pure tone have an answer.
+    fn fit(&self, ridge: f64) -> [f64; 3] {
+        let mut m = [[0f64; 4]; 3];
+        for i in 0..3 {
+            m[i][..3].copy_from_slice(&self.rr[i]);
+            m[i][i] += ridge;
+            m[i][3] = self.r[i];
+        }
+        // Gauss, the largest pivot first.
+        for col in 0..3 {
+            let pivot = (col..3).max_by(|&a, &b| m[a][col].abs().total_cmp(&m[b][col].abs())).unwrap_or(col);
+            m.swap(col, pivot);
+            if m[col][col] == 0.0 {
+                return [0.0; 3];
+            }
+            for row in 0..3 {
+                if row != col {
+                    let f = m[row][col] / m[col][col];
+                    for k in col..4 {
+                        m[row][k] -= f * m[col][k];
+                    }
+                }
+            }
+        }
+        [m[0][3] / m[0][0], m[1][3] / m[1][1], m[2][3] / m[2][2]]
+    }
+}
+
+/// The predictors a sound needs no fitting for, in 64ths: the last
+/// sample, the line through the last two, the parabola through the
+/// last three (FLAC's fixed ones), and three of the SNES's and
+/// CD-XA's. Where the fitting starts from.
+const KNOWN: [[i32; 3]; 6] = [[64, 0, 0], [128, -64, 0], [192, -192, 64], [60, 0, 0], [122, -60, 0], [115, -52, 0]];
+/// Times the predictors are fitted to the blocks that chose them.
+const ROUNDS: usize = 25;
+
+/// A table of `TRAINED` predictors for these samples: each block goes
+/// to the predictor that leaves the least of it, each predictor is
+/// fitted again to the blocks it got, and so round and round
+/// (Lloyd's). "No prediction" is one a block may go to and is never
+/// fitted: it is not in the table, the decoder has it as predictor 0
+/// whatever the table holds. Nothing here is random, and the
+/// arithmetic is what every machine does alike, so a sound has one
+/// table.
+fn train(samples: &[i16]) -> [u8; TABLE_BYTES] {
+    let at = |i: usize, back: usize| if i >= back { samples[i - back] as f64 } else { 0.0 };
+    let blocks: Vec<Sums> = (0..samples.len() / BLOCK)
+        .map(|b| {
+            let mut sums = Sums::default();
+            for (i, &sample) in samples.iter().enumerate().skip(b * BLOCK).take(BLOCK) {
+                let (y, h) = (sample as f64, [at(i, 1), at(i, 2), at(i, 3)]);
+                for j in 0..3 {
+                    for k in 0..3 {
+                        sums.rr[j][k] += h[j] * h[k];
+                    }
+                    sums.r[j] += h[j] * y;
+                }
+                sums.yy += y * y;
+            }
+            sums
+        })
+        .collect();
+    let trace: f64 = blocks.iter().map(|s| s.rr[0][0] + s.rr[1][1] + s.rr[2][2]).sum();
+    let ridge = 1e-3 * trace / blocks.len().max(1) as f64;
+    // From the known ones, and blocks' own at even steps through the
+    // sound.
+    let mut table = [[0f64; 3]; TRAINED];
+    for (n, entry) in table.iter_mut().enumerate() {
+        *entry = match KNOWN.get(n) {
+            Some(k) => k.map(|c| c as f64 / 64.0),
+            None if blocks.is_empty() => [0.0; 3],
+            None => blocks[(n - KNOWN.len() + 1) * blocks.len() / (TRAINED - KNOWN.len() + 1)].fit(ridge),
+        };
+    }
+    for _ in 0..ROUNDS {
+        let mut got = [Sums::default(); TRAINED];
+        let mut any = [false; TRAINED];
+        for sums in &blocks {
+            let (mut best, mut least) = (None, sums.yy);
+            for (n, a) in table.iter().enumerate() {
+                let left = sums.left(a);
+                if left < least {
+                    (best, least) = (Some(n), left);
+                }
+            }
+            if let Some(n) = best {
+                got[n].add(sums);
+                any[n] = true;
+            }
+        }
+        for n in 0..TRAINED {
+            if any[n] {
+                table[n] = got[n].fit(ridge);
+            }
+        }
+    }
+    let mut out = [0u8; TABLE_BYTES];
+    for (n, a) in table.iter().enumerate() {
+        for (i, c) in a.iter().enumerate() {
+            let c = (c * 64.0).round().clamp(-COEFFICIENT_MAX as f64, COEFFICIENT_MAX as f64) as i16;
+            out[6 * n + 2 * i..][..2].copy_from_slice(&c.to_le_bytes());
+        }
+    }
+    out
+}
+
+/// A block as one predictor and one shift make it: the squares of
+/// what it is off by, its bytes, the samples it decodes to, and the
+/// last three of them, the newest first.
+struct Tried {
+    error: u64,
+    block: [u8; BLOCK_BYTES],
+    got: [i16; BLOCK],
+    last: [i32; 3],
+}
+
+/// These 16-bit samples predicted: a table fitted to them (`train`),
+/// then a block for every `BLOCK` of them with the predictor and the
+/// shift that leave the least error, every pair tried, predictor 0
+/// among them, with the decoder's own arithmetic on the samples as it
+/// will decode them: a sample's error is its own residual's rounding,
+/// and nothing adds up. A last block is filled out with residuals of
+/// nothing.
+pub fn predicted(samples: &[i16]) -> Predicted {
+    let table = train(samples);
+    let (mut blocks, mut decoded, mut before) = (Vec::with_capacity(samples.len().div_ceil(BLOCK) * BLOCK_BYTES), Vec::with_capacity(samples.len()), [0i32; 3]);
+    for chunk in samples.chunks(BLOCK) {
+        let mut best: Option<Tried> = None;
+        for predictor in 0..=TRAINED as u8 {
+            let k = coefficients(&table, predictor);
+            for shift in 0..=SHIFT_MAX {
+                let (mut block, mut got, mut last, mut error) = ([0u8; BLOCK_BYTES], [0i16; BLOCK], before, 0u64);
+                block[0] = predictor << 4 | shift;
+                for (i, &want) in chunk.iter().enumerate() {
+                    let nothing = decode_one(k, shift, last, 0);
+                    let residual = ((want as i32 - nothing + (1 << shift >> 1)) >> shift).clamp(-128, 127) as i8;
+                    let sample = decode_one(k, shift, last, residual);
+                    block[1 + i] = residual as u8;
+                    got[i] = sample as i16;
+                    error += (sample - want as i32).unsigned_abs().pow(2) as u64;
+                    last = [sample, last[0], last[1]];
+                }
+                if best.as_ref().is_none_or(|b| error < b.error) {
+                    best = Some(Tried { error, block, got, last });
+                }
+            }
+        }
+        let Tried { block, got, last, .. } = best.expect("a block has a predictor");
+        decoded.extend(&got[..chunk.len()]);
+        // What the decoder has after a whole block; after a last one
+        // that is filled out nothing follows.
+        before = last;
+        blocks.extend(block);
+    }
+    Predicted { table, blocks, decoded }
+}
+
+/// A predicted clip of these samples at `rate` a second.
+pub fn packed_clip(samples: &[i16], rate: u32) -> Vec<u8> {
+    let sound = predicted(samples);
+    let mut out = PACKED_MAGIC.to_vec();
+    out.extend(rate.to_le_bytes());
+    out.extend((samples.len() as u32).to_le_bytes());
+    out.extend(sound.table);
+    out.extend(sound.blocks);
+    out
+}
+
+/// A clip of these samples as they are, 16 bits each.
+pub fn wide_clip(samples: &[i16], rate: u32) -> Vec<u8> {
+    let mut out = WIDE_MAGIC.to_vec();
+    out.extend(rate.to_le_bytes());
+    out.extend(samples.iter().flat_map(|s| s.to_le_bytes()));
     out
 }
 

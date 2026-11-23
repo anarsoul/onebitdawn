@@ -73,8 +73,10 @@ The setup page's network list:
 
 Clip sizes:
 
-- PCM is 16 KB of flash a second at 16 kHz, 8 KB at 8 kHz, and half
-  that as ADPCM. The 27.6 s test clip is 442 KB of `.rodata`, held
+- PCM is 16 KB of flash a second at 16 kHz, 8 KB at 8 kHz, half
+  that as ADPCM, a sixteenth more as 16 bits predicted (`ADP2`, what
+  a sound file becomes; a table of 90 bytes a clip besides) and
+  twice it as 16 bits (`PCM2`). The 27.6 s test clip is 442 KB of `.rodata`, held
   once: `melody::CLIP_DATA` is a `static`.
 - A beeper clip is half a KB to 1.5 KB a second packed, twice that as
   plain runs.
@@ -96,6 +98,7 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-17 | 42.2 KB | the settings map's scratch at 1 KB |
 | 2026-11-18 | 39.9 → 39.3 KB | `xm::MAX_CHANNELS` from 8 to 16, 640 bytes of the clip task's future (both figures with the line output's setting in the tree) |
 | 2026-11-18 | 39.3 → 39.0 KB | `xm::MAX_CHANNELS` from 16 to 20, 304 bytes (40 264 → 39 960) |
+| 2026-11-22 | 38.3 → 36.6 KB | on `next`: a channel's two decoded blocks of a predicted sample, 84 bytes each of twenty, 1680 bytes (39 208 → 37 528, against `next`'s HEAD in a worktree) |
 
 What takes it:
 

@@ -2402,8 +2402,270 @@ maker's byte-for-byte tests, the players' tests over the clips); a
 the module's with `openmpt123`. On test-clock: the time filling, no
 underruns, and the user's ear at the start of the tune.
 
+## 16 bits in 8 by prediction, for a module's samples and for sound files — on `next`, a feature for after v0.5; built 2026-11-22, on the host only
+
+The section above keeps a module's 16-bit sample at twice the bytes.
+This keeps it at 8 bits a sample and a sixteenth more, as the
+difference from what the samples before it predict: the SNES's sample
+format (BRR) with codes of 8 bits for its 4. What follows is the day
+in its order: the design as first built, with seven fixed predictors
+and for modules only; then what was measured after it, and the
+design as it now is, under "The format as it is".
+
+**Why, measured on the host, 2026-11-22** (the samples `mkxm.py` has
+before it rounds, each scheme against them; signal over the rounding's
+noise, over all of a kit's samples):
+
+| | 8 bits | µ-law | a shift a block of 16 | predicted |
+| --- | --- | --- | --- | --- |
+| "Suspended Seconds", `upright` | 39.4 dB | 37.9 | 46.1 | 67.4 |
+| "Starlight & Aurora" | 43.2 dB | 37.9 | 45.2 | 55.9 |
+
+Every piano sample is at 62 to 76 dB predicted; the four bells of
+"Starlight & Aurora" at 48 to 61 (partials near half their 12 kHz
+rate predict badly), which is what holds that tune's figure down. In
+the mix before the limiter, against the mix of 16-bit samples:
+"Suspended Seconds" 43.7 dB at 8 bits, 48.0 with the shift, 65.0
+predicted; "Starlight & Aurora" 47.3, 48.6, 62.3. The user's ear on
+the host, the tunes rendered through the player each way (`tmp/`):
+of the shift, "I cannot hear the difference between 8bit and
+block16", "16-bit is way better"; of the predicted, "sounds close
+enough to 16bit. No more grit in the tails of piano".
+
+**Design.**
+
+- The sample. An 8-byte head, then blocks of 17 bytes for 16 samples
+  each: a byte with the predictor in its high nibble and a shift in
+  its low one, then sixteen signed residuals. A sample is
+  `predict(the three before it) + (residual << shift)`, held to 16
+  bits. The predictors are seven: nothing, the last sample, the line
+  through the last two, the parabola through the last three (FLAC's
+  fixed ones), and three of the SNES's that lean on the last two less
+  (60/64; 122/64 and -60/64; 115/64 and -52/64). The last block is
+  filled out with residuals of nothing. The head is what the loop
+  needs: the three samples before the block the loop starts in, the
+  newest first, and the sample at the loop's start, each an `i16`;
+  nothing for a sample with no loop. The length and the loop stay in
+  samples.
+- The clip. `XMC4`: `XMC3` with bit 1 of an instrument's sample flags
+  for a predicted sample. One with none is written as `XMC3` or
+  `XMC2` as before, byte for byte. An older firmware refuses `XMC4`
+  with its pack, as the compatibility rules ask.
+- The player (`core/src/xm.rs`). A channel on a predicted sample
+  keeps two decoded blocks, the one its position is in and the next,
+  and the mixer reads its two samples from them as it reads the flash
+  for the others; a block is decoded, in a loop of its own predictor,
+  when the position enters a new one. The first try decoded a sample
+  each time the position moved and cost 26 and 50 % of the player's
+  time on the host for the two tunes; this costs nothing that the
+  host can measure (-2 and -7 %), the mixer's loop having no branch
+  on how far the position went. At the loop's end the sample after
+  the last is the head's, and the wrap decodes the loop's block from
+  the head's three. Any other move that is not to the next block
+  (9xx, a retrigger, a step of more than a block) decodes forward
+  from the nearest of where it is, the loop's block and the sample's
+  start: exact, and slow for an offset far into a long sample, so
+  the converter does not predict an instrument a module plays with
+  9xx.
+- RAM: 64 bytes of blocks and the three samples a channel, about
+  1.5 KB over twenty channels in the tune's state. To check against
+  the stack (`agents/sizes.md`).
+- The converter (`tools/pack/src/xmc.rs`). `samples=packed` predicts
+  a module's 16-bit samples; `samples=16` keeps them as they are and
+  the default cuts them to 8, both as before. The encoder tries each
+  predictor with the shift its residuals ask for and the ones beside
+  it, a block at a time, with the decoder's own arithmetic on the
+  samples as decoded, so a sample's error is its own residual's
+  rounding and nothing adds up. An instrument played with 9xx
+  anywhere in the module is kept at 16 bits.
+- The tunes. "Starlight & Aurora" for the speaker's pack goes from
+  `samples=16` to `samples=packed`. "Suspended Seconds" has its
+  module's piano at 8 bits and stays so until the user says: at 16
+  bits the module is twice the size, and the buzzer's clip must come
+  out as it is.
+
+**To check.** Host: the modules and clips there are, byte for byte
+(`cargo pack-test`); a predicted sample plays as its decoded samples
+kept at 16 bits, to the sample, through a loop, a 9xx and a
+retrigger; the encoder against the measurements above. On a clock:
+the `clip:` line's time filling and its underruns for "Starlight &
+Aurora" (80 of 111 s at 16 bits on test-clock), and the user's ear.
+
+**Built, 2026-11-22, on the host only; no clock has played it.** As
+designed, with the encoder trying every shift for every predictor (63
+pairs a block; the tune's clip is made in 0.2 s).
+
+- The modules and clips there are come out byte for byte (`cargo
+  pack-test`), and a predicted sample plays as its decoded samples at
+  16 bits, to the sample: through loops that start and end off a
+  block's edge and are shorter than a block, a sample's end, 9xx,
+  E9x, a note cut by another, a pitch that steps over whole blocks,
+  two channels on one sample, a clip cut short.
+- "Starlight & Aurora" for a speaker: 230 794 bytes predicted,
+  363 309 at 16 bits, 221 795 at 8; the speaker's pack 958 749 bytes
+  of 1 179 648 (1 091 264 with the 16 bits). Its mix before the
+  limiter, against the 16 bits': 70.6 dB predicted, 49.5 at 8 bits
+  (the bells are at 8 bits in the module on `next`, so this is the
+  piano's alone); after the limiter 49.3 and 36.6.
+- The stack: 39 208 to 37 528 bytes, 84 bytes a channel of twenty,
+  against `next`'s HEAD built in a worktree.
+- Not done: "Suspended Seconds" (its module's piano is at 8 bits),
+  the bells of "Starlight & Aurora" at 16 bits in the module, which
+  packed would now fit.
+
+**Against CD-XA's ADPCM, 2026-11-22** (the user asked). XA's Level A
+is this scheme: 8-bit residuals, a filter and a range a sound unit.
+It has 28 samples a unit and four filters, none of an order over
+two: nothing, 60/64, 115/64 with -52/64, 98/64 with -55/64 (the
+PlayStation's chip adds 122/64 with -60/64). The same samples through
+the same encoder with each set of parameters, signal over noise:
+
+| | "Suspended Seconds" | "Starlight & Aurora" | bytes a sample |
+| --- | --- | --- | --- |
+| ours: 7 predictors, block 16 | 67.4 dB | 55.9 | 1.0625 |
+| XA Level A: 4 filters, unit 28 | 63.8 | 55.5 | 1.0357 (1.143 in XA's own sound groups, which carry each unit's byte twice or four times over) |
+| XA's filters, block 16 | 64.6 | 55.9 | 1.0625 |
+| our predictors, unit 28 | 66.5 | 55.5 | 1.0357 |
+| XA and the PlayStation's fifth, unit 28 | 64.8 | 55.8 | 1.0357 |
+
+So for the pianos XA's parameters are 3.6 dB worse, 2.7 of it the
+predictors (the parabola through the last three samples is the one a
+piano's blocks choose most, 60 % of them, and XA has nothing like
+it) and 0.9 the longer unit; for the bells, which no predictor here
+says much of, they are the same. XA's layout does not fit either: a
+128-byte sound group for a CD sector, its headers repeated against
+read errors, no loop (the PlayStation's samples loop on a block's
+edge only, and a loop here must keep its length to the sample, which
+is its pitch). A unit of 28 would save 2.7 % of the bytes for 0.9 dB
+and make the channel's two blocks 112 bytes for 64. Nothing reads
+XA's Level A from inside a module's clip, so its being a standard
+buys nothing here. Kept as designed.
+
+**More bits for the predictor, 2026-11-22** (the user asked). The
+same coder with other predictors; signal over noise:
+
+| | "Suspended Seconds" piano | "Starlight & Aurora" piano | its bells | Futurama, 8-bit residuals | 4-bit |
+| --- | --- | --- | --- | --- | --- |
+| the 7 fixed | 67.4 dB | 67.2 | 51.6 | 47.2 | 23.6 |
+| 16 fitted to the sound, kept once | 71.1 | 70.2 | 59.6 | 49.1 | 25.5 |
+| 64 fitted, a byte more a block | 71.4 | 70.3 | 59.5 | 49.2 | 25.6 |
+| 256 fitted, a byte more a block | 71.4 | 70.4 | 59.5 | 49.2 | 25.6 |
+| a block's own three, 3 bytes more a block | 68.9 | 68.3 | 58.1 | 48.8 | 25.1 |
+
+So no more bits a block: a table of 16 fitted to the sound, which the
+block's nibble already names, is the gain, 3 to 4 dB on a piano and 8
+on the bells. Coefficients finer than 64ths gained nothing.
+
+**On recordings, 2026-11-22** (the user: "Find a few 16-bit WAVs
+online and use them for testing"). Futurama's theme as a speaker's
+clip at 16 kHz: 41.8 dB at 8 bits, 47.2 predicted with the 7 fixed
+(49.1 with a fitted table), 46.1 with CD-XA Level A's parameters;
+IMA ADPCM by sox's encoder 15.3, the same predictors with residuals
+of 4 bits 23.6. A dense mix pushed into a limiter is the worst case
+there is for prediction. Nine recordings from Wikimedia Commons, the
+Open Speech Repository and Espressif's samples (a carillon, a drum
+loop, an electric guitar, a music track, an orchestra, an organ, a
+piano, guitar chords, speech), 12 s of each, mono, the peak at
+-0.5 dB: at 16 kHz 30.6 to 43.3 dB at 8 bits, 52.8 to 66.5 with
+XA's parameters, 53.7 to 69.0 with the 7 fixed, 56.8 to 70.9 with a
+fitted table; at 31 250 Hz 61.7 to 74.7, 64.3 to 80.3 and 66.4 to
+81.7. Ours is over XA's on every one.
+
+**A table a segment, 2026-11-22** (the user: "For WAVs we may want to
+store filters per segment"; then "Try longer recordings of at least
+60 seconds"). Nine recordings of 70 to 120 s at 16 kHz (a fiddle,
+jazz, the music track, the orchestra, rock, a song, a symphony's
+movement, a talk, and a medley of four of them, 20 s each), a table
+for the whole against one every 30, 10, 4 and 1 s, residuals of 8
+bits and of 4: every length within 0.4 dB of the one table, the
+medley among them; a table a second is a little worse on the song,
+having less to be fitted to. Sixteen predictors chosen anew every 16
+samples already follow what a recording does. On the way: a table of
+fitted predictors alone was 9 dB worse than the 7 fixed on the rock
+and the medley at 8-bit residuals. At full scale a fitted predictor
+can be further off than the largest residual reaches; with one entry
+kept as "no prediction" it is not. The user: "Keeping one entry as
+'no prediction' is important. Make sure it is not forgot. One table
+per clip, no segments it is."
+
+**The format as it is, built 2026-11-22** (the user: "Implement it as
+a default format to convert to from 16-bit input files (or 16-bit
+samples in case of MODs). Plain 16-bit PCM should be an option for
+the convertor. Resample instruments for Suspended Seconds into
+16-bit, same for Starlight & Aurora if it is not done yet").
+
+- The blocks are as above, and the predictors are a table of 15
+  written once (three coefficients each, `i16` in 64ths, 90 bytes),
+  fitted to the sound by the converter. Predictor 0 is no prediction
+  and is not in the table: the decoder has it whatever the table
+  holds (`adpcm::coefficients`), so it cannot be fitted away or left
+  out, and a test holds it. A coefficient is held to ±1023 as it is
+  read, so three of them times a sample fit 32 bits.
+- The fitting (`tools/pack/src/adpcm.rs`, `train`): each block's sums
+  (its samples' products with the three before each), each block to
+  the predictor that leaves the least of it, "no prediction" among
+  them, each predictor fitted again to its blocks, 25 times, from the
+  seven there were and blocks' own at even steps through the sound.
+  Nothing random, plain `f64` arithmetic: one table for a sound, on
+  the host and in the page. Then every predictor and shift is tried
+  for each block, 144 pairs.
+- A module (`XMC4`): a predicted sample is 8 bytes for the loop, the
+  table, the blocks. It is what a 16-bit sample becomes unless told:
+  `samples=16` keeps it as it is, `samples=8` cuts it.
+- A sound file: `ADP2` is the magic, the rate, the number of
+  samples, the table, the blocks; `PCM2` is the magic, the rate, the
+  samples of 16 bits. Both are `adpcm::Decoder`'s, which the player
+  and the page's preview already took their ADPCM from. `ADP2` is
+  what a sound file becomes unless told (`format=packed`);
+  `format=pcm16` is `PCM2`, `format=adpcm` and `format=pcm` what
+  there was. The magics are of families a firmware up to v0.5 knows
+  and versions it does not, so it refuses them with their pack.
+- A sound file is therefore 17 KB of the pack a second where it was
+  8, and a pack made with the defaults is one a clock at v0.5 or
+  before refuses: the user's choice, and the manual and the page say
+  what to give for such a clock.
+- The tunes: "Suspended Seconds"' piano and all of "Starlight &
+  Aurora"'s instruments are of 16 bits in their modules
+  (`mods/src/`), and `clips/suspended_seconds.xmc` is made again:
+  272 902 bytes for 256 361. Keygen's module has one 16-bit sample of
+  169, which the default would predict; its clip is made with
+  `samples=8` and is what it was, byte for byte.
+
+Measured, host: the two tunes' mixes before the limiter against the
+mix of 16-bit samples are 67.2 dB ("Suspended Seconds"; 43.7 at 8
+bits) and 69.4 ("Starlight & Aurora"; 47.4); their clips for a
+speaker 272 902 and 236 371 bytes (507 181 and 428 359 at 16 bits);
+the buzzer's pack 744 432 bytes and the speaker's 980 867 of
+1 179 648. Futurama as a speaker's clip: 469 948 bytes predicted,
+884 408 at 16 bits, 221 108 as ADPCM, made in 1.1 s. The stack is
+where the first build left it, 37 528. Every test, the firmware's
+build and the lints pass; no clock has played any of it.
+
+Not built: residuals of 4 bits, which with these predictors were 7
+to 8 dB over IMA ADPCM by sox's encoder on Futurama at an eighth more
+bytes. To weigh against the pack maker's own ADPCM encoder first.
+
+**A 16-bit sample that is 8.** Keygen's module has one sample of 16
+bits, its lead: 515 of the tune's 1445 notes, on 67 % of its rows.
+Every one of its 169 samples is a multiple of 256, so it is an 8-bit
+sample in a 16-bit one's place, and the clips made of it at 8 bits, at
+16 and predicted are the same mix to the sample. The converter now
+takes such a sample for what it is (`xmc.rs`: 16 bits with every low
+byte nought are written as 8, whatever `samples=` says), so the
+tune's clip is what it was with no option, and any module's like it
+is one every firmware plays. And the same where the low bytes are all
+one value that is not nought (the user: "The convertor should check
+if the low byte is the same, not only zero. Dropping it would also
+cost nothing"): that is an offset of under an 8-bit step, and it is
+dropped, not rounded.
+
 ## Checks still owed
 
+- 16 bits predicted, on a clock (2026-11-22, on `next`, above): both
+  default packs, the `clip:` line's time filling and its underruns
+  for "Starlight & Aurora" (80 of 111 s at 16 bits on test-clock) and
+  "Suspended Seconds", a sound file made with the defaults, and the
+  user's ear against the 16 bits and against what there was.
 - "Suspended Seconds" (2026-11-19, in `HISTORY.md`): the processor's
   share while it plays, from a clock's serial log.
 

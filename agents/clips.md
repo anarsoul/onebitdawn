@@ -63,13 +63,21 @@ has must come out the same.
 - The buzzer's defaults are 900 Hz twice and 20 dB of drive; a
   speaker's 100 Hz once and 10 dB (`CLIP_HIGHPASS=100 CLIP_DRIVE=10`
   as it was).
-- ADPCM by default (`ADP1`, four bits a sample, 8 KB a second at
-  16 kHz), encoded with the four best paths kept; `format=pcm` is
-  8 bits with dither, behind a `PCM1` header, or bare at 8 kHz. The
+- 16 bits predicted by default (`ADP2`, `format=packed`: a byte a
+  sample and a sixteenth more, 17 KB a second at 16 kHz, with a table
+  of predictors fitted to the sound; `adpcm::predicted`), since
+  2026-11-22. `format=pcm16` is the 16 bits as they are (`PCM2`),
+  `format=adpcm` IMA ADPCM (`ADP1`, four bits a sample, 8 KB a
+  second, encoded with the four best paths kept) and `format=pcm` 8
+  bits with dither, behind a `PCM1` header, or bare at 8 kHz. The
+  first two are clips a firmware up to v0.5 refuses with its pack.
+  Measured on the host (`PLAN.md`): on sixteen recordings, signal
+  over the coding's noise is 49 to 82 dB predicted and 30 to 44 at 8
+  bits; one table a clip, a table a segment of it gained nothing. The
   user's ear on white-clock, 2026-11-16, of ADPCM against PCM: "not
   bad", a difference heard, "way better than PCM 8k", which is the
   same flash; and of the clock's own decoder on a speaker: "audible,
-  but acceptable".
+  but acceptable". Nobody has heard a predicted clip on a clock.
 
 ### Tracker modules (`xmc.rs`, `modxm.rs`, `s3mxm.rs`)
 
@@ -84,6 +92,19 @@ has must come out the same.
   the period each is played at, E0 (the filter) left out and named. A
   ScreamTracker 3 module the same: samples, notes, volumes and the
   effects A, B, C, D, O and T, any other named; no panning.
+- A module's 16-bit samples are kept predicted (`XMC4`: 8 bits a
+  sample and a sixteenth more, behind a table of predictors fitted
+  to each sample; `xmc::predicted`), the default since 2026-11-22.
+  `samples=16` keeps them as they are (`XMC3`, twice the bytes) and
+  `samples=8` cuts them to 8, rounded, which is the clip there always
+  was (`XMC2`). The two tunes made here, their mix before the
+  limiter against the mix of the 16 bits: 67 and 69 dB predicted, 44
+  and 47 at 8 bits (`PLAN.md`). An instrument a module plays with 9xx
+  is kept at 16 bits and not predicted, and the notes say so. The
+  first two are clips a firmware up to v0.5 refuses with its pack.
+  A sample of 16 bits whose low bytes are all the same is one of 8
+  and is written so, that byte dropped, whatever is asked: Keygen's
+  lead is one (its low bytes nought), and its clip is what it was.
 - The bass cut, an instrument's octave (`raise=`) and the limiter are
   the clip's. `knee` is the level the limiter starts at, in 1024s of
   the mix where one voice is 32. The default is 20 dB of drive, for
@@ -189,7 +210,9 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
   `mods/suspended-seconds.xm`, `clips/suspended_seconds.xmc`) is the
   user's own piano tune from his MIDI file, velocities and pedal
   kept, quantized to eighths, the default pack's sixth clip. Its kit
-  is `upright` (VSCO's upright at mf; the user's ear, 2026-11-19);
+  is `upright` (VSCO's upright at mf; the user's ear, 2026-11-19),
+  its samples of 16 bits since 2026-11-22 and kept predicted, so the
+  clip is one for a firmware after v0.5;
   the tune's file has six others that were tried (VSCO's at pp, the
   University of Iowa's Steinway B, lifted ones). A piano's attacks
   click in the limiter, so its clip is made with
@@ -215,8 +238,8 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
   script, the bass with harmonics. Its limiter is
   `knee=64,release=13`, which is the limiter off: at the other tune's
   knee of 12 the four parts are always over the knee and each new peak
-  is flattened at full scale, heard as clicks on a speaker. Its piano's samples are of 16 bits
-  (`samples=16`, a clip for a firmware after v0.5). The hiss under its
+  is flattened at full scale, heard as clicks on a speaker. Its samples are of 16 bits,
+  kept predicted (a clip for a firmware after v0.5). The hiss under its
   quiet piano on a speaker in the buzzer's place is the transistor's
   stage and not the clip: the line output has none (`PLAN.md`). The terms are those of "Suspended Seconds".
 - "Serial Dawn" (`mods/src/serial_dawn.py`, `mods/serial-dawn.xm`)

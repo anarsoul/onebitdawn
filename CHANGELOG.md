@@ -116,12 +116,22 @@ from `http://<ip>/update`; its settings survive the update.
 
 - The web installer asks whether the clock has a buzzer or a speaker
   and writes the default clip pack made for that.
-- A module's samples may be of 16 bits: the pack maker keeps them
-  with `samples=16` (it cuts them to 8 otherwise, as before, now
-  rounded), and the clock plays them. Under a quiet instrument 8 bits
-  hiss. A clip made so is of a new version, which a firmware up to
-  v0.5 refuses with its pack. The speaker's pack has "Starlight &
-  Aurora" with its piano at 16 bits, and is 1091 KB.
+- Sound of 16 bits in about a byte a sample. The pack maker keeps a
+  `.wav` and a module's 16-bit samples as what is left of each sample
+  after the samples before it have predicted it, with predictors it
+  fits to the sound: a byte a sample and a sixteenth more, and for a
+  piano some 25 dB nearer the 16 bits than 8 bits are. It is what both become unless
+  told: `format=pcm16` and `samples=16` keep the 16 bits as they are
+  at twice the bytes, `format=adpcm`, `format=pcm` and `samples=8`
+  make what there was. The new kinds are clips of new versions, which
+  a firmware up to v0.5 refuses with its pack; a `.wav` is now 17 KB
+  of the pack a second and not 8.
+- A module's 16-bit sample that holds 8 bits (its low bytes all the
+  same) is written as 8 bits, the same sound in a clip every firmware
+  plays.
+- "Suspended Seconds" and "Starlight & Aurora" have their instruments
+  at 16 bits and their clips so; the speaker's pack is 958 KB with
+  both.
 - A release has `onebitdawn-licenses-<tag>.txt`: the licences of the
   crates its files are built from, and of the bootloader and the
   radio's libraries in the images. The installer's and the pack

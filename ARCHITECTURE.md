@@ -156,8 +156,9 @@ for the length of a melody on the line output and low otherwise.
   built into the image (`ALARM_CLIP`). The melody table is the note
   melodies and then the clips of whichever is in force
   (`melody::get`). A clip is one of six kinds told apart
-  by their first bytes (`clip::Stream`): raw PCM, the same as IMA
-  ADPCM at four bits a sample (`adpcm`), a ZX Spectrum beeper
+  by their first bytes (`clip::Stream`): raw PCM, sampled sound
+  as IMA ADPCM, as 16 bits predicted in a byte a sample or as 16 bits
+  (`adpcm`), a ZX Spectrum beeper
   bitstream, a FastTracker module (`xm`), a Commodore 64 register log
   played through a software SID (`sid`), a Pro Tracker 3 module played
   through a software AY-3-8910 (`pt3`, `ay`). A beeper clip or a

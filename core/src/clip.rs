@@ -1083,7 +1083,7 @@ mod tests {
 
     #[test]
     fn a_version_no_player_reads_is_not_pcm() {
-        for magic in [b"PCM2", b"ADP0", b"BPR1", b"BPR4", b"XMC1", b"XMC4", b"SID3", b"PT30", b"PT32"] {
+        for magic in [b"PCM3", b"ADP0", b"ADP3", b"BPR1", b"BPR4", b"XMC1", b"XMC5", b"SID3", b"PT30", b"PT32"] {
             let mut clip = magic.to_vec();
             clip.extend_from_slice(&[128; 8000]);
             assert!(is_unsupported(&clip), "{:?}", core::str::from_utf8(magic));
