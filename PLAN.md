@@ -3065,6 +3065,93 @@ buzzer's, posted to `/clips`, on the buzzer):
   it on the beeps), and on the firmware as found, built again from
   `d982662` and sent over the air after the trial: it is in `ota_0`.
 
+## The module player's cost: silent channels, the shaper's division, mixing by blocks — planned 2026-11-23, on `next`, nothing built
+
+The user asked what in the module player could be made noticeably
+cheaper, the code not touched (2026-11-23), and then for the four
+answers here, to be tried one at a time, in this order. Read: the
+player, the measurements of the section above, the disassembly of
+`Tune::next_sample` and `Shaper::run` in the image of `0633232`.
+
+What a clip costs, from the section above's figures with the code in
+RAM (Halftime 24 %, Morning Mood 70.8 %) and the channels counted
+here: some 3.7 % of the processor a sounding channel, about 95
+cycles a mixed sample, and some 9.5 % that is not the channels',
+about 490 cycles an output sample. A reckoning, not a measurement.
+
+Counted on the host, in a copy of `core/` outside the tree with
+counters in `mix` (not in the tree): the channels `mix` does not
+skip, a mixed sample, and how many of those have a gain of 0 and no
+ramp, so add nothing:
+
+| clip | channels mixed | of them silent | why |
+| --- | --- | --- | --- |
+| Morning Mood | 16.4 | 61 % | the envelope at 0 |
+| Morning Mood Chip | 16.4 | 62 % | the envelope at 0 |
+| Mountain King | 10.6 | 52 % | the envelope at 0 |
+| Suspended Seconds | 9.4 | 57 % | the fade at 0 |
+| Crush | 16.2 | 25 % | the fade at 0, a volume of 0 |
+| Children | 13.4 | 8 % | a volume of 0 |
+| Halftime, Keygen, Elysium | 3.6 to 3.9 | 1 to 4 % | |
+
+A looped sample whose envelope or fade has come to nothing is
+`playing` for ever, and the mixer reads its two samples, goes between
+them and multiplies by 0.
+
+1. **A silent channel is only moved on.** In `mix`, a channel with
+   `gain >> 8 == 0` and `ramp == 0` has its `pos` and `frac` moved by
+   its step, its loop wrapped and its end met, and nothing read. It
+   must go on moving: a cell with an instrument and no note starts
+   the envelope again where the sample is. Tried in the copy: the
+   output is the same, sample for sample, for the nine clips of the
+   table. Expected, if what is skipped is two thirds of a channel's
+   cost: 20 to 25 points off Morning Mood, the chip Morning and
+   Mountain King, nothing for the tunes of four channels.
+   - A predicted sample that is heard again decodes on from where it
+     was left: the largest `refill` is 91 blocks at once in Mountain
+     King and 84 in Morning Mood, where it was 2. Blocks decoded in
+     all are 98 to 99 % of what they were, so the gain is the
+     mixer's and not the decoder's. To measure on the board: the
+     clip task's longest fill, and underruns.
+   - To check: `CLIP_PCM_DUMP` of every module clip before and
+     after, byte for byte; a host test of a tune whose channel goes
+     silent and is heard again, at each of the three kinds; `.rwtext`
+     and `.stack`; each clip through on the bench board against the
+     section above's table.
+2. **The shaper without a division of 64 bits.** Every clip has the
+   `wide` flag, so `Shaper::run` calls the ROM's `__divdi3` once an
+   output sample; and the high-pass keeps its coefficients as `i64`,
+   which the compiler multiplies in full, some twenty `mul` a pass.
+   - The division as two of 32 bits: `q = y * drive / gain`, `r` its
+     remainder, the sample `q * STEP + r * STEP / gain`. The same
+     value as now, both divisions truncating, while `y * drive` and
+     `r * STEP` fit an `i32`; a `y` too large for that takes the
+     `i64` way as now.
+   - The coefficients as `i32`, each product an `i32` by an `i32`
+     into an `i64`: `mul` and `mulh`.
+   - What `__divdi3` costs is not measured, so neither is the gain: a
+     few points at most, and they show on Halftime and Keygen, where
+     what is not the channels' is four tenths of the cost.
+   - To check: a host test of the new division against the old over
+     the range, the limiter on and off; the dumps byte for byte.
+3. **The mixer by blocks.** A channel at a time over a run of mixed
+   samples into a buffer of `i32` (32 to 64 of them, in `Tune`), its
+   state in registers, the kind, the loop, the ramp and the block's
+   edge decided outside the loop; a run ends at a tick.
+   `next_sample` hands the buffer out a sample at a time, so nothing
+   above it changes, and the sum is the same sum in another order.
+   The largest of the three: all the code in `.rwtext` written
+   again. To be decided after the first, by what is left to gain.
+4. **`opt-level` 2 or 3 for `core` alone, last of all** (the user,
+   2026-11-23: with a small cache `-Os` usually does better than
+   `-O2`). The image is built at `s`. The code that runs for every
+   sample is in RAM and not read through the cache, so what would
+   grow there is `.rwtext`, out of the main stack; the tick's code
+   and the rest of `core` are in the flash and would grow in the
+   cache's way. The crates in use build at any of these levels
+   (esp-storage 0.10.0's changelog, esp-radio 1.0.0-beta.1's build
+   script, read 2026-11-23).
+
 ## Checks still owed
 
 - 16 bits predicted, on a clock (2026-11-22, on `next`, above; both
