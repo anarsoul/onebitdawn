@@ -111,10 +111,11 @@ the lowest word no longer painted found), the stack at 33 648 bytes:
 | the boot, to "running" | 20 532, the same every boot |
 | running: two clips through, the pages and `/api` round and round, 18 saves, a refused firmware and a refused pack | 17 420 |
 | to the reset after a pack upload, a firmware upload, a `/reload` | 16 224 each |
+| four hours of one boot: eight alarms rung (seven to the time-out), 45 previews of the ten melodies, `/api` every 30 s, the pages every 5 min, 22 saves, MQTT connected | 17 432 |
 
 So 13.1 KB of it is never touched, and the boot is what goes
-deepest; what in the boot does is not looked into. Not seen: a
-ringing alarm, the access point, an hour of it. A build with the
+deepest; what in the boot does is not looked into. Not seen: the
+access point, a clip on the line output. A build with the
 feature: `cargo build --release --features stack-watch`; the lines
 are "stack, the boot", "stack, since the boot" in the heartbeat and
 "stack, at the reset".

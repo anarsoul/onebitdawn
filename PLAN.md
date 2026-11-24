@@ -3039,6 +3039,21 @@ buzzer's, posted to `/clips`, on the buzzer):
     16 224 to the reset after each kind of upload
     (`agents/sizes.md`). 13.1 KB never touched; the two larger
     trials above would have left 10.2 and 7.2.
+  - Four hours of it, 2026-11-23 (the user: "Поставь более длинный
+    прогон (на несколько часов), с установкой будильника, звонками,
+    preview и использованием API"; six were set and the user ended it
+    at four): the bench board, the buzzer's pack, one boot. Every
+    30 s `/api`, every 5 min the pages and a preview of the next of
+    the ten melodies (every other one stopped a minute in), every
+    10 min a save, every 30 min the alarm set two minutes ahead with
+    the next melody. Eight alarms rang, seven to the time-out and one
+    cut by a preview; 37 clips ended with no underrun and no stray
+    position; 589 requests of the script, none failed. The stack:
+    17 432 used at the deepest, 12 bytes more than the short run, and
+    still from the first hour to the last. The heap free 54 080
+    throughout, no self-heal, no watchdog reset, the longest feed gap
+    1261 ms from before the run; one gateway probe of 482 lost
+    (`DestinationHostUnreachable`), the next one through.
   - Owed: a clip heard (the board has no speaker and no buzzer), and
     the same on a clock with a panel.
 - test-clock is dearer than the bare board for the same tune at 8
