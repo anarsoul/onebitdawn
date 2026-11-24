@@ -3069,7 +3069,7 @@ buzzer's, posted to `/clips`, on the buzzer):
   it on the beeps), and on the firmware as found, built again from
   `d982662` and sent over the air after the trial: it is in `ota_0`.
 
-## The module player's cost: silent channels, the shaper's division, mixing by blocks — planned 2026-11-23, on `next`; built and run on the bare bench board the same day, not heard
+## The module player's cost: silent channels, the shaper's division, mixing by blocks — planned 2026-11-23, on `next`; built and run on the bare bench board the same day; heard on test-clock that evening
 
 The user asked what in the module player could be made noticeably
 cheaper, the code not touched (2026-11-23), and then for the four
@@ -3445,12 +3445,57 @@ them and multiplies by 0.
      mix of the six module clips of `clips/`, Children, Crush and
      Elysium, hashed with this and with `2816010`'s `xm.rs`: the
      same.
-   - Not done: a block written straight into the DMA chunk
-     (`next_sample` still hands a sample at a time to
-     `Player::level`), which is what is left of the cost that is
-     not the channels'.
-   - The board was left on this build (`2816010` and the tree, in
-     `ota_0`) with the speaker's pack, its output back on the
+   - A render straight into the chunk, begun 2026-11-23 (the user,
+     after the commit of the above, `0e3fd0f`): `next_sample` hands
+     a sample at a time to `Player::level`, which is called for each
+     and asks each time where in the stream it is and what the body
+     is. The design: `Tune::block` gives what is left of `ready` as
+     a slice, rendering when there is none (empty at the tune's
+     end), and `taken` says how many were used; `fill_samples`,
+     the converter's fill, which is every build's by default, asks
+     for it while the stream is in a tune's body (past the up ramp,
+     the end not known) and writes the slice's samples into the
+     chunk, scaled and cut as `level` and it did, one after the
+     other. The ramps, the end (an empty block: `level` is asked,
+     finds the tune ended and goes on to the down ramp) and every
+     other body go the old way, as do the two modulators' fills.
+     No buffer but `ready`, which there was: the chunk is bytes and
+     a sample in it two of them, so a render cannot be given the
+     chunk as samples without an `unsafe`. To check: a host test of
+     `fill` over a tune in chunks of several lengths, odd ones too,
+     against the samples `next_sample` gives, to the end and its
+     ramp; the sizes; the board as above.
+   - Built and run on `another-bench` 2026-11-23, the same pack and
+     output, nothing heard: `Tune::block` and `taken`, the run in
+     `fill_samples`. Against `0e3fd0f`; no underruns and no stray
+     positions in any:
+
+     | clip | `0e3fd0f` | a run into the chunk |
+     | --- | --- | --- |
+     | Halftime | 7720 of 43 566 ms, 17.7 %; 3429 us | 6802, 15.6 %; 3067 |
+     | Keygen | 9836 of 57 641, 17.1 %; 3387 | 8600, 14.9 %; 3040 |
+     | Morning Mood | 30 512 of 104 041, 29.3 %; 11 132 | 28 176, 27.1 %; 10 699 |
+     | Morning Mood Chip | 24 400 of 104 040, 23.5 %; 8097 | 22 166, 21.3 %; 7671 |
+     | Mountain King | 35 791 of 139 593, 25.6 %; 9873 | 32 724, 23.4 %; 9386 |
+     | Suspended Seconds | 10 354 of 48 043, 21.6 %; 6243 | 9285, 19.3 %; 5786 |
+     | Starlight & Aurora | 33 199 of 111 038, 29.9 %; 8465 | 30 779, 27.7 %; 8080 |
+
+     2.1 to 2.3 points of every clip, some 110 cycles an output
+     sample, twice what the two calls were reckoned at from the
+     code. `.rwtext` 9092 bytes (8840), the main stack 32 472
+     (32 728); its deepest use not measured again.
+   - Heard, 2026-11-23, on test-clock (`0e3fd0f` and this, over
+     USB, the speaker's pack written to `clips`): the user played
+     the default pack and his local one for the speaker, "всё
+     хорошо". That is the first three items heard as well.
+   - Host: the 202 tests of `core/` and both clippys;
+     `a_clip_for_the_converter_is_its_samples` now fills a short
+     tune of the tests' own (`xm::short_tune`) and a clip built in,
+     in chunks of one sample, of 64 and of odd numbers of them,
+     against `next_sample`'s samples scaled, then the ramp down and
+     the rest.
+   - The board was left on the last build (`0e3fd0f` and the tree,
+     in `ota_1`) with the speaker's pack, its output back on the
      buzzer, the alarm and the melody as found.
    - Owed: a clip heard.
 4. **`opt-level` 2 or 3 for `core` alone, last of all** (the user,

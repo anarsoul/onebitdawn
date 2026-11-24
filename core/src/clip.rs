@@ -376,7 +376,29 @@ impl<'a> Player<'a> {
     /// twice an `i16`'s; full scale is `CONVERTER_LEVEL`'s share of the rail.
     #[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"), inline(never))]
     fn fill_samples(&mut self, out: &mut [u8]) {
-        for pair in out.as_chunks_mut::<SAMPLE_BYTES>().0 {
+        let pairs = out.as_chunks_mut::<SAMPLE_BYTES>().0;
+        let mut at = 0;
+        while at < pairs.len() {
+            // In a module's body, what it has rendered, a run at a
+            // time: `level`'s arithmetic with no call a sample. Its
+            // end is an empty block, and `level`'s to find.
+            if self.next >= RAMP
+                && self.len.is_none()
+                && let Body::Tune(tune) = &mut self.body
+            {
+                let block = tune.block();
+                let n = block.len().min(pairs.len() - at);
+                if n != 0 {
+                    for (pair, &s) in pairs[at..at + n].iter_mut().zip(block) {
+                        let level = s as i32 * self.step / xm::STEP;
+                        *pair = ((level / 2).clamp(SAMPLE_REST as i32, i16::MAX as i32) as i16).to_le_bytes();
+                    }
+                    tune.taken(n);
+                    self.next += n;
+                    at += n;
+                    continue;
+                }
+            }
             let sample = match self.level(self.next) {
                 Some(level) => {
                     self.next += 1;
@@ -384,7 +406,8 @@ impl<'a> Player<'a> {
                 }
                 None => SAMPLE_REST,
             };
-            *pair = sample.to_le_bytes();
+            pairs[at] = sample.to_le_bytes();
+            at += 1;
         }
     }
 
@@ -1593,6 +1616,33 @@ mod tests {
             let mut tune = xm::Tune::new(data);
             for (i, pair) in out.as_chunks::<2>().0[RAMP - 1..].iter().enumerate() {
                 assert_eq!(i16::from_le_bytes(*pair) as i32, tune.next_sample().unwrap() as i32 * CONVERTER_LEVEL / xm::STEP / 2, "sample {i}");
+            }
+        }
+        // And a module is the same stream however the chunks fall: its
+        // samples a render's run at a time, the ramps and the end a
+        // sample at a time.
+        let short = xm::short_tune();
+        let tunes = core::iter::once(&short[..]).chain(crate::melody::CLIP_DATA.iter().copied().filter(|d| xm::is_tune(d)).take(1));
+        for data in tunes {
+            let mut tune = xm::Tune::new(data);
+            let body: Vec<i32> = core::iter::from_fn(|| tune.next_sample()).map(|s| s as i32 * CONVERTER_LEVEL / xm::STEP / 2).collect();
+            assert!(body.len() > 1000);
+            for sizes in [&[1usize][..], &[64], &[3, 7, 1, 15, 9, 61]] {
+                let mut p = Player::tune(xm::Tune::new(data)).for_converter(Some(128));
+                let mut got = Vec::new();
+                for &size in sizes.iter().cycle() {
+                    if p.done() {
+                        break;
+                    }
+                    let mut out = vec![0u8; size * BYTES_PER_SAMPLE];
+                    p.fill(&mut out);
+                    got.extend(out.as_chunks::<2>().0.iter().map(|p| i16::from_le_bytes(*p) as i32));
+                }
+                assert!(got[RAMP - 1..RAMP - 1 + body.len()] == body[..], "chunks of {sizes:?}");
+                // Then down to the rail, and the rest.
+                let after = &got[RAMP - 1 + body.len()..];
+                assert!(after.len() >= RAMP && after[..RAMP].windows(2).all(|w| w[0] > w[1]), "chunks of {sizes:?}");
+                assert!(after[RAMP..].iter().all(|&s| s == SAMPLE_REST as i32));
             }
         }
         // So do ADPCM's: sixteen bits, not through PCM's eight.

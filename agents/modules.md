@@ -424,7 +424,11 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   all that differs; its position, fraction, gain and ramp are locals
   for the run. The sums are `render`'s local, 64 bytes; the output
   samples of a render (the groups' means through the shaper, in
-  order) wait in `Tune::ready` for `next_sample`. `Tune::mix_one` is
+  order) wait in `Tune::ready` for `next_sample`, or for
+  `block`, which gives them as a slice (`taken` says how many were
+  used): `Player::fill_samples`, the converter's fill, writes a
+  module's body from it a run at a time, with no call a sample, and
+  leaves the ramps and the end to `level`. `Tune::mix_one` is
   the mixer that went a sample at a time over the channels, kept for
   the tests: `mix` must give its sums, and does for the test modules
   and the clips built in.

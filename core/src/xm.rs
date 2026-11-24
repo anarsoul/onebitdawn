@@ -765,6 +765,25 @@ impl<'a> Tune<'a> {
         Some(self.ready[self.given as usize - 1])
     }
 
+    /// The output samples rendered and not yet given out, a render's
+    /// worth made when there are none: empty when the tune has ended.
+    /// `taken` says how many of them were used. For a caller that
+    /// writes a run of them where they go (`clip::Player`), with no
+    /// call a sample.
+    #[inline(always)]
+    pub fn block(&mut self) -> &[i16] {
+        if self.given == self.have {
+            self.render();
+        }
+        &self.ready[self.given as usize..self.have as usize]
+    }
+
+    /// The first `n` samples of `block` have been used.
+    #[inline(always)]
+    pub fn taken(&mut self, n: usize) {
+        self.given += n as u8;
+    }
+
     /// The next `RUN` mixed samples, or what there is of them before
     /// the tune ends, into `acc`: how many. In runs, each to the end
     /// of `acc` or of the tick, whichever is nearer, so a tick is at
@@ -1347,9 +1366,20 @@ pub fn raw_mix(data: &[u8]) -> Vec<i16> {
     }
 }
 
+/// A short tune that ends, for another module's tests.
+#[cfg(test)]
+pub(crate) fn short_tune() -> Vec<u8> {
+    tests::short_tune()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two notes of a square wave, eight rows.
+    pub(super) fn short_tune() -> Vec<u8> {
+        module(1, 6, 125, &[0], &[pattern(8, &[(0, (C4, 1, 0, 0, 0)), (4, (C4 + 7, 1, 0, 0, 0))])], &[square(32)])
+    }
 
     /// One instrument of a test module.
     #[derive(Clone)]
