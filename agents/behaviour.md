@@ -602,8 +602,9 @@ switches back. A power cut clears the count.
    three manifests for ESP Web Tools, `manifest.json` with the buzzer's
    pack, `manifest-speaker.json` with the speaker's and
    `manifest-amplifier.json` with the amplifier's (the installer's
-   three sounds; for a release with no amplifier's pack among its
-   assets the page takes the speaker's), have five parts each: the bootloader and the
+   three sounds; a drop-down box; for a release with no amplifier's pack among its
+   assets, v0.5 for one, that option is disabled, and a choice of it
+   becomes the speaker's), have five parts each: the bootloader and the
    partition table cut from the merged image, an erased `otadata`, the
    OTA image at 0x20000 and the clip pack at 0x2E0000. The
    pack replaces one the clock had; `nvs` is left alone, so the

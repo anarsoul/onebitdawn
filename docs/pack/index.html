@@ -82,7 +82,16 @@
     }
     .steps h3 { font-size: 1rem; margin: 0.1rem 0 0.2rem; }
     .steps p { margin: 0.3rem 0; }
-    .steps select { width: auto; min-width: 11rem; max-width: 100%; padding: 0.45rem 0.6rem; }
+    .steps select { width: auto; min-width: 11rem; max-width: 100%; padding: 0.45rem 2.2rem 0.45rem 0.6rem; }
+    /* The box's own arrow, which a browser puts where it likes (on
+       the border on macOS) once the box has a border of its own: a
+       drawn one, a fixed way in from the edge, in a grey both themes
+       can show. */
+    select {
+      appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23888' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 0.75rem center; background-size: 0.7rem;
+    }
     .steps .pick { margin: 0.5rem 0 0.2rem; }
     .pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1.2rem; }
     .pick label { display: inline-flex; align-items: center; gap: 0.35rem; }
@@ -148,10 +157,12 @@
     <ol class="steps">
       <li>
         <h3><label for="firmware">Choose the clock's firmware</label></h3>
-        <select id="firmware">
-          <option value="5">v0.5</option>
-          <option value="6" selected>v0.6 or later</option>
-        </select>
+        <div class="pick">
+          <select id="firmware">
+            <option value="5">v0.5</option>
+            <option value="6" selected>v0.6 or later</option>
+          </select>
+        </div>
         <p class="small">
           The clock's own page says which, under its forms. A clock at v0.5 plays samples of 8 bits only, and refuses a pack with a clip of 16;
           a pack made for v0.5 plays on every later firmware.

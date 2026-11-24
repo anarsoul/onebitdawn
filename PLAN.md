@@ -3690,6 +3690,27 @@ samples flat in all. So the amplifier's pack has another
 Synchronization now, quieter than the speaker's by its drive and its
 knee; the speaker's pack is what it was.
 
+**A release with no amplifier's pack, 2026-11-24** (the user: v0.5
+will have none, and the installer must not break). The page already
+gave an amplifier the speaker's manifest for a release without the
+pack among its assets; it now says so, in a notice. Run in headless
+Chromium with GitHub's answer stubbed, a v0.6 with the pack and a
+v0.5 without: each of the three sounds aims the button at its
+manifest for v0.6, and for v0.5 the amplifier at
+`manifest-speaker.json` with the notice shown, also when the release
+is changed with the amplifier already chosen. With GitHub not
+answering, the page installs `latest/`, whose `manifest-amplifier.json`
+the same release run writes that deploys the page.
+
+Then, the same day, the user: the sound a drop-down box and not
+radio buttons, and the amplifier's option not to be chosen where the
+release has no such pack. So the notice is gone: the option is
+disabled and says "(not in this release)", and a choice of it made
+for another release becomes the speaker's. Headless Chromium again,
+the same stub: v0.6 takes the amplifier's manifest, the change to
+v0.5 disables the option and aims at `manifest-speaker.json`, back at
+v0.6 the option is there again (the choice stays the speaker's).
+
 The user, of the pages and the page's player, 2026-11-24: "Выглядит
 и звучит хорошо".
 

@@ -78,11 +78,17 @@
     .small, .steps .small { font-size: 0.9rem; color: var(--muted); }
     select {
       font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
-      border-radius: 8px; padding: 0.45rem 0.6rem; min-width: 11rem; max-width: 100%;
+      border-radius: 8px; padding: 0.45rem 2.2rem 0.45rem 0.6rem; min-width: 11rem; max-width: 100%;
     }
-    .sound { display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem; margin: 0.5rem 0 0.2rem; }
-    .sound label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
-    .sound input { accent-color: var(--accent); margin: 0; }
+    /* The box's own arrow, which a browser puts where it likes (on
+       the border on macOS) once the box has a border of its own: a
+       drawn one, a fixed way in from the edge, in a grey both themes
+       can show. */
+    select {
+      appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23888' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 0.75rem center; background-size: 0.7rem;
+    }
     .pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.9rem; margin: 0.5rem 0 0.2rem; }
     esp-web-install-button { display: block; margin: 0.6rem 0 0.4rem; }
     esp-web-install-button:not(:defined) > * { display: none; }
@@ -150,11 +156,13 @@
         </div>
       </li>
       <li>
-        <h3 id="soundlabel">Choose the sound</h3>
-        <div class="sound" role="radiogroup" aria-labelledby="soundlabel">
-          <label><input type="radio" name="sound" value="buzzer" checked> Buzzer</label>
-          <label><input type="radio" name="sound" value="speaker"> Speaker in the buzzer's place</label>
-          <label><input type="radio" name="sound" value="amplifier"> Speaker on an amplifier</label>
+        <h3><label for="sound">Choose the sound</label></h3>
+        <div class="pick">
+          <select id="sound">
+            <option value="buzzer" selected>Buzzer</option>
+            <option value="speaker">Speaker in the buzzer's place</option>
+            <option value="amplifier">Speaker on an amplifier</option>
+          </select>
         </div>
         <p class="small">
           What the alarm's clips are made for: the kit's buzzer, or a speaker, in the buzzer's place
@@ -240,7 +248,7 @@
     var select = document.getElementById('release'), button = document.getElementById('install');
     var about = document.getElementById('about'), ota = document.getElementById('ota');
     var otaname = document.getElementById('otaname');
-    var sounds = document.querySelectorAll('input[name=sound]');
+    var sound = document.getElementById('sound');
     var releases = {};
     // Not offered: the releases under the project's old name, which
     // write a partition table with no room for the clip pack and carry
@@ -249,14 +257,20 @@
 
     // A release has three manifests, which differ in the clip pack:
     // the buzzer's, the speaker's and the amplifier's. A release
-    // before there was the last (its assets say) gives an amplifier
-    // the speaker's. The line output's notice is the amplifier's.
+    // from before there was the last (its assets say) cannot be asked
+    // for it: the option is there and not to be chosen, and a choice
+    // of it made for another release becomes the speaker's. The line
+    // output's notice is the amplifier's.
+    var AMPLIFIER = 'Speaker on an amplifier';
     function aim() {
-      var sound = document.querySelector('input[name=sound]:checked').value;
-      document.getElementById('lineout').hidden = sound !== 'amplifier';
       var r = releases[select.value];
-      if (sound === 'amplifier' && r && !(r.assets || []).some(function (a) { return /-clips-amplifier-/.test(a.name); })) sound = 'speaker';
-      button.setAttribute('manifest', select.value + (sound === 'buzzer' ? '/manifest.json' : '/manifest-' + sound + '.json'));
+      var none = !!r && !(r.assets || []).some(function (a) { return /-clips-amplifier-/.test(a.name); });
+      var amplifier = sound.querySelector('option[value=amplifier]');
+      amplifier.disabled = none;
+      amplifier.textContent = none ? AMPLIFIER + ' (not in this release)' : AMPLIFIER;
+      if (none && sound.value === 'amplifier') sound.value = 'speaker';
+      document.getElementById('lineout').hidden = sound.value !== 'amplifier';
+      button.setAttribute('manifest', select.value + (sound.value === 'buzzer' ? '/manifest.json' : '/manifest-' + sound.value + '.json'));
     }
 
     function show(tag) {
@@ -280,7 +294,7 @@
     }
 
     select.addEventListener('change', function () { show(this.value); });
-    sounds.forEach(function (i) { i.addEventListener('change', aim); });
+    sound.addEventListener('change', aim);
     // A reload may bring the page back with the speaker still chosen.
     aim();
 
