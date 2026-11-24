@@ -598,6 +598,14 @@ feeder's), all with the token or a PIN, and a build with
 which sent to `/ota` is the update that hangs and is rolled back.
 `cargo build --release --features bench-hang`.
 
+**`src/stack.rs`**, only with the `stack-watch` feature: how deep the
+main stack has been. `paint` marks what is not in use (from `main` as
+it starts, and again once the tasks are spawned, after the boot's
+figure is logged), `Report` finds the lowest word no longer marked:
+in the heartbeat ("stack, since the boot") and before a deliberate
+reset (`heal::reboot`, "stack, at the reset"), which an upload ends
+in. The main stack only; the figures are in `agents/sizes.md`.
+
 **`src/heal.rs`**: the deliberate resets.
 
 - `reboot` says the MQTT goodbye, blanks the panel through

@@ -88,6 +88,8 @@ fn display_wire(pin: impl esp_hal::gpio::Pin + 'static) -> Flex<'static> {
 )]
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
+    #[cfg(feature = "stack-watch")]
+    onebitdawn::stack::paint();
     esp_println::logger::init_logger_from_env();
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
@@ -292,6 +294,13 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     info!("running");
+    // The boot's depth, then the stack painted again: the heartbeat's
+    // is what the running firmware goes to.
+    #[cfg(feature = "stack-watch")]
+    {
+        info!("stack, the boot: {}", onebitdawn::stack::Report);
+        onebitdawn::stack::paint();
+    }
     loop {
         Timer::after(Duration::from_secs(60)).await;
         let (sent, failed, streak) = net::probe_stats();
@@ -310,5 +319,7 @@ async fn main(spawner: Spawner) -> ! {
             mqtt::Report
         );
         http::log_status();
+        #[cfg(feature = "stack-watch")]
+        info!("stack, since the boot: {}", onebitdawn::stack::Report);
     }
 }

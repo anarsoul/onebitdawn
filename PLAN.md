@@ -3031,6 +3031,14 @@ buzzer's, posted to `/clips`, on the buzzer):
     of 104 042 ms, the chip Morning 65 201 of 104 045, as the trial
     had them, and Synchronization, the PT3 through its function,
     plays. How much of that stack is used is still not measured.
+  - The main stack's use measured, 2026-11-23 (the user: "Как будем
+    замерять использование стека?", and a feature that can be left
+    out): `src/stack.rs`, the `stack-watch` feature, paints the stack
+    and finds the lowest word no longer painted. On the bench board,
+    of 33 648 bytes: 20 532 in the boot, 17 420 running under load,
+    16 224 to the reset after each kind of upload
+    (`agents/sizes.md`). 13.1 KB never touched; the two larger
+    trials above would have left 10.2 and 7.2.
   - Owed: a clip heard (the board has no speaker and no buzzer), and
     the same on a clock with a panel.
 - test-clock is dearer than the bare board for the same tune at 8

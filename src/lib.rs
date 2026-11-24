@@ -24,5 +24,7 @@ pub mod pack;
 pub mod ring;
 pub mod scan;
 pub mod sensors;
+#[cfg(feature = "stack-watch")]
+pub mod stack;
 pub mod storage;
 pub mod watchdog;

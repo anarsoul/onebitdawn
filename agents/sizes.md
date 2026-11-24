@@ -102,6 +102,23 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-23 | 36.6 → 36.3 KB | on `next`: a channel's `held` and `words`, the slices of its sample, 16 bytes of twenty (37 440 → 37 120) |
 | 2026-11-23 | 36.3 → 32.9 KB | on `next`: the module player's per-sample code in RAM, 3.5 KB of `.rwtext` (37 120 → 33 648) |
 
+How much of it is used, measured 2026-11-23 on the bare bench board
+with the `stack-watch` feature (`src/stack.rs`: the stack painted,
+the lowest word no longer painted found), the stack at 33 648 bytes:
+
+| when | used at the deepest |
+| --- | --- |
+| the boot, to "running" | 20 532, the same every boot |
+| running: two clips through, the pages and `/api` round and round, 18 saves, a refused firmware and a refused pack | 17 420 |
+| to the reset after a pack upload, a firmware upload, a `/reload` | 16 224 each |
+
+So 13.1 KB of it is never touched, and the boot is what goes
+deepest; what in the boot does is not looked into. Not seen: a
+ringing alarm, the access point, an hour of it. A build with the
+feature: `cargo build --release --features stack-watch`; the lines
+are "stack, the boot", "stack, since the boot" in the heartbeat and
+"stack, at the reset".
+
 What takes it:
 
 - `ota.rs` holds 11 KB of buffers.

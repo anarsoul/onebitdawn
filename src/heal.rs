@@ -72,6 +72,9 @@ pub async fn reboot() -> ! {
     mqtt::goodbye().await;
     scan::halt().await;
     clock::carry_time();
+    // What led here, an upload above all, is not in a heartbeat.
+    #[cfg(feature = "stack-watch")]
+    log::info!("stack, at the reset: {}", crate::stack::Report);
     // Let the last log line leave the serial port.
     Timer::after(clock::RESET_PAUSE).await;
     esp_hal::system::software_reset()

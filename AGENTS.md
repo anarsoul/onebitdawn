@@ -137,7 +137,9 @@ timezone and the broker are seeds: a stored record wins over a later
 build's constants. `ESP_LOG` on the command line overrides the
 config's `info`. The `bench-hang` feature (never in a release) adds
 `POST /hang/<kind>` and reads `BENCH_HANG=boot` in `src/watchdog.rs`,
-for trying the watchdog on the bench (`agents/modules.md`).
+for trying the watchdog on the bench (`agents/modules.md`). The
+`stack-watch` feature logs how deep the main stack has been
+(`src/stack.rs`, `agents/sizes.md`).
 
 `rust-version` must stay at 1.95 or higher or cargo's MSRV-aware
 resolver picks an esp-rom-sys that esp-storage cannot build with.
@@ -242,6 +244,7 @@ its `#[cfg(test)] mod tests`. The full account of each file is
 | `src/carry.rs`, `src/clock.rs` | the RTC-RAM record; the time and its carry |
 | `src/ota.rs`, `src/pack.rs` | the firmware upload and rollback; the `clips` partition and its upload |
 | `src/sensors.rs`, `src/buttons.rs` | the ADC task; the GPIO task |
+| `src/stack.rs` | the main stack's deepest use, for the log (the `stack-watch` feature) |
 | `src/tz.js` | the page's browser-zone button, served as `/tz.js` |
 | `tools/pack/src/` | the pack maker: a converter a kind (`xmc`, `modxm`, `s3mxm`, `sidc`, `pt3c`, `wav`, `adpcm`), `pack` the writer, `main` the command, `web` and `wasm` the page's side |
 | `docs/index.html`, `docs/pack/index.html` | the web installer; the pack maker's page |

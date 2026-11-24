@@ -110,3 +110,6 @@ strip    = true
 # Hangs on purpose, for trying the watchdog on the bench (`watchdog::bench`):
 # `POST /hang/<kind>` and `BENCH_HANG=boot`. Never in a release.
 bench-hang = []
+# The main stack's deepest use in the heartbeat (`src/stack.rs`): the
+# stack is painted at the start and looked at once a minute.
+stack-watch = []
