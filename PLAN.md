@@ -3719,6 +3719,57 @@ workflow run, which only a tag does. What would be louder with no flat tops at a
 that sees the peak coming, which is the firmware's and a new clip
 version.
 
+## A review's two findings in the pack maker: the fitted knee at a drive over 127, and a module no offset mends — fixed 2026-11-24, on `next`, on the host
+
+A review of the commits of 2026-11-23 and 24 (`bug-report.md`, the
+user's, not in the repository) had two findings, both of `tools/pack`
+and both reproduced here on the host before anything was changed.
+Nothing of the firmware, of `core/` or of a clip's or a pack's format
+is touched, and no clip in the repository changes.
+
+**The fitted knee did not count the drive.** `xmc::fit_knee` put the
+knee over the levels of the samples the limiter flattens, which is
+right at a drive of 127 alone: under the knee a sample comes out as
+its level times the drive over the knee, so it is at full scale when
+that is 127, and a higher drive has samples under the knee flat too.
+Keygen with `knee=auto,tops=0` for a speaker, 1 800 000 samples, the
+note saying none flat each time:
+
+| drive | knee before | at full scale before | knee now | at full scale now |
+| --- | --- | --- | --- | --- |
+| 100 | 1 | 0 | 1 | 0 |
+| 127 | 98 | 0 | 98 | 0 |
+| 128 | 98 | 1 | 99 | 0 |
+| 160 | 98 | 103 | 124 | 0 |
+| 255 | 98 | 8598 | 197 | 0 |
+
+Now a sample the shaper flattened with the knee at its least is
+counted flat at a knee if its level times the drive is 127 knees
+still, and the knee goes over all but the allowed of those. At 127
+and under, the default and every clip made so far, the arithmetic is
+what it was. Where the knee would pass 255 it stays there and the
+note says the budget is not kept ("which no knee keeps to at this
+drive: a lower one would"): the chip Mountain King at `drive=255`,
+whose mix peaks at 143, has 9 samples flat with nothing allowed.
+`pt3c::fit_knee` tries its fifteen steps with the clip's own limiter
+and had no such fault. The test `the_knee_fitted_counts_the_drive`
+plays each clip through `xm::Tune` and holds the count to the note's.
+
+**A module with 16-bit samples at even offsets and at odd ones.**
+`pack::placed` puts a byte before a clip `xm::is_misplaced` names,
+which mends a clip whose samples are all at odd offsets and not one
+with both; the clock skips such a clip, and `build` took any pack the
+clock's parser passes, so the pack came out with a clip the clock
+would not list. This project's converter writes no such clip (each
+sample is at an even offset), so only a `.xmc` from elsewhere, or a
+damaged one, is. `convert_for` refuses it now, naming the file;
+`build` refuses it by the clip's name, for a clip that comes another
+way, and after the parse refuses any pack with a clip skipped. Test:
+`pack::tests::a_module_no_offset_mends_is_refused`, the chip Morning
+with its first sample's offset a byte on.
+
+Run: `cargo pack-test`, and clippy over `onebitdawn-pack`.
+
 ## Checks still owed
 
 - 16 bits predicted, on a clock (2026-11-22, on `next`, above; both

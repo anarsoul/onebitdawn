@@ -137,7 +137,9 @@ has must come out the same.
   at full scale, 60 unless given (`xmc::fit_knee`, `xmc::TOPS`): the
   tune is played on the host with the limiter off, the clip's own
   release decides which samples would be flat, and the knee goes over
-  all but the allowed of them. It gives the two piano tunes the knees
+  all but the allowed of them, as the drive has them: a `drive` over
+  127 has samples under the knee at full scale too, and where the knee
+  would pass 255 the note says the budget is not kept. It gives the two piano tunes the knees
   the ear chose (46 and 14 against 48 and 12); the other modules it
   leaves 5 to 7 dB quieter than the speaker's default, whose
   flattening is clicks too, heard on headphones and covered by the

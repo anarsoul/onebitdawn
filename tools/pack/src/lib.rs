@@ -396,6 +396,11 @@ pub fn convert_for(source: &Source, target: Target) -> Result<Clip, String> {
         let again = if kind == Kind::Clip { "; convert its source again" } else { "" };
         return Err(format!("{file}: a clip of the version {magic}, which a clock at {} does not play{again}", firmware.text()));
     }
+    // A sample of 16 bits at an odd offset a pack mends by a byte
+    // before the clip; some at odd ones and some at even it cannot.
+    if onebitdawn_core::xm::is_misplaced(&data, 0) && onebitdawn_core::xm::is_misplaced(&data, 1) {
+        return Err(format!("{file}: a module with samples of 16 bits at even offsets and at odd ones, which the clock does not play; convert its source again"));
+    }
     if onebitdawn_core::clip::duration_ms(&data) < pack::CLIP_MIN_MS {
         return Err(format!("{file}: less than a second of sound, which the clock takes for no clip"));
     }

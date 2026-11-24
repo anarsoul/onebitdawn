@@ -432,6 +432,43 @@ fn a_sound_file_is_a_clip_at_the_clips_rate() {
     assert!(convert(&cut, Output::Buzzer).is_err());
 }
 
+/// A drive over 127 has samples under the knee at full scale too, and
+/// the knee fitted is over those as well: what the note says the
+/// limiter flattens is what the clock's player flattens, and within
+/// what was allowed wherever a knee can keep to it.
+#[test]
+fn the_knee_fitted_counts_the_drive() {
+    let flat = |clip: &onebitdawn_pack::Clip| {
+        let mut tune = onebitdawn_core::xm::Tune::new(&clip.data);
+        std::iter::from_fn(|| tune.next_sample()).filter(|s| s.unsigned_abs() >= 127 * 256).count()
+    };
+    let said = |clip: &onebitdawn_pack::Clip| -> usize {
+        let note = &clip.notes[0];
+        let from = note.find("flattens ").unwrap() + 9;
+        note[from..].split(' ').next().unwrap().parse().unwrap()
+    };
+    let mut knees = Vec::new();
+    for drive in [100, 127, 128, 160, 255] {
+        let clip = made(&format!("mods/Orion-Nero6.3.0.2.xm:name=keygen,knee=auto,tops=0,drive={drive}"), Output::Speaker);
+        assert_eq!((flat(&clip), said(&clip)), (0, 0), "drive {drive}: {}", clip.notes[0]);
+        assert!(!clip.notes[0].contains("no knee"), "{}", clip.notes[0]);
+        knees.push(clip.data[29]);
+    }
+    // Under 127 nothing is flat at any knee; over it the knee goes up by the drive.
+    assert_eq!(knees, [1, 98, 99, 124, 197]);
+    // A budget, with the drive at its most: the count is the player's.
+    let clip = made("mods/Orion-Nero6.3.0.2.xm:name=keygen,knee=auto,drive=255", Output::Speaker);
+    assert_eq!(flat(&clip), said(&clip), "{}", clip.notes[0]);
+    // 57.6 s of it at 60 a minute.
+    assert!(said(&clip) <= 57, "{}", clip.notes[0]);
+    // Where the knee would be over 255 the note says the budget is not kept.
+    // (the chip Mountain King's mix peaks at 143, which that drive
+    // has at 288).
+    let clip = made("mods/grieg-mountain-king-chip.xm:knee=auto,tops=0,drive=255", Output::Speaker);
+    assert_eq!((clip.data[29], flat(&clip), said(&clip)), (255, 9, 9), "{}", clip.notes[0]);
+    assert!(clip.notes[0].contains("which no knee keeps to at this drive"), "{}", clip.notes[0]);
+}
+
 /// `knee=auto` finds the knees the two piano tunes were given by ear
 /// on a speaker, or next to them: 48 was "good" for Starlight & Aurora
 /// and 12 for Suspended Seconds, both with the limiter letting go over

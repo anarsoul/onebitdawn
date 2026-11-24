@@ -67,6 +67,11 @@ pub fn build(clips: &[Clip]) -> Result<Vec<u8>, String> {
     let mut at = HEADER_LEN + clips.len() * ENTRY_LEN;
     for clip in clips {
         at = placed(clip, at);
+        // `convert_for`'s to say of a file; a clip from elsewhere is
+        // caught here, since the clock would only skip it.
+        if onebitdawn_core::xm::is_misplaced(&clip.data, at) {
+            return Err(format!("{}: a module with samples of 16 bits at even offsets and at odd ones, which the clock does not play", clip.name));
+        }
         out.extend_from_slice(&(at as u32).to_le_bytes());
         out.extend_from_slice(&(clip.data.len() as u32).to_le_bytes());
         out.extend_from_slice(&[clip.loops as u8, 0, 0, 0]);
@@ -87,9 +92,12 @@ pub fn build(clips: &[Clip]) -> Result<Vec<u8>, String> {
     }
     let hash = Sha256::digest(&out);
     out.extend_from_slice(&hash);
-    // The clock's own reading of it.
+    // The clock's own reading of it, which must be of every clip: a
+    // pack with one the clock skips passes its check, and is not what
+    // was asked for.
     match Pack::parse(&out) {
-        Ok(_) => Ok(out),
+        Ok(pack) if pack.skipped() == 0 => Ok(out),
+        Ok(pack) => Err(format!("the clock would skip {} of the pack's clips", pack.skipped())),
         Err(e) => Err(format!("the pack does not pass the clock's check: {}", e.text())),
     }
 }
@@ -149,6 +157,24 @@ mod tests {
         moved.extend_from_slice(&hash);
         let pack = Pack::parse(&moved).unwrap();
         assert_eq!((pack.count(), pack.skipped()), (2, 1));
+    }
+
+    #[test]
+    fn a_module_no_offset_mends_is_refused() {
+        // The chip Morning with its first sample a byte on: the others
+        // are at even offsets still, so no place in a pack has them all
+        // at even addresses, and the clock would skip the clip.
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../clips/");
+        let mut data = std::fs::read(format!("{dir}morning_mood_chip.xmc")).unwrap();
+        let entry = 32 + data[7] as usize + 6 * data[8] as usize;
+        data[entry] += 1;
+        assert!(onebitdawn_core::xm::is_misplaced(&data, 0) && onebitdawn_core::xm::is_misplaced(&data, 1));
+        let source = crate::Source { file: "morning_mood_chip.xmc".into(), data: data.clone(), ..Default::default() };
+        let refused = crate::convert_for(&source, Default::default()).unwrap_err();
+        assert!(refused.starts_with("morning_mood_chip.xmc: ") && refused.contains("at even offsets and at odd ones"), "{refused}");
+        // And so is the clip given to `build` by another way.
+        let refused = build(&[clip("fine", false), Clip { data, ..clip("mixed", true) }]).unwrap_err();
+        assert!(refused.starts_with("mixed: ") && refused.contains("at even offsets and at odd ones"), "{refused}");
     }
 
     #[test]

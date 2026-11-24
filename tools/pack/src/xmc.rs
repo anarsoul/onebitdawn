@@ -304,7 +304,14 @@ const KNEE_AT: usize = 29;
 /// after the high-pass, an eighth of it), the clip's own shaper is run
 /// over that with the knee at its least, and the knee is put over all
 /// but `tops` a minute of the levels it flattened.
-fn fit_knee(clip: &[u8], tops: u32) -> (u8, i32, usize) {
+///
+/// Over them as the drive has them: under the knee a sample comes out
+/// as its level times the drive over the knee, at full scale when
+/// that is 127, so a drive over 127 has the samples within its reach
+/// of the knee flat as well and the knee goes that much higher. Where
+/// it would go over 255 it stays there, and the count, which is then
+/// over what `allowed` (the last of the four) is, says so.
+fn fit_knee(clip: &[u8], tops: u32) -> (u8, i32, usize, usize) {
     let mut plain = clip.to_vec();
     (plain[DRIVE_AT], plain[KNEE_AT], plain[FLAGS_AT]) = (127, 255, plain[FLAGS_AT] | 2);
     let mut tune = onebitdawn_core::xm::Tune::new(&plain);
@@ -329,12 +336,18 @@ fn fit_knee(clip: &[u8], tops: u32) -> (u8, i32, usize) {
     flat.sort_unstable();
     let allowed = (count * tops as u64 / (rate as u64 * 60)) as usize;
     // The knee over the highest of the levels that may not be flat.
+    // A sample the shaper flattened with the knee at its least is flat
+    // at a knee too if its level times the drive is 127 knees still.
+    let drive = match clip[DRIVE_AT] {
+        0 => 127,
+        d => d as i64,
+    };
     let knee = match flat.len().checked_sub(allowed + 1) {
-        Some(at) => (flat[at] / 1024 + 1).clamp(1, 255),
+        Some(at) => (flat[at] as i64 * drive / (127 * 1024) + 1).clamp(1, 255),
         None => 1,
     };
-    let flattened = flat.iter().filter(|&&level| level >= knee * 1024).count();
-    (knee as u8, peak, flattened)
+    let flattened = flat.iter().filter(|&&level| level as i64 * drive >= 127 * 1024 * knee).count();
+    (knee as u8, peak, flattened, allowed)
 }
 
 /// The clip of the module in `module`, and what there is to say of it.
@@ -614,10 +627,12 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     debug_assert_eq!(out.len(), tables);
     out.extend(body);
     if let Some(tops) = shape.fit {
-        let (knee, peak, flattened) = fit_knee(&out, tops);
+        let (knee, peak, flattened, allowed) = fit_knee(&out, tops);
         out[KNEE_AT] = knee;
+        // No knee the header can say keeps a drive over 127 to it.
+        let over = if flattened > allowed { ", which no knee keeps to at this drive: a lower one would" } else { "" };
         notes.push(format!(
-            "knee=auto: knee={knee}, the mix peaking at {:.1}; the limiter flattens {flattened} samples, {tops} a minute allowed",
+            "knee=auto: knee={knee}, the mix peaking at {:.1}; the limiter flattens {flattened} samples, {tops} a minute allowed{over}",
             peak as f64 / 1024.0
         ));
     }
