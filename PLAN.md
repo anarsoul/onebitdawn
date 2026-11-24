@@ -63,6 +63,23 @@ The user's, and what the readiness check of the same day left open.
 
 ## Planned, not built
 
+### The predicted samples' code built for speed, a function at a time — put off 2026-11-23 until `#[optimize(speed)]` is stable
+
+The module player's section, its fourth item: `core` at `opt-level`
+3 makes the clips with predicted samples 7 to 8 % cheaper and costs
+1.9 KB of the main stack, at 2 next to nothing, and the image stays
+at `s`. What 3 gains is not one function's: the decoder's loop at
+`s` is 22 instructions a sample, which 3 only unrolls. The user:
+not a crate of its own for it; when the attribute is stable, put
+`#[optimize(speed)]` on `adpcm::decode_block`, `xm::fill` and
+`xm::refill`, measure, and look at `Tune::render` then. Tried with
+the attribute on those three (2026-11-23, `RUSTC_BOOTSTRAP` for the
+try, nothing kept): 1.2 to 1.6 % of a predicted clip for 192 bytes
+of `.rwtext`, the figures in that item. The attribute was being
+stabilized and `speed` taken out of that again in November 2026
+(rust-lang/rust #157273, #165590, #165592): look before relying
+on it.
+
 ### Dim in the dark (M11b, second half) — planned 2026-11-01, not built
 
 The rest of M11 in `HISTORY.md`: the sensors are read and the
@@ -3498,15 +3515,63 @@ them and multiplies by 0.
      in `ota_1`) with the speaker's pack, its output back on the
      buzzer, the alarm and the melody as found.
    - Owed: a clip heard.
-4. **`opt-level` 2 or 3 for `core` alone, last of all** (the user,
-   2026-11-23: with a small cache `-Os` usually does better than
-   `-O2`). The image is built at `s`. The code that runs for every
-   sample is in RAM and not read through the cache, so what would
-   grow there is `.rwtext`, out of the main stack; the tick's code
-   and the rest of `core` are in the flash and would grow in the
-   cache's way. The crates in use build at any of these levels
+4. **`opt-level` 2 or 3 for `core` alone, last of all; tried
+   2026-11-23, the image left at `s`** (the user: with a small cache `-Os`
+   usually does better than `-O2`; then, the first three done, "по-
+   быстрому попробуем -O2 и -O3 по сравнению с -Os"). The image is
+   built at `s`; the crates in use build at any of these levels
    (esp-storage 0.10.0's changelog, esp-radio 1.0.0-beta.1's build
-   script, read 2026-11-23).
+   script, read 2026-11-23). Tried with
+   `--config profile.release.package.onebitdawn-core.opt-level=N`,
+   nothing in the tree changed, on `another-bench` as the items
+   above (the speaker's pack, the line output), against `722ce63`;
+   no underruns and no stray positions in any:
+
+   | clip | `s` | `core` at 2 | `core` at 3 |
+   | --- | --- | --- | --- |
+   | Halftime | 6802 ms, 15.6 %; 3067 us | 6653, 15.3 %; 3066 | 6682, 15.3 %; 3073 |
+   | Keygen | 8600, 14.9 %; 3040 | 8340, 14.5 %; 2985 | 8439, 14.6 %; 3020 |
+   | Morning Mood | 28 176, 27.1 %; 10 699 | 27 303, 26.2 %; 10 297 | 26 044, 25.0 %; 9700 |
+   | Morning Mood Chip | 22 166, 21.3 %; 7671 | 21 598, 20.8 %; 7209 | 21 609, 20.8 %; 7567 |
+   | Mountain King | 32 724, 23.4 %; 9386 | 31 737, 22.7 %; 9103 | 30 272, 21.7 %; 8588 |
+   | Suspended Seconds | 9285, 19.3 %; 5786 | 8980, 18.7 %; 5806 | 8601, 17.9 %; 5419 |
+   | Starlight & Aurora | 30 779, 27.7 %; 8080 | 30 056, 27.1 %; 7929 | 28 622, 25.8 %; 7425 |
+   | `.rwtext`, the main stack, the image | 9092, 32 472, 923 440 | 10 276, 31 288, 931 552 | 10 996, 30 544, 936 768 |
+
+   At 2 every clip is 2 to 3 % cheaper, half a point, for 1.2 KB
+   of the main stack. At 3 the clips with predicted samples are 7
+   to 8 % cheaper (two points of the dearest) and the others as at
+   2, for 1.9 KB of the stack and 13 KB of the image: the gain is
+   spread over the predicted samples' path, as the next try says.
+   Nothing broke at either. Not heard, and the output not compared
+   on the host.
+
+   Then for the functions alone (the user: "-O3 точечно для одной
+   функции декодирования блока"). Stable Rust has no level for a
+   function; `#[optimize(speed)]`, not stable, takes the size's
+   attribute off one, in the image's `s` pipeline, which is not
+   level 3. With it on `adpcm::decode_block`, `xm::fill` and
+   `xm::refill` (`RUSTC_BOOTSTRAP=1` by `--config` for the try,
+   nothing kept): `decode_block` 348 bytes from 302 and not
+   unrolled (1006 at 3), `refill` 642 from 524, as at 3 (its copy
+   of a block is a call of the ROM's `memmove` at `s`), `.rwtext`
+   9284 bytes. Against `s`:
+
+   | clip | `s` | the three for speed | `core` at 3 |
+   | --- | --- | --- | --- |
+   | Halftime | 6802 ms | 6822 | 6682 |
+   | Morning Mood | 28 176 | 27 722 | 26 044 |
+   | Mountain King | 32 724 | 32 186 | 30 272 |
+   | Suspended Seconds | 9285 | 9170 | 8601 |
+   | Starlight & Aurora | 30 779 | 30 380 | 28 622 |
+
+   1.2 to 1.6 % of a predicted clip, a fifth of what 3 gives: the
+   rest is in `Tune::render` and in the decoder's loop unrolled
+   (22 instructions a sample at `s`, three of them multiplies;
+   unrolling saves three or four). The user: no crate of its own
+   for the decoder; in "Planned, not built" until the attribute is
+   stable. The board was put back on `722ce63` at `s`, its output
+   on the buzzer.
 
 ## Checks still owed
 
