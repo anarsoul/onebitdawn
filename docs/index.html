@@ -153,11 +153,14 @@
         <h3 id="soundlabel">Choose the sound</h3>
         <div class="sound" role="radiogroup" aria-labelledby="soundlabel">
           <label><input type="radio" name="sound" value="buzzer" checked> Buzzer</label>
-          <label><input type="radio" name="sound" value="speaker"> Speaker</label>
+          <label><input type="radio" name="sound" value="speaker"> Speaker in the buzzer's place</label>
+          <label><input type="radio" name="sound" value="amplifier"> Speaker on an amplifier</label>
         </div>
         <p class="small">
           What the alarm's clips are made for: the kit's buzzer, or a speaker, in the buzzer's place
-          or on an amplifier at the line output. The speaker's have the bass left in, and one clip more.
+          or on an amplifier at the line output. A speaker's have the bass left in, and one clip more.
+          In the buzzer's place its loudness is fixed, and the clips are made as loud as they go;
+          an amplifier has a volume to turn up, and its clips are quieter and cleaner.
         </p>
         <p class="notice" id="lineout" hidden>
           <strong>An amplifier at the line output</strong> also needs the output chosen on the clock's
@@ -197,7 +200,7 @@
   <h2>Settings: kept unless you erase</h2>
   <p>
     The installer writes the bootloader, the partition table, the firmware and the default clip pack
-    (the alarm's sampled sounds) for the buzzer or the speaker, as chosen above, and leaves the settings alone. So without the erase a clock keeps its
+    (the alarm's sampled sounds) for the buzzer, the speaker or the amplifier, as chosen above, and leaves the settings alone. So without the erase a clock keeps its
     settings and its network; with it they are cleared and the clock starts as new. A clip pack you
     uploaded from <code>/clips</code> is replaced by the default one either way.
   </p>
@@ -244,13 +247,16 @@
     // an API token that was printed in the manual.
     var OLD = ['v0.1', 'v0.2', 'v0.3', 'v0.4'];
 
-    // A release has two manifests, which differ in the clip pack:
-    // the buzzer's, and the speaker's. The line output's notice is
-    // for the speaker only.
+    // A release has three manifests, which differ in the clip pack:
+    // the buzzer's, the speaker's and the amplifier's. A release
+    // before there was the last (its assets say) gives an amplifier
+    // the speaker's. The line output's notice is the amplifier's.
     function aim() {
-      var speaker = document.querySelector('input[name=sound]:checked').value === 'speaker';
-      document.getElementById('lineout').hidden = !speaker;
-      button.setAttribute('manifest', select.value + (speaker ? '/manifest-speaker.json' : '/manifest.json'));
+      var sound = document.querySelector('input[name=sound]:checked').value;
+      document.getElementById('lineout').hidden = sound !== 'amplifier';
+      var r = releases[select.value];
+      if (sound === 'amplifier' && r && !(r.assets || []).some(function (a) { return /-clips-amplifier-/.test(a.name); })) sound = 'speaker';
+      button.setAttribute('manifest', select.value + (sound === 'buzzer' ? '/manifest.json' : '/manifest-' + sound + '.json'));
     }
 
     function show(tag) {

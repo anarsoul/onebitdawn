@@ -10,7 +10,7 @@ use onebitdawn_core::clip::{self, Stream};
 use onebitdawn_core::{adpcm, pt3, sid, xm};
 use onebitdawn_core::pack::{LABEL_MAX, MAX_CLIPS, NAME_MAX, ROOM};
 
-use crate::{Clip, Firmware, Kind, Output, Source, pack, spec};
+use crate::{Clip, Kind, Source, Target, pack, spec};
 
 /// Samples a second a beeper clip is heard at: its line's bits, sixteen
 /// to a sample.
@@ -65,9 +65,9 @@ pub fn limits() -> String {
 impl Session {
     /// A clip of a file, kept under the number in the JSON that
     /// describes it. `options` is what follows the colon in the
-    /// command's argument; `speaker` is `--sound-output speaker`;
-    /// `firmware` is what the pack is for, and the clip one it plays.
-    pub fn convert(&mut self, file: &str, data: &[u8], options: &str, speaker: bool, firmware: Firmware) -> Result<String, String> {
+    /// command's argument; `target` is the clock the pack is for,
+    /// as the command's `--sound-output`, `--firmware` and `--limiter`.
+    pub fn convert(&mut self, file: &str, data: &[u8], options: &str, target: Target) -> Result<String, String> {
         let options = spec::parse_options(options).ok_or_else(|| format!("{file}: the options are key=value, with commas between them"))?;
         let mut source = Source { file: file.to_string(), data: data.to_vec(), options, label: None };
         // A name too long for a clip's is cut to fit and not refused:
@@ -82,7 +82,7 @@ impl Session {
             source.label = Some(label[..end].trim_end().to_string());
         }
         let kind = Kind::of(file, data);
-        let made = crate::convert_for(&source, if speaker { Output::Speaker } else { Output::Buzzer }, firmware)?;
+        let made = crate::convert_for(&source, target)?;
         let notes: Vec<String> = made.notes.iter().map(|n| quoted(n)).collect();
         let takes: Vec<String> = kind.map_or(&[][..], Kind::options).iter().map(|o| quoted(o)).collect();
         let free = self.clips.iter().position(Option::is_none).unwrap_or(self.clips.len());
@@ -214,6 +214,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Firmware, Output};
 
     fn pcm() -> Vec<u8> {
         let mut data = b"PCM1\x80\x3e\0\0".to_vec();
@@ -224,14 +225,14 @@ mod tests {
     #[test]
     fn the_page_makes_a_pack() {
         let mut session = Session::default();
-        let json = session.convert("My \"Ring\".pcm", &pcm(), "loop", false, Firmware::V0_6).unwrap();
+        let json = session.convert("My \"Ring\".pcm", &pcm(), "loop", Target { firmware: Firmware::V0_6, ..Default::default() }).unwrap();
         assert_eq!(json, r#"{"id":0,"name":"my_ring","label":"My Ring","loops":true,"bytes":16008,"ms":1000,"kind":"clip","options":[],"notes":[]}"#);
-        assert!(session.convert("b.pcm", &pcm(), "", true, Firmware::V0_6).unwrap().starts_with(r#"{"id":1,"name":"b","#));
-        let long = session.convert("Orion - Nero Burning ROM v5.5.7.8kg and a great deal more.pcm", &pcm(), "", false, Firmware::V0_6).unwrap();
+        assert!(session.convert("b.pcm", &pcm(), "", Target { output: Output::Speaker, firmware: Firmware::V0_6, ..Default::default() }).unwrap().starts_with(r#"{"id":1,"name":"b","#));
+        let long = session.convert("Orion - Nero Burning ROM v5.5.7.8kg and a great deal more.pcm", &pcm(), "", Target { firmware: Firmware::V0_6, ..Default::default() }).unwrap();
         assert!(long.contains(r#""name":"orion_nero_burning_r","label":"Orion Nero Burning Rom V Kg And","#), "{long}");
         session.forget(2);
-        assert!(session.convert("b.pcm", &pcm(), "song=", false, Firmware::V0_6).unwrap_err().contains("key=value"));
-        assert!(session.convert("b.txt", b"hello, world", "", false, Firmware::V0_6).is_err());
+        assert!(session.convert("b.pcm", &pcm(), "song=", Target { firmware: Firmware::V0_6, ..Default::default() }).unwrap_err().contains("key=value"));
+        assert!(session.convert("b.txt", b"hello, world", "", Target { firmware: Firmware::V0_6, ..Default::default() }).is_err());
         let made = session.build("1\tsecond\tThe Second\t0\n0\tfirst\tThe First\t1\n").unwrap();
         let pack = onebitdawn_core::pack::Pack::parse(&made).unwrap();
         let (a, b) = (pack.clip(0).unwrap(), pack.clip(1).unwrap());
@@ -242,19 +243,19 @@ mod tests {
         session.forget(1);
         assert!(session.build("1\tb\tB\t0\n").unwrap_err().contains("not there"));
         // The number is given again.
-        assert!(session.convert("c.pcm", &pcm(), "", false, Firmware::V0_6).unwrap().starts_with(r#"{"id":1,"#));
+        assert!(session.convert("c.pcm", &pcm(), "", Target { firmware: Firmware::V0_6, ..Default::default() }).unwrap().starts_with(r#"{"id":1,"#));
         // A clip a clock at v0.5 does not play is not made for one.
         let mut wide = b"PCM2\x80\x3e\0\0".to_vec();
         wide.extend([0u8; 32000]);
-        assert!(session.convert("w.pcm", &wide, "", false, Firmware::V0_5).unwrap_err().contains("PCM2"));
-        assert!(session.convert("w.pcm", &wide, "", false, Firmware::V0_6).unwrap().starts_with(r#"{"id":2,"#));
+        assert!(session.convert("w.pcm", &wide, "", Target { firmware: Firmware::V0_5, ..Default::default() }).unwrap_err().contains("PCM2"));
+        assert!(session.convert("w.pcm", &wide, "", Target { firmware: Firmware::V0_6, ..Default::default() }).unwrap().starts_with(r#"{"id":2,"#));
         assert!(limits().starts_with("{\"room\":1179648,\"clips\":16,\"name\":20,\"label\":32,\"header\":44,\"entry\":64"));
     }
 
     #[test]
     fn a_clip_is_heard_to_its_end() {
         let mut session = Session::default();
-        session.convert("a.pcm", &pcm(), "", false, Firmware::V0_6).unwrap();
+        session.convert("a.pcm", &pcm(), "", Target { firmware: Firmware::V0_6, ..Default::default() }).unwrap();
         assert_eq!(session.preview(7), 0);
         assert_eq!(session.preview(0), 16000);
         let (mut heard, mut loud) = (0, 0.0f32);

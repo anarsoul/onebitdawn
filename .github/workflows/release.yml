@@ -105,6 +105,11 @@ jobs:
           scripts/speaker-clips.sh "images/onebitdawn-clips-speaker-${GITHUB_REF_NAME}.bin"
           CLIP_PACK_FILE="images/onebitdawn-clips-speaker-${GITHUB_REF_NAME}.bin" \
             cargo host-test the_pack_file_parses -- --nocapture
+          # And for a speaker on an amplifier, which has a volume to
+          # turn up: the same with the limiter at its cleanest.
+          scripts/speaker-clips.sh "images/onebitdawn-clips-amplifier-${GITHUB_REF_NAME}.bin" amplifier
+          CLIP_PACK_FILE="images/onebitdawn-clips-amplifier-${GITHUB_REF_NAME}.bin" \
+            cargo host-test the_pack_file_parses -- --nocapture
           # The pack maker for its page, docs/pack/.
           cargo pack-wasm
           cp target/wasm32-unknown-unknown/tool/onebitdawn_pack.wasm images/
@@ -192,7 +197,8 @@ jobs:
             | `onebitdawn-${{ github.ref_name }}.bin` | the whole flash, for espflash |
             | `onebitdawn-ota-${{ github.ref_name }}.bin` | the update for a running clock |
             | `onebitdawn-clips-${{ github.ref_name }}.bin` | the alarm sounds (clip pack) for the buzzer |
-            | `onebitdawn-clips-speaker-${{ github.ref_name }}.bin` | the same for a clock with a speaker; upload at `http://<ip>/clips` |
+            | `onebitdawn-clips-speaker-${{ github.ref_name }}.bin` | the same for a clock with a speaker in the buzzer's place; upload at `http://<ip>/clips` |
+            | `onebitdawn-clips-amplifier-${{ github.ref_name }}.bin` | the same for a speaker on an amplifier at the line output: quieter and cleaner |
             | `onebitdawn-pack-${{ github.ref_name }}-*` | the pack maker for your own tunes, also at https://anarsoul.github.io/onebitdawn/pack/ |
             | `onebitdawn-licenses-${{ github.ref_name }}.txt` | the licences of what these files are built from |
 
@@ -218,9 +224,10 @@ jobs:
           TAG="$GITHUB_REF_NAME"
           # Five parts at their offsets; nvs (0x9000) is not among them.
           # The last is the default clip pack at the `clips` partition
-          # (0x2E0000), which replaces a pack the clock had. Two
+          # (0x2E0000), which replaces a pack the clock had. Three
           # manifests a release, for the page's choice of sound: the
-          # buzzer's pack, and manifest-speaker.json with the speaker's.
+          # buzzer's pack, manifest-speaker.json with the speaker's and
+          # manifest-amplifier.json with the amplifier's.
           manifest() {
             jq -n --arg version "${TAG#v}" --arg app "$1" --arg clips "$2" '{
               name: "onebitdawn",
@@ -238,9 +245,10 @@ jobs:
           }
           # The release under its tag, as the page's list offers it.
           mkdir -p "docs/$TAG"
-          cp images/bootloader.bin images/partition-table.bin images/otadata.bin "images/onebitdawn-ota-$TAG.bin" "images/onebitdawn-clips-$TAG.bin" "images/onebitdawn-clips-speaker-$TAG.bin" "docs/$TAG/"
+          cp images/bootloader.bin images/partition-table.bin images/otadata.bin "images/onebitdawn-ota-$TAG.bin" "images/onebitdawn-clips-$TAG.bin" "images/onebitdawn-clips-speaker-$TAG.bin" "images/onebitdawn-clips-amplifier-$TAG.bin" "docs/$TAG/"
           manifest "onebitdawn-ota-$TAG.bin" "onebitdawn-clips-$TAG.bin" > "docs/$TAG/manifest.json"
           manifest "onebitdawn-ota-$TAG.bin" "onebitdawn-clips-speaker-$TAG.bin" > "docs/$TAG/manifest-speaker.json"
+          manifest "onebitdawn-ota-$TAG.bin" "onebitdawn-clips-amplifier-$TAG.bin" > "docs/$TAG/manifest-amplifier.json"
           # The same under fixed names as the fallback when the page
           # cannot ask GitHub for the list; keep_files below leaves earlier
           # tags in place, and these names are overwritten each release.
@@ -249,9 +257,11 @@ jobs:
           cp "images/onebitdawn-ota-$TAG.bin" docs/latest/onebitdawn-ota.bin
           cp "images/onebitdawn-clips-$TAG.bin" docs/latest/onebitdawn-clips.bin
           cp "images/onebitdawn-clips-speaker-$TAG.bin" docs/latest/onebitdawn-clips-speaker.bin
+          cp "images/onebitdawn-clips-amplifier-$TAG.bin" docs/latest/onebitdawn-clips-amplifier.bin
           manifest "onebitdawn-ota.bin" "onebitdawn-clips.bin" > docs/latest/manifest.json
           manifest "onebitdawn-ota.bin" "onebitdawn-clips-speaker.bin" > docs/latest/manifest-speaker.json
-          cat "docs/$TAG/manifest.json" "docs/$TAG/manifest-speaker.json"
+          manifest "onebitdawn-ota.bin" "onebitdawn-clips-amplifier.bin" > docs/latest/manifest-amplifier.json
+          cat "docs/$TAG/manifest.json" "docs/$TAG/manifest-speaker.json" "docs/$TAG/manifest-amplifier.json"
           # The pack maker's page, with the converters of this release.
           cp images/onebitdawn_pack.wasm docs/pack/
           # The licences of what the page hands out, which both pages'

@@ -28,11 +28,12 @@
 use std::collections::BTreeMap;
 
 use onebitdawn_core::adpcm::BLOCK;
+use onebitdawn_core::shape::{STEP, Shaper};
 use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, SEEK, WIDE_MAGIC, seek_points};
 
 use crate::bytes::{Data, text};
 use crate::shape::{rate_flag, section};
-use crate::{Firmware, Options, Output};
+use crate::{Firmware, Limiter, Options, Output};
 
 /// The effect R, by its number in a cell.
 const R: u8 = 0x1B;
@@ -47,7 +48,12 @@ const SILENT: [u8; 3] = [8, 0x19, 0x1D];
 const SILENT_VOLUMES: [u8; 3] = [0xC, 0xD, 0xE];
 
 /// The options a module takes.
-pub const OPTIONS: &[&str] = &["highpass", "passes", "drive", "release", "knee", "rate", "bits", "samples", "raise"];
+pub const OPTIONS: &[&str] = &["highpass", "passes", "drive", "release", "knee", "tops", "rate", "bits", "samples", "raise"];
+
+/// The samples a minute `knee=auto` lets the limiter flatten: what
+/// the two piano tunes' knees, chosen by ear on a speaker, leave
+/// (`fit_knee`).
+pub const TOPS: u32 = 60;
 
 /// What becomes of a module's 16-bit samples.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -75,6 +81,10 @@ pub struct Shape {
     /// The level the limiter starts at, in 1024s of the mix where one
     /// voice at full level is 32; 0 is the player's own.
     pub knee: u8,
+    /// `knee=auto`: the knee is the lowest that leaves no more than
+    /// this many samples a minute flattened at full scale
+    /// (`fit_knee`), and `knee` is not looked at.
+    pub fit: Option<u32>,
     /// The high-pass's corner in Hz, and how many times it is applied,
     /// 12 dB an octave each.
     pub highpass: f64,
@@ -101,16 +111,32 @@ impl Shape {
             Output::Buzzer => (300.0, 0),
             Output::Speaker => (100.0, 10),
         };
-        Shape { drive: 0, release, knee: 0, highpass, passes: 1, rate: 31250, bits: 16, samples: Samples::Packed, raised: BTreeMap::new() }
+        Shape { drive: 0, release, knee: 0, fit: None, highpass, passes: 1, rate: 31250, bits: 16, samples: Samples::Packed, raised: BTreeMap::new() }
     }
 
     /// A firmware that plays no samples of 16 bits has them cut to 8,
     /// and an option that asks for them is refused.
-    pub fn options(output: Output, firmware: Firmware, options: &mut Options) -> Result<Self, String> {
+    ///
+    /// A speaker's limiter is as `limiter` says unless the options
+    /// give the knee; a buzzer's is the player's own, whatever it says.
+    pub fn options(output: Output, firmware: Firmware, limiter: Limiter, options: &mut Options) -> Result<Self, String> {
         let mut shape = Shape::new(output);
         shape.drive = options.number("drive", shape.drive)?;
         shape.release = options.number("release", shape.release)?;
-        shape.knee = options.number("knee", shape.knee)?;
+        let tops = options.maybe("tops")?;
+        if output == Output::Speaker {
+            shape.fit = limiter.tops();
+        }
+        match options.text("knee")?.as_deref() {
+            None => {}
+            Some("auto") => shape.fit = Some(shape.fit.unwrap_or(TOPS)),
+            Some(v) => (shape.knee, shape.fit) = (v.parse().map_err(|_| format!("knee={v}: a number to 255, or auto"))?, None),
+        }
+        match (tops, shape.fit) {
+            (Some(tops), Some(_)) => shape.fit = Some(tops),
+            (Some(_), None) => return Err("tops is knee=auto's".into()),
+            (None, _) => {}
+        }
         shape.highpass = options.number("highpass", shape.highpass)?;
         shape.passes = options.number("passes", shape.passes)?;
         shape.rate = options.number("rate", shape.rate)?;
@@ -256,6 +282,59 @@ struct Instrument {
     env_loop: (u8, u8),
     fade: u16,
     auto: [u8; 3],
+}
+
+/// Where a clip's header has the limiter's drive, its flags and the
+/// knee (`xm`'s header).
+const DRIVE_AT: usize = 10;
+const FLAGS_AT: usize = 17;
+const KNEE_AT: usize = 29;
+
+/// The knee for a clip made with any: the lowest that has the limiter
+/// flatten no more than `tops` samples a minute, with the mix's peak
+/// and how many it then flattens.
+///
+/// The limiter's attack is at once, so a sample over the envelope as
+/// it has decayed comes out at full scale, and a run of them is a
+/// flat top on a rising wave: a click where one instrument is heard
+/// alone. Which samples those are is the envelope's and the
+/// release's to say and not the knee's; the knee only lets the ones
+/// under it by. So the tune is played once here with the limiter off
+/// and its samples fine (a knee of 255 and a drive of 127 give the mix
+/// after the high-pass, an eighth of it), the clip's own shaper is run
+/// over that with the knee at its least, and the knee is put over all
+/// but `tops` a minute of the levels it flattened.
+fn fit_knee(clip: &[u8], tops: u32) -> (u8, i32, usize) {
+    let mut plain = clip.to_vec();
+    (plain[DRIVE_AT], plain[KNEE_AT], plain[FLAGS_AT]) = (127, 255, plain[FLAGS_AT] | 2);
+    let mut tune = onebitdawn_core::xm::Tune::new(&plain);
+    let rate = tune.rate();
+    // 31250, 16000 or 8000: how many times twice the last, as the player counts.
+    let octaves = match rate {
+        r if r > 24000 => 2,
+        r if r > 12000 => 1,
+        _ => 0,
+    };
+    let full = 127 * STEP;
+    let mut limiter = Shaper::new(clip[DRIVE_AT], clip[DRIVE_AT + 1], octaves, [0; 5], 0, true, 1);
+    let (mut flat, mut peak, mut count) = (Vec::new(), 0, 0u64);
+    while let Some(sample) = tune.next_sample() {
+        let level = (sample as i64 * 255 * 1024 / full as i64).abs() as i32;
+        peak = peak.max(level);
+        count += 1;
+        if limiter.run(level).abs() as i32 >= full {
+            flat.push(level);
+        }
+    }
+    flat.sort_unstable();
+    let allowed = (count * tops as u64 / (rate as u64 * 60)) as usize;
+    // The knee over the highest of the levels that may not be flat.
+    let knee = match flat.len().checked_sub(allowed + 1) {
+        Some(at) => (flat[at] / 1024 + 1).clamp(1, 255),
+        None => 1,
+    };
+    let flattened = flat.iter().filter(|&&level| level >= knee * 1024).count();
+    (knee as u8, peak, flattened)
 }
 
 /// The clip of the module in `module`, and what there is to say of it.
@@ -534,6 +613,14 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     }
     debug_assert_eq!(out.len(), tables);
     out.extend(body);
+    if let Some(tops) = shape.fit {
+        let (knee, peak, flattened) = fit_knee(&out, tops);
+        out[KNEE_AT] = knee;
+        notes.push(format!(
+            "knee=auto: knee={knee}, the mix peaking at {:.1}; the limiter flattens {flattened} samples, {tops} a minute allowed",
+            peak as f64 / 1024.0
+        ));
+    }
 
     let name = text(d.slice(17, 37));
     notes.push(format!(

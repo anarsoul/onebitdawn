@@ -122,10 +122,14 @@ own, `clips`, 1152 KB, so they can be changed without a new
 firmware. The default pack is the eight clips in `clips/`; a release
 has it as `onebitdawn-clips-<tag>.bin`.
 `onebitdawn-clips-speaker-<tag>.bin` is the same eight made for a
-clock with a speaker (in the buzzer's place, or on the line output's
-amplifier), the bass left in and a gentler limiter, and a ninth,
-"Starlight and Aurora", which a buzzer cannot say. The web installer
-asks which of the two to write; later, upload one in the other's
+clock with a speaker in the buzzer's place, the bass left in and a
+gentler limiter, and a ninth,
+"Starlight and Aurora", which a buzzer cannot say.
+`onebitdawn-clips-amplifier-<tag>.bin` is that pack for a speaker on
+an amplifier at the line output: the amplifier has a volume to turn
+up, so its clips are some 6 dB quieter and without the clicks a
+limiter pushed hard leaves under a loud tune. The web installer
+asks which of the three to write; later, upload one in the other's
 place.
 
 A pack of your own is made of tracker modules (`.xm`, `.mod`, `.s3m`),
@@ -193,7 +197,15 @@ they are and `samples=8` cuts them to 8 bits. A clock at v0.5 or
 before plays only ADPCM, 8-bit PCM and 8-bit samples, and refuses a
 pack with anything else in it: for one, choose v0.5 on the page, which
 makes those and refuses the options for the others, or give the
-command `--firmware 0.5`. A ZX Spectrum beeper tune is
+command `--firmware 0.5`.
+
+For a speaker the page and the command (`--limiter`) also ask how
+loud the clip of a tracker module or a ZX Spectrum tune is to be: `loudest` pushes the limiter
+as hard as a buzzer wants it, which a speaker gives as clicks and
+overdrive under a loud tune; `loud`, `cleaner` and `cleanest` are
+each quieter with fewer of them, the last some 6 dB under the first
+and next to clean; it is the default, the loudest being for a speaker
+with no volume to turn up. A clip's own `knee=` goes before it. A ZX Spectrum beeper tune is
 recorded from a tape with `scripts/zxbeeper.py` (it needs SkoolKit)
 and its `.bpr` goes into a pack as it is.
 
@@ -219,7 +231,9 @@ this one covers the settings partition too and clears it), next to
 `onebitdawn-ota-<tag>.bin`, the update image for `/system` and
 `scripts/ota.sh`, and `onebitdawn-clips-<tag>.bin`, the default clip
 pack (see above; the whole-flash image does not include it), with
-`onebitdawn-clips-speaker-<tag>.bin`, the same for a speaker. A release is made by pushing an annotated tag `v*`
+`onebitdawn-clips-speaker-<tag>.bin` and
+`onebitdawn-clips-amplifier-<tag>.bin`, the same for a speaker and for
+an amplifier. A release is made by pushing an annotated tag `v*`
 (`.github/workflows/release.yml`).
 
 Between releases, every push is built on GitHub Actions

@@ -110,6 +110,63 @@ impl Firmware {
     }
 }
 
+/// How hard a speaker's limiter works on a tracker module: the knee
+/// is fitted to the tune (`xmc::fit_knee`), the lowest that flattens
+/// no more than so many samples a minute at full scale, which on a
+/// speaker are clicks. Louder is more of them. A buzzer's clips are
+/// not touched by it, nor a clip whose options give its knee.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Limiter {
+    /// The knee the player has, far under any tune: as loud as the
+    /// limiter makes it. What a speaker's clips were before there was
+    /// a choice, and what the release's pack for one in the buzzer's
+    /// place still is (`scripts/speaker-clips.sh`).
+    Loudest,
+    /// A little quieter and few clicks: the user's ear, 2026-11-24,
+    /// "приемлемо" on headphones.
+    Loud,
+    Cleaner,
+    /// Next to none: the two piano tunes' knees, chosen by ear. The
+    /// default, of the command and the page (the user, 2026-11-24).
+    #[default]
+    Cleanest,
+}
+
+impl Limiter {
+    pub const ALL: [(Limiter, &'static str); 4] = [(Limiter::Loudest, "loudest"), (Limiter::Loud, "loud"), (Limiter::Cleaner, "cleaner"), (Limiter::Cleanest, "cleanest")];
+
+    /// By the name the command takes.
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.iter().find(|(_, n)| *n == name).map(|&(limiter, _)| limiter)
+    }
+
+    /// By its place in `ALL`, which is what the page sends; the
+    /// default for one there is not.
+    pub fn of_index(index: u32) -> Self {
+        Self::ALL.get(index as usize).map_or(Limiter::default(), |&(limiter, _)| limiter)
+    }
+
+    /// The flattened samples a minute it allows; none for the knee as
+    /// it is.
+    pub fn tops(self) -> Option<u32> {
+        match self {
+            Limiter::Loudest => None,
+            Limiter::Loud => Some(1650),
+            Limiter::Cleaner => Some(600),
+            Limiter::Cleanest => Some(xmc::TOPS),
+        }
+    }
+}
+
+/// What a clip is made for: the clock's sound output, its firmware,
+/// and how hard the limiter is to work.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Target {
+    pub output: Output,
+    pub firmware: Firmware,
+    pub limiter: Limiter,
+}
+
 /// A file to make a clip of.
 #[derive(Clone, Debug, Default)]
 pub struct Source {
@@ -271,7 +328,7 @@ impl Options {
 }
 
 /// The clip's bytes, and what the options say of its looping.
-fn made(source: &Source, kind: Kind, output: Output, firmware: Firmware, notes: &mut Vec<String>) -> Result<(Vec<u8>, Option<bool>), String> {
+fn made(source: &Source, kind: Kind, target: Target, notes: &mut Vec<String>) -> Result<(Vec<u8>, Option<bool>), String> {
     let mut options = Options::new(source);
     options.take("name");
     let asked = match (options.flag("loop")?, options.flag("once")?) {
@@ -280,9 +337,10 @@ fn made(source: &Source, kind: Kind, output: Output, firmware: Firmware, notes: 
         (false, true) => Some(false),
         (false, false) => None,
     };
+    let Target { output, firmware, limiter } = target;
     let data = match kind {
         Kind::Clip => Ok(source.data.clone()),
-        Kind::Xm | Kind::Mod | Kind::S3m => xmc::Shape::options(output, firmware, &mut options).and_then(|shape| {
+        Kind::Xm | Kind::Mod | Kind::S3m => xmc::Shape::options(output, firmware, limiter, &mut options).and_then(|shape| {
             let module = match kind {
                 Kind::Mod => modxm::convert(&source.data, notes)?,
                 Kind::S3m => s3mxm::convert(&source.data, notes)?,
@@ -290,7 +348,7 @@ fn made(source: &Source, kind: Kind, output: Output, firmware: Firmware, notes: 
             };
             xmc::convert(&module, &shape, notes)
         }),
-        Kind::Pt3 => pt3c::Shape::options(output, &mut options).and_then(|shape| pt3c::convert(&source.data, &shape, notes)),
+        Kind::Pt3 => pt3c::Shape::options(output, limiter, &mut options).and_then(|shape| pt3c::convert(&source.data, &shape, notes)),
         Kind::Sid => sidc::Shape::options(output, &mut options).and_then(|shape| sidc::convert(&source.data, &shape, notes)),
         Kind::Wav => wav::Shape::options(output, firmware, &mut options).and_then(|shape| wav::convert(&source.data, &shape, notes)),
     }?;
@@ -300,11 +358,13 @@ fn made(source: &Source, kind: Kind, output: Output, firmware: Firmware, notes: 
 
 /// Make a clip of a file, for the latest firmware.
 pub fn convert(source: &Source, output: Output) -> Result<Clip, String> {
-    convert_for(source, output, Firmware::default())
+    convert_for(source, Target { output, ..Default::default() })
 }
 
-/// Make a clip of a file that `firmware` plays, or say why not.
-pub fn convert_for(source: &Source, output: Output, firmware: Firmware) -> Result<Clip, String> {
+/// Make a clip of a file for a clock: one its firmware plays, shaped
+/// for its output; or say why not.
+pub fn convert_for(source: &Source, target: Target) -> Result<Clip, String> {
+    let firmware = target.firmware;
     let file = &source.file;
     // `name=` is for a clip whose own name is too long or taken; the
     // label is then that name's, unless there is one. Otherwise both
@@ -326,7 +386,7 @@ pub fn convert_for(source: &Source, output: Output, firmware: Firmware) -> Resul
         format!("{file}: not a file this knows: .xm, .mod, .s3m, .sid, .pt3, .wav, or a clip made already (.xmc, .sidc, .pt3c, .bpr, .adp, .pcm)")
     })?;
     let mut notes = Vec::new();
-    let (data, asked) = made(source, kind, output, firmware, &mut notes).map_err(|e| format!("{file}: {e}"))?;
+    let (data, asked) = made(source, kind, target, &mut notes).map_err(|e| format!("{file}: {e}"))?;
     if onebitdawn_core::clip::is_unsupported(&data) {
         let magic = String::from_utf8_lossy(&data[..data.len().min(4)]).into_owned();
         return Err(format!("{file}: a clip of the version {magic}, which the firmware does not play; convert it again"));
@@ -402,18 +462,19 @@ mod tests {
     #[test]
     fn a_clip_made_already_is_held_to_the_firmware() {
         assert_eq!((Firmware::of_minor(5), Firmware::of_minor(6), Firmware::of_minor(9)), (Firmware::V0_5, Firmware::V0_6, Firmware::V0_6));
+        assert_eq!((Limiter::parse("cleaner"), Limiter::parse("soft"), Limiter::of_index(0), Limiter::of_index(4)), (Some(Limiter::Cleaner), None, Limiter::Loudest, Limiter::Cleanest));
         assert_eq!((Firmware::parse("0.5"), Firmware::parse("v0.6"), Firmware::parse("0.7")), (Some(Firmware::V0_5), Some(Firmware::V0_6), None));
         // 8 bits: any firmware's.
         let mut pcm = b"PCM1\x80\x3e\0\0".to_vec();
         pcm.extend([128u8; 16000]);
         let mut source = Source { file: "ring.pcm".into(), data: pcm, ..Default::default() };
-        assert!(convert_for(&source, Output::Buzzer, Firmware::V0_5).is_ok());
+        assert!(convert_for(&source, Target { firmware: Firmware::V0_5, ..Default::default() }).is_ok());
         // 16 bits as they are: v0.6's.
         source.data[3] = b'2';
         source.data.extend([0u8; 16000]);
-        assert!(convert_for(&source, Output::Buzzer, Firmware::V0_6).is_ok());
+        assert!(convert_for(&source, Target { firmware: Firmware::V0_6, ..Default::default() }).is_ok());
         assert_eq!(
-            convert_for(&source, Output::Buzzer, Firmware::V0_5).err().as_deref(),
+            convert_for(&source, Target { firmware: Firmware::V0_5, ..Default::default() }).err().as_deref(),
             Some("ring.pcm: a clip of the version PCM2, which a clock at v0.5 does not play; convert its source again")
         );
         for magic in [b"XMC2", b"ADP1", b"PCM1", b"BPR3", b"SID2", b"PT31"] {

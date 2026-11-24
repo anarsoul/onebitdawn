@@ -86,6 +86,7 @@
     .steps .pick { margin: 0.5rem 0 0.2rem; }
     .pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1.2rem; }
     .pick label { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .pick[hidden] { display: none; }
     #drop {
       display: block; margin-top: 0.5rem; padding: 1.4rem 1rem; text-align: center; cursor: pointer;
       border: 1.5px dashed var(--muted); border-radius: 10px; color: var(--muted);
@@ -159,12 +160,26 @@
       <li>
         <h3 id="outputlabel">Choose the sound</h3>
         <div class="pick" role="radiogroup" aria-labelledby="outputlabel">
-          <label><input type="radio" name="output" value="buzzer" checked> Buzzer</label>
-          <label><input type="radio" name="output" value="speaker"> Speaker</label>
+          <label><input type="radio" name="output" value="buzzer"> Buzzer</label>
+          <label><input type="radio" name="output" value="speaker" checked> Speaker</label>
+        </div>
+        <div class="pick" id="loudness">
+          <label for="limiter">Make the clips</label>
+          <select id="limiter">
+            <option value="0">as loud as can be</option>
+            <option value="1">loud, with a few clicks</option>
+            <option value="2">quieter and cleaner</option>
+            <option value="3" selected>as clean as can be, the quietest</option>
+          </select>
         </div>
         <p class="small">
           What the clock plays through, which the clips are shaped for: a buzzer has no bass and wants the level pushed hard;
           a speaker, in the buzzer's place or on the line output's amplifier, plays the bass and wants neither.
+        </p>
+        <p class="small" id="loudnessnote">
+          How loud a clip of a tracker module or a ZX Spectrum tune is made is how hard its limiter is pushed: at its loudest it flattens the peaks,
+          which a speaker gives as clicks and overdrive under a loud tune; each step down is fewer of them and a quieter clip,
+          the cleanest some 6 dB under the loudest. A clip with a <code>knee</code> in its options keeps it.
         </p>
       </li>
       <li>
@@ -220,6 +235,7 @@
       <dt><code>drive=160</code></dt><dd>What the limiter aims a peak at, 127 being full scale; more is louder and clips.</dd>
       <dt><code>release=5</code></dt><dd>How fast the limiter lets go, 1 to 15; lower is faster and louder (7 for the buzzer, 10 for a speaker).</dd>
       <dt><code>knee=100</code></dt><dd>The level the limiter starts at; above the tune's peaks it is off.</dd>
+      <dt><code>knee=auto</code></dt><dd>The lowest knee, and so the loudest clip, at which the limiter flattens no more than 60 samples a minute at full scale: on a speaker a flat top is a click where an instrument plays alone. <code>tops=600</code> allows more and is louder; <code>tops=0</code> is the limiter off. The knee it found is in the clip's details. The speaker's choice above, how the clips are made, is this for every module and ZX Spectrum tune: 1650, 600 and 60.</dd>
       <dt><code>raise=1:2</code></dt><dd>Play instrument 1 two octaves higher, for a bass line a buzzer cannot play.</dd>
       <dt><code>rate=16000</code></dt><dd>Samples a second, 31250 by default; 16000 and 8000 are less work for the clock.</dd>
       <dt><code>samples=16</code></dt><dd>A module's 16-bit samples are kept in 8 bits a sample and a sixteenth more, each predicted from the samples before it: nearly the sound of the 16 bits. This keeps them as they are, at twice the bytes. Either way the clip needs a firmware after v0.5, and neither is taken in a pack for v0.5.</dd>
@@ -247,7 +263,7 @@
       <dt><code>chip=ym</code></dt><dd>A YM2149 and not an AY-3-8910.</dd>
       <dt><code>flat</code></dt><dd>The chip as it is, no limiter.</dd>
       <dt><code>noise=11</code></dt><dd>The noise at so many sixteenths of its level; <code>noise-lowpass=3000</code> takes its hiss.</dd>
-      <dt><code>highpass</code>, <code>passes</code>, <code>drive</code>, <code>release</code>, <code>knee</code>, <code>rate</code></dt><dd>As a module's.</dd>
+      <dt><code>highpass</code>, <code>passes</code>, <code>drive</code>, <code>release</code>, <code>knee</code>, <code>tops</code>, <code>rate</code></dt><dd>As a module's; the knee is the nearest of fifteen the clip can say.</dd>
     </dl>
   </details>
   <details>
@@ -301,6 +317,10 @@ function speaker() {
   return document.querySelector('input[name=output]:checked').value === 'speaker';
 }
 // The minor version of the firmware the pack is for.
+// How hard a speaker's limiter works: a place in the library's list.
+function limiter() {
+  return Number($('limiter').value);
+}
 function firmware() {
   return Number($('firmware').value);
 }
@@ -311,7 +331,7 @@ function convert(row) {
   const file = put(utf8.encode(row.file));
   const data = put(row.bytes);
   const options = put(utf8.encode(row.options));
-  const ok = x.obd_convert(...file, ...data, ...options, speaker() ? 1 : 0, firmware()) === 0;
+  const ok = x.obd_convert(...file, ...data, ...options, speaker() ? 1 : 0, firmware(), limiter()) === 0;
   for (const [at, len] of [file, data, options]) x.obd_free(at, len);
   const said = text.decode(answer());
   if (!ok) {
@@ -503,9 +523,11 @@ $('make').addEventListener('click', () => {
   $('made').className = 'small';
 });
 
-for (const radio of [...document.querySelectorAll('input[name=output]'), $('firmware')]) {
-  radio.addEventListener('change', () => { stop(); work(() => rows.forEach(convert)); });
+for (const radio of [...document.querySelectorAll('input[name=output]'), $('firmware'), $('limiter')]) {
+  radio.addEventListener('change', () => { stop(); $('loudness').hidden = $('loudnessnote').hidden = !speaker(); work(() => rows.forEach(convert)); });
 }
+// A browser may bring the choices back as they were left.
+$('loudness').hidden = $('loudnessnote').hidden = !speaker();
 $('advanced').addEventListener('change', (e) => document.body.classList.toggle('advanced', e.target.checked));
 $('files').addEventListener('change', (e) => { add([...e.target.files]); e.target.value = ''; });
 const drop = $('drop');

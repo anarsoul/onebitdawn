@@ -27,11 +27,13 @@ download; it does not post to a clock, which `http::admit` would
 refuse from a foreign `Origin`.
 
 A clip is made for a firmware, `Firmware` (`convert_for`; `convert`
-is the latest's; the command's `--firmware 0.5|0.6`): for `V0_5` a module's 16-bit
+is the latest's; the command's `--firmware 0.5|0.6`; `convert_for`
+takes a `Target`): for `V0_5` a module's 16-bit
 samples are cut to 8 and a sound file is IMA ADPCM, an option that
 asks for 16 bits (`samples=16|packed`, `format=packed|pcm16`) is
 refused, and so is a clip made already of a version v0.5 does not
-play (`Firmware::plays`, by the magic). The page asks which, "v0.5"
+play (`Firmware::plays`, by the magic). The page starts at Speaker (the user, 2026-11-24: who comes to it
+more likely has one), the command at the buzzer. The page asks which firmware, "v0.5"
 or "v0.6 or later" (the default), and `obd_convert` takes the minor
 version. A new version of a clip is a new `Firmware` and an option of the
 page's box.
@@ -130,6 +132,29 @@ has must come out the same.
   the clip's. `knee` is the level the limiter starts at, in 1024s of
   the mix where one voice is 32. The default is 20 dB of drive, for
   the buzzer; a knee above the tune's peak is the limiter off.
+  `knee=auto` is the lowest knee
+  that has the limiter flatten no more than `tops` samples a minute
+  at full scale, 60 unless given (`xmc::fit_knee`, `xmc::TOPS`): the
+  tune is played on the host with the limiter off, the clip's own
+  release decides which samples would be flat, and the knee goes over
+  all but the allowed of them. It gives the two piano tunes the knees
+  the ear chose (46 and 14 against 48 and 12); the other modules it
+  leaves 5 to 7 dB quieter than the speaker's default, whose
+  flattening is clicks too, heard on headphones and covered by the
+  tune's level (the user, 2026-11-24); so it is not the default. A
+  speaker's `Limiter` is the same for every module that gives no knee
+  (`Target`'s third part beside the output and the firmware; the
+  command's `--limiter`, the page's box beside Speaker, the wasm's
+  place in `Limiter::ALL`): `loudest` the knee as it is,
+  `loud` 1650 a minute (the user's ear, 2026-11-24), `cleaner` 600,
+  `cleanest` 60, the default of the command and the page (the user,
+  2026-11-24), so `--sound-output speaker` alone no longer makes what
+  the speaker's pack has: `scripts/speaker-clips.sh` says `loudest`. A buzzer's clips are not touched (`PLAN.md`).
+  A PT3 module has the same, option and `Limiter` (`pt3c::fit_knee`):
+  its knee is one of fifteen steps, so the steps are tried from the
+  highest down, and a fitted knee comes with the player's own drive
+  where the speaker's default is `knee=37,drive=150`, unless the
+  options give a drive. A SID tune has no knee and no such option.
 - The rate: the clip is at `clip::FAST_HZ`, 31 250 samples a second,
   here and in the two kinds below, which the chip's converter at 256
   bits a sample sends at 8 Mbit/s exactly. It is the default since
@@ -322,7 +347,13 @@ scripts/speaker-clips.sh
   speaker in the buzzer's place (`speaker-mod/`),
   `packs/clips-default-speaker.bin` (or the path it is given), under
   the default pack's names. The CI makes and checks it, and a release
-  has it as `onebitdawn-clips-speaker-<tag>.bin`.
+  has it as `onebitdawn-clips-speaker-<tag>.bin`. With `amplifier`
+  after the path it makes the pack for a speaker on an amplifier at
+  the line output, `packs/clips-default-amplifier.bin`: the same with
+  `--limiter cleanest`, which moves the knee of the five modules that
+  give none (the two piano tunes keep theirs) and Synchronization's,
+  with its drive, and nothing else; a
+  release's `onebitdawn-clips-amplifier-<tag>.bin`.
 
 ## Build variables
 

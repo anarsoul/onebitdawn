@@ -20,7 +20,10 @@ use onebitdawn_core::pt3::{KNEES, MAGIC};
 
 use crate::bytes::text;
 use crate::shape::section;
-use crate::{Options, Output};
+use onebitdawn_core::shape::{STEP, Shaper};
+
+use crate::xmc::TOPS;
+use crate::{Limiter, Options, Output};
 
 const HEADER: usize = 40;
 /// The header's flags.
@@ -61,7 +64,7 @@ fn effect(code: u8) -> Option<(usize, &'static str)> {
 
 /// The options a module takes.
 pub const OPTIONS: &[&str] =
-    &["machine", "clock", "chip", "restart", "flat", "noise", "noise-lowpass", "drive", "release", "knee", "rate", "highpass", "passes"];
+    &["machine", "clock", "chip", "restart", "flat", "noise", "noise-lowpass", "drive", "release", "knee", "tops", "rate", "highpass", "passes"];
 
 /// What the header says besides what the module does.
 #[derive(Clone, Debug)]
@@ -88,6 +91,10 @@ pub struct Shape {
     /// The level the limiter starts at, as `xmc::Shape`'s; the nearest
     /// of the clip's fifteen steps is taken.
     pub knee: u8,
+    /// `knee=auto`: the knee is the lowest of the steps that leaves no
+    /// more than this many samples a minute flattened at full scale
+    /// (`fit_knee`), and `knee` is not looked at.
+    pub fit: Option<u32>,
     pub rate: u32,
     pub highpass: f64,
     pub passes: u8,
@@ -105,12 +112,21 @@ impl Shape {
             Output::Buzzer => (0, 0),
             Output::Speaker => (37, 150),
         };
-        Shape { pentagon: None, clock: None, ym: false, restart: false, flat: false, noise: 16, noise_lowpass: 0.0, drive, release: 10, knee, rate: 31250, highpass: 100.0, passes: 1 }
+        Shape { pentagon: None, clock: None, ym: false, restart: false, flat: false, noise: 16, noise_lowpass: 0.0, drive, release: 10, knee, fit: None, rate: 31250, highpass: 100.0, passes: 1 }
     }
 
-    pub fn options(output: Output, options: &mut Options) -> Result<Self, String> {
+    /// A speaker's limiter is as `limiter` says unless the options
+    /// give the knee or take the limiter away (`flat`), as a tracker
+    /// module's is. A knee that is fitted comes with the player's own
+    /// drive, a peak aimed at full scale and not the speaker's 1.4 dB
+    /// over it, which flattens whatever the knee: unless the options
+    /// give the drive too.
+    pub fn options(output: Output, limiter: Limiter, options: &mut Options) -> Result<Self, String> {
         let mut shape = Shape::new(output);
         shape.flat = options.flag("flat")?;
+        if output == Output::Speaker && !shape.flat {
+            shape.fit = limiter.tops();
+        }
         if shape.flat {
             // The chip as it is, 3 dB over three channels at full
             // scale, which clips the tops of a tune's loudest moments.
@@ -131,9 +147,21 @@ impl Shape {
         shape.restart = options.flag("restart")?;
         shape.noise = options.number("noise", shape.noise)?;
         shape.noise_lowpass = options.number("noise-lowpass", shape.noise_lowpass)?;
-        shape.drive = options.number("drive", shape.drive)?;
+        let drive = options.maybe("drive")?;
         shape.release = options.number("release", shape.release)?;
-        shape.knee = options.number("knee", shape.knee)?;
+        let tops = options.maybe("tops")?;
+        match options.text("knee")?.as_deref() {
+            None => {}
+            Some("auto") if shape.flat => return Err("knee is the limiter's: not with flat".into()),
+            Some("auto") => shape.fit = Some(shape.fit.unwrap_or(TOPS)),
+            Some(v) => (shape.knee, shape.fit) = (v.parse().map_err(|_| format!("knee={v}: a number to 255, or auto"))?, None),
+        }
+        match (tops, shape.fit) {
+            (Some(tops), Some(_)) => shape.fit = Some(tops),
+            (Some(_), None) => return Err("tops is knee=auto's".into()),
+            (None, _) => {}
+        }
+        shape.drive = drive.unwrap_or(if shape.fit.is_some() { 0 } else { shape.drive });
         shape.rate = options.number("rate", shape.rate)?;
         shape.highpass = options.number("highpass", shape.highpass)?;
         shape.passes = options.number("passes", shape.passes)?;
@@ -240,7 +268,7 @@ pub fn convert(d: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<Vec<u
     if shape.passes == 0 && !shape.flat {
         return Err("passes=0 is for a clip with flat: the limiter wants its high-pass".into());
     }
-    if shape.knee != 0 && shape.flat {
+    if (shape.knee != 0 || shape.fit.is_some()) && shape.flat {
         return Err("knee is the limiter's: not with flat".into());
     }
     if shape.release > 15 {
@@ -301,6 +329,15 @@ pub fn convert(d: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<Vec<u
     out.extend([shape.noise % 16, lowpass]);
     debug_assert_eq!(out.len(), HEADER);
     out.extend(d);
+    let fitted = shape.fit.map(|tops| {
+        let (step, peak, flattened) = fit_knee(&out, tops);
+        out[FLAGS_AT] = out[FLAGS_AT] & 0x0F | step << 4;
+        format!(
+            "knee=auto: knee={}, the mix peaking at {:.1}; the limiter flattens {flattened} samples, {tops} a minute allowed",
+            KNEES[step as usize],
+            peak as f64 / 1024.0
+        )
+    });
 
     let version = if digit.is_ascii_digit() { format!("Pro Tracker 3.{digit}") } else { "Vortex Tracker II".into() };
     notes.push(format!(
@@ -326,5 +363,51 @@ pub fn convert(d: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<Vec<u
         let uses: Vec<String> = module.uses.iter().map(|(what, count)| format!("{what} ({count})")).collect();
         notes.push(format!("uses: {}", uses.join(", ")));
     }
+    notes.extend(fitted);
     Ok(out)
+}
+
+/// Where a clip's header has its flags, the knee's step in the top
+/// four bits, and after them the limiter's drive and release.
+const FLAGS_AT: usize = 4;
+
+/// The knee's step for a clip made with any: the lowest of the
+/// fifteen at which the limiter flattens no more than `tops` samples
+/// a minute at full scale, or the highest if none does; with the
+/// mix's peak and how many that step leaves. As `xmc::fit_knee`, but
+/// by trying the steps, since a drive over 127 flattens by itself and
+/// there are only fifteen: the tune is played once with the knee at
+/// its highest and the drive at 127, which gives the mix after the
+/// high-pass (a level over that knee, three channels at their top,
+/// comes out as the knee), and the clip's own limiter is run over
+/// that at each step.
+fn fit_knee(clip: &[u8], tops: u32) -> (u8, i32, usize) {
+    let top = KNEES[15] as i64 * 1024;
+    let full = 127 * STEP;
+    let mut plain = clip.to_vec();
+    (plain[FLAGS_AT], plain[FLAGS_AT + 1]) = (plain[FLAGS_AT] | 0xF0, 127);
+    let mut tune = onebitdawn_core::pt3::Tune::new(&plain);
+    let rate = tune.rate();
+    let mut levels = Vec::new();
+    while let Some(sample) = tune.next_sample() {
+        levels.push((sample as i64 * top / full as i64).abs() as i32);
+    }
+    let peak = levels.iter().copied().max().unwrap_or(0);
+    let allowed = (levels.len() as u64 * tops as u64 / (rate as u64 * 60)) as usize;
+    // As the player sets its limiter: the release a shift more at 16 kHz, two at `FAST_HZ`.
+    let octaves = if rate > 24000 { 2 } else { 1 };
+    let flattened = |step: usize| {
+        let mut limiter = Shaper::new(clip[FLAGS_AT + 1], clip[FLAGS_AT + 2], octaves, [0; 5], 0, true, KNEES[step]);
+        levels.iter().filter(|&&level| limiter.run(level) as i32 >= full).count()
+    };
+    let mut step = 15;
+    let mut count = flattened(step);
+    for lower in (1..15).rev() {
+        let more = flattened(lower);
+        if more > allowed {
+            break;
+        }
+        (step, count) = (lower, more);
+    }
+    (step as u8, peak, count)
 }

@@ -584,7 +584,8 @@ switches back. A power cut clears the count.
    - `onebitdawn-ota-<tag>.bin`, the `/update` image;
    - `onebitdawn-clips-<tag>.bin`, the default clip pack, and
      `onebitdawn-clips-speaker-<tag>.bin`, the same for a speaker
-     (`scripts/speaker-clips.sh`);
+     in the buzzer's place, and `onebitdawn-clips-amplifier-<tag>.bin`,
+     for one on an amplifier (`scripts/speaker-clips.sh`);
    - `onebitdawn-pack-<tag>-…`, the pack maker for three systems;
    - `onebitdawn-licenses-<tag>.txt`, the licences of the crates all
      of these are built from, and of what is not a crate (the
@@ -598,8 +599,11 @@ switches back. A power cut clears the count.
 4. It deploys `docs/` to the `gh-pages` branch with the release under
    `<tag>/` and `latest/`, keeping earlier tags, and the list of
    licences as `licenses.txt`, which both pages' footers link. The release's
-   two manifests for ESP Web Tools, `manifest.json` with the buzzer's
-   pack and `manifest-speaker.json` with the speaker's, have five parts each: the bootloader and the
+   three manifests for ESP Web Tools, `manifest.json` with the buzzer's
+   pack, `manifest-speaker.json` with the speaker's and
+   `manifest-amplifier.json` with the amplifier's (the installer's
+   three sounds; for a release with no amplifier's pack among its
+   assets the page takes the speaker's), have five parts each: the bootloader and the
    partition table cut from the merged image, an erased `otadata`, the
    OTA image at 0x20000 and the clip pack at 0x2E0000. The
    pack replaces one the clock had; `nvs` is left alone, so the

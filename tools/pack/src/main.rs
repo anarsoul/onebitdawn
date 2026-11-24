@@ -7,13 +7,13 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use onebitdawn_core::pack::{LABEL_MAX, NAME_MAX, ROOM};
-use onebitdawn_pack::{Firmware, Output, Source, Spec, build, convert_for};
+use onebitdawn_pack::{Firmware, Limiter, Output, Source, Spec, Target, build, convert_for};
 
 const USAGE: &str = "\
 Make a clip pack, the alarm sounds of a onebitdawn clock.
 
-    onebitdawn-pack -o pack.bin [--sound-output buzzer|speaker] [--firmware 0.5|0.6] file[:option,…][=Label] …
-    onebitdawn-pack --clip clip [--sound-output buzzer|speaker] [--firmware 0.5|0.6] file[:option,…]
+    onebitdawn-pack -o pack.bin [--sound-output buzzer|speaker] [--limiter HOW] [--firmware 0.5|0.6] file[:option,…][=Label] …
+    onebitdawn-pack --clip clip [--sound-output buzzer|speaker] [--limiter HOW] [--firmware 0.5|0.6] file[:option,…]
 
 A file is a tracker module (.xm, .mod, .s3m), a Commodore 64 tune
 (.sid), a ZX Spectrum one (.pt3), a sound file (.wav), or a clip made
@@ -30,6 +30,15 @@ in a pack later, or for a firmware built with the clip in it.
 shaped for: its buzzer (the default), which has no bass and wants the
 level pushed hard, or a speaker, in the buzzer's place or on the line
 output's amplifier.
+
+--limiter is how hard a speaker's limiter works on a tracker module
+or a ZX Spectrum tune,
+which is how loud the clip is and how clean: pushed hard it flattens
+the peaks, and a flat top is a click. loudest is the limiter as the
+buzzer has it, for a speaker with no volume to turn up; loud is a
+little quieter with a few clicks left, cleaner quieter again, cleanest
+(the default) next to no clicks and some 6 dB under the loudest. A clip's own knee= goes before it, and a
+buzzer's clips are not touched.
 
 --firmware is the clock's firmware, and the clips are ones it plays:
 0.6 (the default) for v0.6 or later, 0.5 for v0.5, which plays samples
@@ -56,6 +65,12 @@ twenty channels; what a module uses that the player lacks is listed:
     drive=N       what the limiter aims a peak at, 127 being full scale
     release=N     the limiter lets go by 1/2^N a sample, 1 to 15
                   (7; 10 for a speaker)
+    knee=auto     the lowest knee, which is the loudest, that has the
+                  limiter flatten no more than 60 samples a minute at
+                  full scale, or tops=N of them: a flat top is heard
+                  as a click on a speaker where an instrument plays
+                  alone. tops=0 is the limiter off, the peak at full
+                  scale
     knee=N        the level the limiter starts at, in 1024s of the mix;
                   above the tune's peaks it is off
     raise=I:N     play instrument I that many octaves higher
@@ -96,7 +111,9 @@ ZX Spectrum tunes (.pt3, Pro Tracker 3 and Vortex Tracker II):
     noise=N       the noise at N sixteenths of its level (16)
     noise-lowpass=HZ
                   a low-pass on the noise, which takes its hiss
-    highpass (100), passes, drive, release, knee, rate as above
+    highpass (100), passes, drive, release, knee, rate as above;
+                  knee=auto takes the nearest of the clip's fifteen
+                  knees and aims a peak at full scale
 
 Sound files (.wav), 17 KB of the pack a second:
     seconds=S     keep this much, faded out at its end
@@ -115,11 +132,14 @@ Sound files (.wav), 17 KB of the pack a second:
 The pack goes to the clock from its Clips page, http://<clock>/clips.
 The same in a browser: https://anarsoul.github.io/onebitdawn/pack/";
 
+const LIMITERS: &str = "--limiter needs loudest, loud, cleaner or cleanest";
+
 fn run(args: &[String]) -> Result<(), String> {
     let mut out = None;
     let mut alone = None;
     let mut output = Output::default();
     let mut firmware = Firmware::default();
+    let mut limiter = Limiter::default();
     let mut specs = Vec::new();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -134,18 +154,27 @@ fn run(args: &[String]) -> Result<(), String> {
                 let name = args.next().ok_or("--sound-output needs buzzer or speaker")?;
                 output = Output::parse(name).ok_or_else(|| format!("--sound-output {name}: buzzer or speaker"))?;
             }
+            "--limiter" => {
+                let name = args.next().ok_or(LIMITERS)?;
+                limiter = Limiter::parse(name).ok_or_else(|| format!("--limiter {name}: {LIMITERS}"))?;
+            }
             "--firmware" => {
                 let name = args.next().ok_or("--firmware needs 0.5 or 0.6")?;
                 firmware = Firmware::parse(name).ok_or_else(|| format!("--firmware {name}: 0.5 or 0.6"))?;
             }
-            other => match (other.strip_prefix("--sound-output="), other.strip_prefix("--firmware=")) {
-                (Some(name), _) => output = Output::parse(name).ok_or_else(|| format!("--sound-output {name}: buzzer or speaker"))?,
-                (_, Some(name)) => firmware = Firmware::parse(name).ok_or_else(|| format!("--firmware {name}: 0.5 or 0.6"))?,
-                _ if other.starts_with('-') && other.len() > 1 && !Path::new(other).exists() => {
+            other => {
+                if let Some(name) = other.strip_prefix("--sound-output=") {
+                    output = Output::parse(name).ok_or_else(|| format!("--sound-output {name}: buzzer or speaker"))?;
+                } else if let Some(name) = other.strip_prefix("--firmware=") {
+                    firmware = Firmware::parse(name).ok_or_else(|| format!("--firmware {name}: 0.5 or 0.6"))?;
+                } else if let Some(name) = other.strip_prefix("--limiter=") {
+                    limiter = Limiter::parse(name).ok_or_else(|| format!("--limiter {name}: {LIMITERS}"))?;
+                } else if other.starts_with('-') && other.len() > 1 && !Path::new(other).exists() {
                     return Err(format!("no option {other}; --help says what there is"));
+                } else {
+                    specs.push(other.to_string());
                 }
-                _ => specs.push(other.to_string()),
-            },
+            }
         }
     }
     if specs.is_empty() {
@@ -159,7 +188,7 @@ fn run(args: &[String]) -> Result<(), String> {
         // A file of that very name is the file, whatever its colons.
         let spec = if Path::new(arg).is_file() { Spec { file: arg.clone(), options: Vec::new(), label: None } } else { Spec::parse(arg) };
         let data = std::fs::read(&spec.file).map_err(|e| format!("{}: {e}", spec.file))?;
-        let clip = convert_for(&Source { file: spec.file, data, options: spec.options, label: spec.label }, output, firmware)?;
+        let clip = convert_for(&Source { file: spec.file, data, options: spec.options, label: spec.label }, Target { output, firmware, limiter })?;
         for note in &clip.notes {
             eprintln!("{arg}: {note}");
         }

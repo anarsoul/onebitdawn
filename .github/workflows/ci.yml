@@ -52,6 +52,8 @@ jobs:
         run: |
           scripts/speaker-clips.sh
           CLIP_PACK_FILE=packs/clips-default-speaker.bin cargo host-test the_pack_file_parses -- --nocapture
+          scripts/speaker-clips.sh "" amplifier
+          CLIP_PACK_FILE=packs/clips-default-amplifier.bin cargo host-test the_pack_file_parses -- --nocapture
       # The licences of the crates a release is built from, as the
       # release makes the list: a dependency under a licence about.toml
       # does not accept fails here, not at a tag.
@@ -70,6 +72,7 @@ jobs:
           path: |
             packs/clips-default.bin
             packs/clips-default-speaker.bin
+            packs/clips-default-amplifier.bin
           if-no-files-found: error
       - name: Clippy on the core crate and its tests
         run: cargo clippy -p onebitdawn-core --target host-tuple --tests -- -D warnings

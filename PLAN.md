@@ -3573,6 +3573,131 @@ them and multiplies by 0.
    stable. The board was put back on `722ce63` at `s`, its output
    on the buzzer.
 
+## `knee=auto`: the limiter's knee fitted to a tune, a speaker's choice of four, and the installer's third sound — built 2026-11-24, on `next`; seen and heard by the user in the page's player, not on a clock; the release workflow not run
+
+The user, 2026-11-24: could the pack maker, the command and the page,
+choose the limiter's options for a speaker by itself, as loud as may
+be with no clicks? And: the buzzer's are not to change, where the
+overdrive is what sounds better.
+
+**What a click is.** Not clipping: the limiter's attack is at once
+(`core/src/shape.rs`), so a sample over the envelope as it has decayed
+comes out at exactly full scale, and a run of them is a flat top on a
+rising wave. Which samples those are is the envelope's and the
+release's to say; the knee only lets by the ones under it. So the
+count at any knee comes of one pass: the levels of the samples the
+limiter would flatten, sorted.
+
+**Measured on the host**, the mix after the high-pass through the
+limiter's arithmetic, samples at full scale a minute and the RMS; it
+agrees with the record of 2026-11-20 (1254 samples at a knee of 12,
+63 at 48, 0 at 64 for "Starlight & Aurora"):
+
+| tune, release | knee | flat a minute | RMS, dBFS | heard |
+| --- | --- | --- | --- | --- |
+| Starlight & Aurora, 13 | 12 | 687 | -10.6 | clicks |
+| | 40 | 213 | -11.8 | |
+| | 48 | 34 | -13.2 | "хорошо" |
+| | 64 | 0 | -15.7 | the user's choice |
+| Suspended Seconds, 13 | 12 | 63 | -15.5 | the user's choice |
+| halftime, 10 | 3, the speaker's default | 5682 | -9.5 | in the speaker's pack |
+| | 80 | 50 | -15.8 | |
+| Keygen, 10 | 3 | 5564 | -9.8 | in the speaker's pack |
+| Morning Mood, 10 | 3 | 10 221 | -8.2 | in the speaker's pack |
+| Mountain King, 10 | 3 | 10 131 | -9.1 | in the speaker's pack |
+
+So a budget of some 60 a minute is what the ear chose for the two
+piano tunes, and no budget fits the others too: they are flattened a
+hundred times as often with nobody hearing a click, a square wave and
+a full mix hiding what a piano alone shows. Nothing measured tells the
+two kinds apart (the crest factor does not: 15 to 19 dB for all).
+Events by their depth in dB were counted as well and separate no
+better.
+
+**Built.** `knee=auto` for a module (`xmc::fit_knee`): the lowest knee
+with no more than `tops` flattened samples a minute, 60 unless
+`tops=N` says; the note says the knee it found, the mix's peak and
+the count. An option, not a default: the default pack's clips and the
+speaker's are what they were. With `release=13` it gives "Starlight &
+Aurora" 46 and "Suspended Seconds" 14 (a test holds it to them); at
+the speaker's release of 10 halftime 79, Keygen 76, Morning Mood 97,
+the Mountain King 72, which is 5 to 7 dB under what they are now; with
+`tops=600` 57, 60, 72 and 48, with `tops=3000` 38, 41, 26 and 27. Under
+a second for the longest module.
+
+Not built: the same for `.sid` (no knee). `.pt3` at first neither;
+see below.
+
+**Heard, 2026-11-24, in the page's player on headphones.** The user:
+"Щелчки в Григе тоже есть - слышны в наушниках, просто они не так
+заметны из-за того что мод довольно громкий". So the count is not
+wrong about the full mixes: their flat tops are clicks too, only
+covered, and "nobody hearing a click" above was nobody listening for
+them on headphones. One budget for every tune is then not ruled out;
+what it costs is the loudness.
+
+**A choice of four, 2026-11-24.** The user, after the budgets on
+Grieg in headphones: "tops=1650 звучит приемлемо, есть немного щелчков
+в наушниках, скорее всего будет незаметно на спикере", and asked for a
+drop-down box beside the speaker's choice. Built as `Limiter`, the
+third part of a `Target` beside the output and the firmware:
+`loudest` (the knee as it is, the default at first, so no clip changed),
+`loud` (1650 a minute), `cleaner` (600), `cleanest` (60); for a
+speaker's module that gives no knee of its own, and nothing to a
+buzzer's. The command has `--limiter`, the page the box, which is
+there only while the speaker is chosen. (The user's list had 600 before 1650;
+they are in the order of their loudness here.) Keygen's knees by the
+four: 0, 50, 60, 76, which a test holds.
+
+**The installer's third sound, 2026-11-24.** The user: a new clock's
+owner sets an amplifier's volume by the pack, so with an amplifier the
+clean one may be had and turned up; a speaker on the transistor has
+no volume, and gets the pack as it is, custom knees and all. So the
+installer asks buzzer, speaker in the buzzer's place, or speaker on
+an amplifier, and not which limiter: `scripts/speaker-clips.sh <pack>
+amplifier` makes the speaker's pack with `--limiter cleanest`, a
+release has it as `onebitdawn-clips-amplifier-<tag>.bin` with
+`manifest-amplifier.json`, and the CI makes and checks it. The two
+packs made here differed in 37 bytes: five knees (halftime, Keygen and
+Grieg's three; the piano tunes have their own) and the hash. For a
+release without the pack among its assets (v0.5) the page gives an
+amplifier the speaker's; the line output's notice is the amplifier's
+alone now.
+
+**The default is the cleanest, 2026-11-24** (the user: "По умолчанию
+в пакере (и web и cli) надо сделать cleanest"): `Limiter::default()`,
+so the command's `--sound-output speaker` with no `--limiter` and the
+page's box. `scripts/speaker-clips.sh` names its limiter either way,
+and both packs are byte for byte what they were before the default
+moved; the tests hold the repository's clips to `loudest` by name.
+
+**The page starts at Speaker, 2026-11-24** (the user: a speaker's
+owner is the likelier to come to the pack maker; the installer is
+used once and stays at Buzzer). Buzzer is still the first of the two,
+as on the installer. The command's default is the buzzer still.
+
+**A PT3 module's knee too, 2026-11-24** (the user: as a module's, or
+near it, and no new clip format). `pt3c::fit_knee`: the knee is one
+of the fifteen steps the flags have, so each is tried from the
+highest down with the clip's own limiter and the lowest that keeps to
+the budget is taken; the mix is had by playing the tune with the
+knee at its highest and the drive at 127. A fitted knee comes with
+the player's own drive, a peak aimed at full scale: the speaker's
+default, `knee=37,drive=150`, aims 1.4 dB over it and flattens at any
+knee. Synchronization (514 s, its mix reaching the highest knee):
+`loudest` as it was, `loud` 58, `cleaner` 74, `cleanest` 93 with 94
+samples flat in all. So the amplifier's pack has another
+Synchronization now, quieter than the speaker's by its drive and its
+knee; the speaker's pack is what it was.
+
+The user, of the pages and the page's player, 2026-11-24: "Выглядит
+и звучит хорошо".
+
+Owed: Synchronization as the amplifier's pack has it heard on a clock; the amplifier's pack heard on white-clock; the release
+workflow run, which only a tag does. What would be louder with no flat tops at all is a limiter
+that sees the peak coming, which is the firmware's and a new clip
+version.
+
 ## Checks still owed
 
 - 16 bits predicted, on a clock (2026-11-22, on `next`, above; both

@@ -39,20 +39,38 @@
 # and is written as 8, so its clip is what it was. The high-pass stays at 100 Hz: the user's
 # choice on white-clock's speaker over 60 Hz, with either limiter
 # ("баса почти не слышно, ну и ладно").
-# The pack maker's `--sound-output speaker` is these settings, so the
+# The pack maker's `--sound-output speaker --limiter loudest` is these settings, so the
 # pack is the default one's sources through it: packs/clips-default-speaker.bin,
 # under the default pack's names, so a clock's melody setting means the
 # same tune after it (the ninth but for a clock that had it chosen and
 # is given the buzzer's pack).
-# Usage: scripts/speaker-clips.sh [pack.bin]    the pack's path, from the
+# With `amplifier` after the path the pack is for a speaker on an
+# amplifier at the line output, whose volume is the amplifier's to
+# set: the modules that give no knee of their own (Keygen,
+# the three of Grieg's and Serial Dawn) are made with `--limiter cleanest`, their
+# knee fitted so the limiter flattens next to no peak (and
+# Synchronization's, whose peaks are then aimed at full scale and not
+# 1.4 dB over it), some 6 dB
+# quieter and with none of the clicks the hard limiter leaves under a
+# loud tune (the user, 2026-11-24, who heard them on headphones). A
+# speaker in the buzzer's place, on its transistor, has no volume to
+# turn up and gets the pack as it was. The two tunes with a knee of
+# their own are the same in both.
+# Usage: scripts/speaker-clips.sh [pack.bin [amplifier]]
+#                                               the pack's path, from the
 #                                               repository's root; the
 #                                               release names its own
 #        API_TOKEN=… scripts/clips.sh <ip> packs/clips-default-speaker.bin
 set -eu
 
 cd "$(dirname "$0")/.."
-pack=${1:-packs/clips-default-speaker.bin}
-cargo pack -o "$pack" --sound-output speaker \
+case ${2:-} in
+    '') limiter=loudest; default=packs/clips-default-speaker.bin ;;
+    amplifier) limiter=cleanest; default=packs/clips-default-amplifier.bin ;;
+    *) echo "usage: $0 [pack.bin [amplifier]]" >&2; exit 2 ;;
+esac
+pack=${1:-$default}
+cargo pack -o "$pack" --sound-output speaker --limiter "$limiter" \
     mods/Orion-Nero6.3.0.2.xm:name=keygen \
     mods/nq-synchronization.pt3:restart,name=synchronization mods/nq-lera.xm:name=lera \
     mods/grieg-morning-bright.xm mods/grieg-morning-chip.xm mods/grieg-mountain-king-bright.xm \

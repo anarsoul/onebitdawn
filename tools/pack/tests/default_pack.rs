@@ -10,11 +10,21 @@
 use std::path::Path;
 
 use onebitdawn_core::pack::Pack;
-use onebitdawn_pack::{Clip, Firmware, Output, Source, Spec, build, convert, convert_for};
+use onebitdawn_pack::{Clip, Firmware, Limiter, Output, Source, Spec, Target, build, convert_for};
+
+/// A clock at v0.5 with a speaker.
+const OLD: Target = Target { output: Output::Speaker, firmware: Firmware::V0_5, limiter: Limiter::Loudest };
 
 fn repo(path: &str) -> Vec<u8> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     std::fs::read(root.join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+}
+
+/// A clip with the limiter as the release's speaker pack has it, the
+/// loudest, which is the knee as the options give it: what the clips
+/// here are held to. The maker's own default fits the knee.
+fn convert(source: &Source, output: Output) -> Result<Clip, String> {
+    convert_for(source, Target { output, limiter: Limiter::Loudest, ..Default::default() })
 }
 
 /// The clip of a file of the repository, by an argument of the command.
@@ -303,13 +313,13 @@ fn a_16_bit_sample_is_predicted_with_seek_points() {
     // For v0.5 it is cut to 8 bits, as `samples=8` cuts it, and an
     // option that keeps the 16 is refused.
     let cut = Source { options: vec![("samples".into(), "8".into())], ..source.clone() };
-    let old = convert_for(&source, Output::Speaker, Firmware::V0_5).unwrap();
+    let old = convert_for(&source, OLD).unwrap();
     assert!(old.data.starts_with(b"XMC2") && old.data == convert(&cut, Output::Speaker).unwrap().data);
-    assert_eq!(convert_for(&cut, Output::Speaker, Firmware::V0_5).unwrap().data, old.data);
+    assert_eq!(convert_for(&cut, OLD).unwrap().data, old.data);
     for asked in ["16", "packed"] {
         let keep = Source { options: vec![("samples".into(), asked.into())], ..source.clone() };
         assert_eq!(
-            convert_for(&keep, Output::Speaker, Firmware::V0_5).err(),
+            convert_for(&keep, OLD).err(),
             Some(format!("test.xm: samples={asked} makes a clip for a firmware after v0.5, and the pack is for v0.5"))
         );
     }
@@ -411,13 +421,67 @@ fn a_sound_file_is_a_clip_at_the_clips_rate() {
     // For v0.5 a sound file is ADPCM unless it is asked for in 8
     // bits, and never 16.
     let ring = |options: &str| Source { file: "ring.wav".into(), data: wav(44100), options: Spec::parse(&format!("ring.wav:{options}")).options, label: None };
-    let old = convert_for(&ring("seconds=2"), Output::Speaker, Firmware::V0_5).unwrap();
+    let old = convert_for(&ring("seconds=2"), OLD).unwrap();
     assert!(old.data.starts_with(b"ADP1") && old.data == convert(&ring("seconds=2,format=adpcm"), Output::Speaker).unwrap().data);
-    assert!(convert_for(&ring("seconds=2,format=pcm"), Output::Speaker, Firmware::V0_5).unwrap().data.starts_with(b"PCM1"));
+    assert!(convert_for(&ring("seconds=2,format=pcm"), OLD).unwrap().data.starts_with(b"PCM1"));
     for asked in ["packed", "pcm16"] {
-        let why = convert_for(&ring(&format!("format={asked}")), Output::Speaker, Firmware::V0_5).unwrap_err();
+        let why = convert_for(&ring(&format!("format={asked}")), OLD).unwrap_err();
         assert_eq!(why, format!("ring.wav: format={asked} makes a clip for a firmware after v0.5, and the pack is for v0.5"));
     }
     let cut = Source { file: "ring.wav".into(), data: wav(8000)[..60].to_vec(), ..Default::default() };
     assert!(convert(&cut, Output::Buzzer).is_err());
+}
+
+/// `knee=auto` finds the knees the two piano tunes were given by ear
+/// on a speaker, or next to them: 48 was "good" for Starlight & Aurora
+/// and 12 for Suspended Seconds, both with the limiter letting go over
+/// a second.
+#[test]
+fn the_knee_fitted_is_what_the_ear_chose() {
+    for (file, knee) in [("mods/starlight-aurora.xm", 46), ("mods/suspended-seconds.xm", 14)] {
+        let fitted = made(&format!("{file}:knee=auto,release=13"), Output::Speaker);
+        assert_eq!(fitted.data[29], knee, "{file}");
+        assert!(fitted.notes[0].starts_with(&format!("knee=auto: knee={knee}, ")), "{}", fitted.notes[0]);
+        // The clip is the one that knee asked for by its number makes.
+        assert!(fitted.data == made(&format!("{file}:knee={knee},release=13"), Output::Speaker).data);
+        // With nothing allowed the limiter is off: the knee is over the peak.
+        let off = made(&format!("{file}:knee=auto,tops=0,release=13"), Output::Speaker);
+        assert!(off.notes[0].contains("flattens 0 samples") && off.data[29] > knee, "{}", off.notes[0]);
+    }
+    // The limiter's choice is a `tops` for a speaker's module that
+    // gives no knee of its own, and nothing to a buzzer's.
+    let chosen = |arg: &str, output, limiter| {
+        let spec = Spec::parse(arg);
+        let source = Source { data: repo(&spec.file), file: spec.file, options: spec.options, label: spec.label };
+        convert_for(&source, Target { output, limiter, ..Default::default() }).unwrap().data
+    };
+    let keygen = "mods/Orion-Nero6.3.0.2.xm:name=keygen";
+    let knees: Vec<u8> = Limiter::ALL.iter().map(|&(limiter, _)| chosen(keygen, Output::Speaker, limiter)[29]).collect();
+    assert_eq!(knees, [0, 50, 60, 76]);
+    // The maker's own default is the cleanest.
+    assert_eq!(chosen(keygen, Output::Speaker, Limiter::default())[29], 76);
+    assert!(chosen(keygen, Output::Speaker, Limiter::Cleaner) == made(&format!("{keygen},knee=auto,tops=600"), Output::Speaker).data);
+    assert!(chosen(keygen, Output::Buzzer, Limiter::Cleanest) == made(keygen, Output::Buzzer).data);
+    assert_eq!(chosen(&format!("{keygen},knee=12"), Output::Speaker, Limiter::Cleanest)[29], 12);
+    assert_eq!(chosen(&format!("{keygen},tops=3000"), Output::Speaker, Limiter::Cleanest)[29], 41);
+    // A PT3 module's knee is one of fifteen steps, and fitted it comes
+    // with the player's own drive unless the options give one.
+    let sync = "mods/nq-synchronization.pt3:restart,name=synchronization";
+    let steps: Vec<[u8; 2]> = Limiter::ALL.iter().map(|&(limiter, _)| chosen(sync, Output::Speaker, limiter)).map(|clip| [clip[4] >> 4, clip[5]]).collect();
+    // 37 and 150 as they were; then 58, 74 and 93.
+    assert_eq!(steps, [[11, 150], [13, 0], [14, 0], [15, 0]]);
+    assert!(chosen(sync, Output::Speaker, Limiter::Loudest) == made(sync, Output::Speaker).data);
+    assert!(chosen(sync, Output::Speaker, Limiter::Cleaner) == made(&format!("{sync},knee=auto,tops=600"), Output::Speaker).data);
+    assert!(chosen(sync, Output::Buzzer, Limiter::Cleanest) == made(sync, Output::Buzzer).data);
+    let kept = chosen(&format!("{sync},knee=23,drive=140"), Output::Speaker, Limiter::Cleanest);
+    assert_eq!([kept[4] >> 4, kept[5]], [9, 140]);
+    assert_eq!(chosen(&format!("{sync},flat"), Output::Speaker, Limiter::Cleanest)[4] >> 4, 0);
+    let refused = |options: &str| {
+        let spec = Spec::parse(&format!("mods/suspended-seconds.xm:{options}"));
+        convert(&Source { data: repo(&spec.file), file: spec.file, options: spec.options, label: None }, Output::Speaker).unwrap_err()
+    };
+    assert_eq!(refused("tops=60"), "mods/suspended-seconds.xm: tops is knee=auto's");
+    assert_eq!(refused("knee=low"), "mods/suspended-seconds.xm: knee=low: a number to 255, or auto");
+    let source = Source { file: "sync.pt3".into(), data: repo("mods/nq-synchronization.pt3"), options: Spec::parse("a.pt3:flat,knee=auto").options, label: None };
+    assert_eq!(convert(&source, Output::Speaker).unwrap_err(), "sync.pt3: knee is the limiter's: not with flat");
 }

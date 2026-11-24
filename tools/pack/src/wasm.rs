@@ -10,7 +10,7 @@
 
 use std::sync::Mutex;
 
-use crate::Firmware;
+use crate::{Firmware, Limiter, Output, Target};
 use crate::web::{Session, limits};
 
 struct State {
@@ -85,14 +85,16 @@ pub extern "C" fn obd_limits() -> i32 {
 }
 
 /// A clip of a file: its JSON in the answer. `firmware` is the minor
-/// version of the firmware the pack is for, 5 for v0.5.
+/// version of the firmware the pack is for, 5 for v0.5; `limiter` is
+/// how hard a speaker's works, a place in `Limiter::ALL`.
 ///
 /// # Safety
 /// Each pointer is an `obd_alloc`'s of its length or more.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn obd_convert(file: *const u8, file_len: usize, data: *const u8, data_len: usize, options: *const u8, options_len: usize, speaker: u32, firmware: u32) -> i32 {
+pub unsafe extern "C" fn obd_convert(file: *const u8, file_len: usize, data: *const u8, data_len: usize, options: *const u8, options_len: usize, speaker: u32, firmware: u32, limiter: u32) -> i32 {
     let (file, data, options) = unsafe { (text(file, file_len), bytes(data, data_len), text(options, options_len)) };
-    with(|session, into| answer(session.convert(file, data, options, speaker != 0, Firmware::of_minor(firmware)).map(String::into_bytes), into))
+    let target = Target { output: if speaker != 0 { Output::Speaker } else { Output::Buzzer }, firmware: Firmware::of_minor(firmware), limiter: Limiter::of_index(limiter) };
+    with(|session, into| answer(session.convert(file, data, options, target).map(String::into_bytes), into))
 }
 
 #[unsafe(no_mangle)]
