@@ -285,6 +285,50 @@ fn wide_at(words: &[i16], pos: u32) -> i32 {
     words.get(pos as usize).map_or(0, |&s| i16::from_le(s) as i32)
 }
 
+/// Mixed samples a `Tune::render`: a channel is mixed over a run of
+/// them at a time, its state in registers. A whole number of output
+/// samples at either oversampling, so no group of mixed samples is
+/// split between two renders.
+const RUN: usize = 16;
+const _: () = assert!(RUN.is_multiple_of(4));
+
+/// A channel's part in a run of mixed samples, added to `out`: the
+/// two samples it is between (`pair`, which is all that differs from
+/// kind to kind, so this is built once a kind), the level's ramp, the
+/// step, the loop's wrap and the sample's end, each where the mixer
+/// had it when it went a sample at a time over the channels
+/// (`Tune::mix_one`, kept for the tests). The position, the fraction
+/// and the gain are locals for the run and written back after it.
+#[inline(always)]
+fn run<'a>(ch: &mut Channel<'a>, out: &mut [i32], mut pair: impl FnMut(&mut Channel<'a>, u32) -> (i32, i32)) {
+    let (mut pos, mut frac, step) = (ch.pos, ch.frac, ch.step);
+    let (mut gain, mut ramp, gain_step, amp) = (ch.gain, ch.ramp, ch.gain_step, ch.amp);
+    let (loop_start, loop_len, len) = (ch.loop_start, ch.loop_len, ch.len);
+    let end = loop_start.wrapping_add(loop_len);
+    for sum in out.iter_mut() {
+        let (a, b) = pair(ch, pos);
+        let sample = a + (((b - a) * (frac >> 8) as i32) >> 8);
+        if ramp != 0 {
+            ramp -= 1;
+            gain = if ramp == 0 { amp << 8 } else { gain + gain_step };
+        }
+        *sum += (sample * (gain >> 8)) >> 12;
+        let moved = frac + (step & 0xFFFF);
+        frac = moved & 0xFFFF;
+        pos = pos.saturating_add((step >> 16) + (moved >> 16));
+        if loop_len != 0 {
+            if pos >= end {
+                pos = loop_start + (pos - end) % loop_len;
+            }
+        } else if pos >= len {
+            ch.playing = false;
+            ch.mixing = false;
+            break;
+        }
+    }
+    (ch.pos, ch.frac, ch.gain, ch.ramp) = (pos, frac, gain, ramp);
+}
+
 /// No block of a channel's is decoded.
 const NO_BLOCK: u32 = u32::MAX - 2;
 
@@ -626,6 +670,11 @@ pub struct Tune<'a> {
     shaper: Shaper,
     /// Mixed samples an output sample: 4 at `PCM_HZ`, 2 at twice it.
     oversample: u32,
+    /// The output samples of the last `render`, how many there are
+    /// and how many `next_sample` has given out.
+    ready: [i16; RUN / 2],
+    have: u8,
+    given: u8,
 }
 
 impl<'a> Tune<'a> {
@@ -664,6 +713,9 @@ impl<'a> Tune<'a> {
             mix_hz: if flags & FAST != 0 { FAST_MIX_HZ } else { MIX_HZ },
             shaper: Shaper::new(byte(data, 10), byte(data, 11), octaves, core::array::from_fn(|i| word(data, 18 + 2 * i) as i16), byte(data, 16), flags & WIDE != 0, byte(data, 29)),
             oversample: if flags & (TWICE | FAST) == 0 { 4 } else { 2 },
+            ready: [0; RUN / 2],
+            have: 0,
+            given: 0,
         };
         tune.enter(0, 0);
         tune
@@ -703,19 +755,60 @@ impl<'a> Tune<'a> {
     /// samples, which push it out.
     #[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"), inline(never))]
     pub fn next_sample(&mut self) -> Option<i16> {
-        let mut sum = 0;
-        for _ in 0..self.oversample {
+        if self.given == self.have {
+            self.render();
+            if self.have == 0 {
+                return None;
+            }
+        }
+        self.given += 1;
+        Some(self.ready[self.given as usize - 1])
+    }
+
+    /// The next `RUN` mixed samples, or what there is of them before
+    /// the tune ends, into `acc`: how many. In runs, each to the end
+    /// of `acc` or of the tick, whichever is nearer, so a tick is at
+    /// the mixed sample it was at when the mixer took one at a time.
+    #[inline(always)]
+    fn runs(&mut self, acc: &mut [i32; RUN]) -> usize {
+        let mut filled = 0;
+        while filled < RUN {
             if self.pool <= 0 {
                 self.step_tick();
                 self.wind();
             }
             if self.ended {
-                return None;
+                break;
             }
-            self.pool -= self.tempo as i32;
-            sum += self.mix();
+            // A mixed sample takes `tempo` out of the pool, and the
+            // last of a tick is the one that empties it.
+            let (tempo, room) = (self.tempo as i32, RUN - filled);
+            let n = if self.pool >= tempo * room as i32 { room } else { ((self.pool + tempo - 1) / tempo) as usize };
+            self.pool -= tempo * n as i32;
+            self.mix(&mut acc[filled..filled + n]);
+            filled += n;
         }
-        Some(self.shaper.run(sum / self.oversample as i32))
+        filled
+    }
+
+    /// The output samples of the next `RUN` mixed ones into `ready`:
+    /// each the mean of its group, shaped, in order. None when the
+    /// tune has ended, and a group the end falls in is dropped. The
+    /// sums are here and nowhere else, 64 bytes of the stack.
+    #[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"), inline(never))]
+    fn render(&mut self) {
+        let mut acc = [0; RUN];
+        (self.have, self.given) = (0, 0);
+        if self.ended {
+            return;
+        }
+        let filled = self.runs(&mut acc);
+        let four = self.oversample == 4;
+        for group in acc[..filled].chunks_exact(self.oversample as usize) {
+            let sum: i32 = group.iter().sum();
+            self.ready[self.have as usize] = self.shaper.run(if four { sum / 4 } else { sum / 2 });
+            self.have += 1;
+        }
     }
 
     fn instrument(&self, number: u8) -> Option<Instrument<'a>> {
@@ -1138,9 +1231,54 @@ impl<'a> Tune<'a> {
         ch.step = (if octave >= 0 { step << octave.min(16) } else { step >> (-octave).min(16) }).min(u32::MAX as u64) as u32;
     }
 
-    /// One mixed sample: the channels' sum, 32768 for one channel at
-    /// full level.
-    fn mix(&mut self) -> i32 {
+    /// A run of mixed samples into `out`: the channels' sum, 32768
+    /// for one channel at full level. A channel at a time over the
+    /// run (`run`), the kind chosen once for it.
+    fn mix(&mut self, out: &mut [i32]) {
+        // What the notes that were cut short left behind, dying away.
+        for sum in out.iter_mut() {
+            *sum = self.cut;
+            if self.cut != 0 {
+                self.cut -= self.cut / CUT_DECAY + self.cut.signum();
+            }
+        }
+        let d = self.d;
+        for ch in &mut self.channel[..self.channels] {
+            // A quiet channel adds nothing, and the tick moves it on.
+            if !ch.mixing {
+                continue;
+            }
+            // The sample after `pos`, which past a loop's end is its first.
+            let (loop_start, loop_len) = (ch.loop_start, ch.loop_len);
+            let after = move |pos: u32| if loop_len != 0 && pos + 1 >= loop_start + loop_len { pos + 1 - loop_len } else { pos + 1 };
+            match ch.kind {
+                Kind::Packed => run(ch, out, |ch, pos| {
+                    // From the two blocks decoded: the flash has no sample
+                    // to read. A new block once in `BLOCK` samples.
+                    if pos / BLOCK as u32 != ch.block {
+                        refill(d, ch, pos / BLOCK as u32);
+                    }
+                    let i = pos as usize % BLOCK;
+                    let b = if loop_len != 0 && pos + 1 >= loop_start + loop_len { ch.loop_first } else { ch.blocks[i + 1] as i32 };
+                    (ch.blocks[i] as i32, b)
+                }),
+                Kind::Wide => {
+                    let words = ch.words;
+                    run(ch, out, |_, pos| (wide_at(words, pos), wide_at(words, after(pos))))
+                }
+                Kind::Narrow => {
+                    let held = ch.held;
+                    run(ch, out, |_, pos| (narrow_at(held, pos), narrow_at(held, after(pos))))
+                }
+            }
+        }
+    }
+
+    /// One mixed sample, as the mixer made it before it went by runs:
+    /// every channel in turn, its state in the channel. What `mix`
+    /// must give, sample for sample.
+    #[cfg(test)]
+    fn mix_one(&mut self) -> i32 {
         // What the notes that were cut short left behind, dying away.
         let mut sum = self.cut;
         if self.cut != 0 {
@@ -1198,19 +1336,14 @@ pub fn raw_mix(data: &[u8]) -> Vec<i16> {
     let mut t = Tune::new(data);
     let mut out = Vec::new();
     loop {
-        let mut sum = 0;
-        for _ in 0..t.oversample {
-            if t.pool <= 0 {
-                t.step_tick();
-                t.wind();
-            }
-            if t.ended {
-                return out;
-            }
-            t.pool -= t.tempo as i32;
-            sum += t.mix();
+        let mut acc = [0; RUN];
+        let filled = t.runs(&mut acc);
+        for group in acc[..filled].chunks_exact(t.oversample as usize) {
+            out.push((group.iter().sum::<i32>() / (t.oversample as i32 * 4)).clamp(-32768, 32767) as i16);
         }
-        out.push((sum / (t.oversample as i32 * 4)).clamp(-32768, 32767) as i16);
+        if filled < RUN {
+            return out;
+        }
     }
 }
 
@@ -1385,6 +1518,20 @@ mod tests {
         let mut t = Tune::new(data);
         let mut out = Vec::new();
         loop {
+            let mut acc = [0; RUN];
+            let filled = t.runs(&mut acc);
+            out.extend_from_slice(&acc[..filled]);
+            if filled < RUN {
+                return out;
+            }
+        }
+    }
+
+    /// The same from the mixer that went a sample at a time.
+    fn mixed_one(data: &[u8]) -> Vec<i32> {
+        let mut t = Tune::new(data);
+        let mut out = Vec::new();
+        loop {
             if t.pool <= 0 {
                 t.step_tick();
                 t.wind();
@@ -1393,7 +1540,7 @@ mod tests {
                 return out;
             }
             t.pool -= t.tempo as i32;
-            out.push(t.mix());
+            out.push(t.mix_one());
         }
     }
 
@@ -1963,6 +2110,14 @@ mod tests {
             for (kind, ins) in [("narrow", narrow), ("wide", wide.clone()), ("packed", packed(false)), ("packed with seek points", packed(true))] {
                 let clip = play(&ins);
                 let want = if kind == "narrow" { mixed_eagerly(&clip) } else { reference.clone() };
+                // By runs as a sample at a time, the silent ones passed
+                // by or not, and at a tempo whose ticks fall anywhere.
+                assert!(mixed(&clip) == mixed_one(&clip), "tune {n}, {kind}: by runs");
+                EAGER.with(|e| e.set(true));
+                assert!(mixed(&clip) == mixed_one(&clip), "tune {n}, {kind}: by runs, every channel played");
+                EAGER.with(|e| e.set(false));
+                let odd = module(1, 3, 133, &[0], &[pattern(16, cells)], core::slice::from_ref(&ins));
+                assert!(mixed(&odd) == mixed_one(&odd), "tune {n}, {kind}: by runs at 133");
                 FILLS.with(|f| f.set(0));
                 let got = mixed(&clip);
                 let fills = FILLS.with(|f| f.get());
@@ -1978,6 +2133,15 @@ mod tests {
                     assert!(fills <= eager, "tune {n}, {kind}: {fills} blocks, {eager} played through");
                 }
             }
+        }
+    }
+
+    /// Every module built in (`ALARM_CLIP`) mixed by runs against the
+    /// mixer that went a sample at a time: the same sums.
+    #[test]
+    fn the_clips_built_in_are_mixed_by_runs_as_they_were_a_sample_at_a_time() {
+        for (k, data) in crate::melody::CLIP_DATA.iter().enumerate().filter(|(_, d)| is_tune(d)) {
+            assert!(mixed(data) == mixed_one(data), "{}", crate::melody::CLIP_NAMES[k].0);
         }
     }
 
@@ -2009,7 +2173,7 @@ mod tests {
                 }
                 t.pool -= t.tempo as i32;
                 let was_quiet = t.channel[0].quiet;
-                t.mix();
+                t.mix(&mut [0]);
                 let fills = FILLS.with(|f| f.get());
                 if tick && t.row == 30 && t.tick == 1 {
                     assert!(!was_quiet);
@@ -2034,7 +2198,7 @@ mod tests {
     /// Not a test of the player but a count, over the modules built in
     /// (`ALARM_CLIP`): the output with the silent channels passed by
     /// against the same with each played, which must be the same, the
-    /// blocks decoded both ways, and the most for one output sample.
+    /// blocks decoded both ways, and the most in one render.
     #[test]
     fn the_clips_built_in_sound_the_same_with_their_silent_channels_passed_by() {
         for (k, data) in crate::melody::CLIP_DATA.iter().enumerate().filter(|(_, d)| is_tune(d)) {
@@ -2053,7 +2217,7 @@ mod tests {
                 (out, before, worst)
             };
             let (eager, lazy) = (play(true), play(false));
-            std::println!("{}: {} blocks decoded, {} with every channel played; for one output sample {} at most, {}", crate::melody::CLIP_NAMES[k].0, lazy.1, eager.1, lazy.2, eager.2);
+            std::println!("{}: {} blocks decoded, {} with every channel played; in one render {} at most, {}", crate::melody::CLIP_NAMES[k].0, lazy.1, eager.1, lazy.2, eager.2);
             assert!(eager.0 == lazy.0, "{}", crate::melody::CLIP_NAMES[k].0);
             assert!(lazy.1 <= eager.1);
         }

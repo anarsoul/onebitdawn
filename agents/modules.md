@@ -416,10 +416,22 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   once, when it is further: being heard again costs `REACH` blocks
   and two at most. `tests::EAGER` leaves no channel quiet, for a
   test to compare with.
+- The mixer goes a channel at a time over a run of mixed samples
+  (`Tune::render`, `RUN` of them, 16: `runs` ends a run at a tick,
+  which is at the mixed sample it always was, and `mix` adds each
+  mixing channel over the run). A channel's run is `run`, built
+  once a kind of sample, the pair of samples it goes between being
+  all that differs; its position, fraction, gain and ramp are locals
+  for the run. The sums are `render`'s local, 64 bytes; the output
+  samples of a render (the groups' means through the shaper, in
+  order) wait in `Tune::ready` for `next_sample`. `Tune::mix_one` is
+  the mixer that went a sample at a time over the channels, kept for
+  the tests: `mix` must give its sums, and does for the test modules
+  and the clips built in.
 - What runs for every sample is in RAM in the firmware, by the
   crate's `ram` feature (a `link_section` of `.rwtext`, esp-hal's
   `#[ram]` section, on a target with no OS; the host's builds do not
-  have it): `Tune::next_sample` with the mixer inlined, `refill`,
+  have it): `Tune::next_sample` and `render` with the mixer inlined, `refill`,
   `fill` and `adpcm::decode_block` for a predicted sample,
   `Shaper::run`, and `clip.rs`'s `Player::level`, `fill_samples` and
   `fill_bits` above them. `step_tick` is kept out of line and in the

@@ -3069,7 +3069,7 @@ buzzer's, posted to `/clips`, on the buzzer):
   it on the beeps), and on the firmware as found, built again from
   `d982662` and sent over the air after the trial: it is in `ota_0`.
 
-## The module player's cost: silent channels, the shaper's division, mixing by blocks — planned 2026-11-23, on `next`; the first two built and run on the bare bench board the same day, not heard
+## The module player's cost: silent channels, the shaper's division, mixing by blocks — planned 2026-11-23, on `next`; built and run on the bare bench board the same day, not heard
 
 The user asked what in the module player could be made noticeably
 cheaper, the code not touched (2026-11-23), and then for the four
@@ -3351,18 +3351,108 @@ them and multiplies by 0.
    - Owed: a clip heard; a SID tune, which ends in the same shaper,
      run on a board.
 3. **The mixer by blocks.** A channel at a time over a run of mixed
-   samples into a buffer of `i32` (32 to 64 of them, in `Tune`), its
-   state in registers, the kind, the loop, the ramp and the block's
-   edge decided outside the loop; a run ends at a tick.
-   `next_sample` hands the buffer out a sample at a time, so nothing
-   above it changes, and the sum is the same sum in another order.
-   The largest of the three: all the code in `.rwtext` written
-   again. To be decided after the first, by what is left to gain.
-   After the first two (2026-11-23): not wanted for underruns, the
-   dearest clip being 37 % of the processor and its worst chunk
-   three quarters of its length; it is for what else the clock
-   does while it rings, if that is ever short of time, or for
-   more channels.
+   samples where the mixer went a sample at a time over the
+   channels. First thought of with its buffer in `Tune`, and put off
+   after the first two (not wanted for underruns, the dearest clip
+   being 37 % of the processor and its worst chunk three quarters of
+   its length; it is for what else the clock does while it rings, or
+   for more channels). Begun 2026-11-23 (the user, with another
+   session's note: sixteen mixed samples into one buffer of `i32`,
+   64 bytes whatever the channels, local to the function that
+   renders and in no channel; a run shorter where a tick falls, the
+   tick at the instant it had; the groups of the oversampling kept
+   though a tick falls in one; the kind chosen once a channel a run,
+   the position, fraction, step and gain in registers and written
+   back after; interpolation, ramps, wraps, ends and a predicted
+   sample's refills where they were, a high step crossing several
+   blocks; each channel's product rounded before it is added; the
+   same bits out. What to measure beside the time is left to this
+   session). The design:
+   - `Tune::render` fills `RUN` (16) mixed samples, in runs: a run
+     is what is left of the sixteen or of the tick, whichever is
+     less (the pool over the tempo, rounded up: the samples the old
+     loop took before it found the pool empty), then the tick, as
+     before. `mix` takes the run's slice: the `cut` and its decay a
+     sample, in order, then each mixing channel added over the whole
+     run. Sixteen is a whole number of groups at both oversamplings,
+     so a group is never split between two renders and one a tick
+     falls in is summed as it was; the tune's end inside a group
+     drops the group, as it did.
+   - The sums go through the shaper in order into `Tune::ready`, the
+     eight output samples at most (16 bytes), and `next_sample`
+     hands them out: nothing above changes. The buffer of `i32` is
+     `render`'s local. The group's division by 2 or 4 is by a
+     constant.
+   - A channel's run is one generic loop, built three times, a kind
+     each: where the two samples come from is the only difference.
+     Its position, fraction, gain and ramp are locals, written back
+     after; the arithmetic is the old loop's line for line. A
+     predicted sample asks for its block at each sample as before,
+     so `refill` is called where it was.
+   - To check: the old `mix`, kept for the tests alone, against the
+     new for the test modules and the clips built in, a mixed sample
+     at a time and by runs; the hashes of `next_sample` and the raw
+     mix of the nine clips against `2816010`; `.rwtext` and `.stack`;
+     the inner loop's instructions counted in the disassembly, a
+     kind each, before and after; on the board the speaker's pack on
+     the line output against the second item's last column: filling,
+     the longest chunk, underruns, and the main stack's deepest use
+     (`stack-watch`) with a clip playing, the predicted ones above
+     all.
+   - Built and run on `another-bench` 2026-11-23, the speaker's pack
+     on the line output, nothing heard: `RUN`, `run`, `Tune::runs`,
+     `render`, `mix` over a slice, `ready`; `mix_one` is the old
+     mixer, for the tests. Filling, and the longest chunk, against
+     `2816010` (the second item's last column); no underruns and no
+     stray positions in any:
+
+     | clip | `2816010` | by runs |
+     | --- | --- | --- |
+     | Halftime | 9368 of 43 572 ms, 21.5 %; 4071 us | 7720, 17.7 %; 3429 |
+     | Keygen | 11 918 of 57 640, 20.7 %; 4036 | 9836, 17.1 %; 3387 |
+     | Morning Mood | 37 121 of 104 039, 35.7 %; 12 458 | 30 512, 29.3 %; 11 132 |
+     | Morning Mood Chip | 33 522 of 104 042, 32.2 %; 10 563 | 24 400, 23.5 %; 8097 |
+     | Mountain King | 43 738 of 139 598, 31.3 %; 10 916 | 35 791, 25.6 %; 9873 |
+     | Suspended Seconds | 12 204 of 48 038, 25.4 %; 7044 | 10 354, 21.6 %; 6243 |
+     | Starlight & Aurora | 40 490 of 111 037, 36.5 %; 9759 | 33 199, 29.9 %; 8465 |
+
+     From before the first item (70.8, 62.7, 52.3, 45.4 and 65.1 %
+     for the five large ones, 24.3 and 23.5 for the two small) the
+     large clips cost 2.0 to 2.7 times less and the small 1.37.
+   - The chip Morning, whose samples are read from the flash, gained
+     27 %, and the Morning of the same notes in predicted samples,
+     mixed from the blocks in RAM, 18 % (the user: the large ones
+     are helped by the cache as well, a run reading one sample
+     where a mixed sample read them all). Not told apart here: the
+     predicted one's decoding is as it was, which alone makes its
+     gain the smaller.
+   - The loop for a sample of 16 bits is some 50 instructions a
+     mixed sample with one store, the sum's (the disassembly of
+     `render`; the reckoning before was 95 cycles). `render` is
+     1408 bytes, the three loops in it; `.rwtext` 8840 bytes (7988),
+     the main stack 32 728 (33 592).
+   - The stack's deepest use (`stack-watch`, both builds, Morning
+     Mood, Mountain King and Starlight & Aurora played, the
+     heartbeat's figure after): 17 432 of 33 592 bytes with
+     `2816010`, 17 500 of 32 728 by runs, so 15 228 bytes never
+     used where there were 16 160. The two builds' filling was the
+     pass's to tens of ms (30 501, 35 813, 33 214 by runs).
+   - Host: the 202 tests of `core/`, one of them new and one wider
+     (`mix` against `mix_one` for the silent-channel tunes at each
+     kind, the silent ones passed by and not, and at a tempo of 133,
+     whose ticks fall anywhere in a run; the clips built in the
+     same way), both clippys; `next_sample`'s 16 bits and the raw
+     mix of the six module clips of `clips/`, Children, Crush and
+     Elysium, hashed with this and with `2816010`'s `xm.rs`: the
+     same.
+   - Not done: a block written straight into the DMA chunk
+     (`next_sample` still hands a sample at a time to
+     `Player::level`), which is what is left of the cost that is
+     not the channels'.
+   - The board was left on this build (`2816010` and the tree, in
+     `ota_0`) with the speaker's pack, its output back on the
+     buzzer, the alarm and the melody as found.
+   - Owed: a clip heard.
 4. **`opt-level` 2 or 3 for `core` alone, last of all** (the user,
    2026-11-23: with a small cache `-Os` usually does better than
    `-O2`). The image is built at `s`. The code that runs for every
