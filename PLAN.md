@@ -3069,7 +3069,7 @@ buzzer's, posted to `/clips`, on the buzzer):
   it on the beeps), and on the firmware as found, built again from
   `d982662` and sent over the air after the trial: it is in `ota_0`.
 
-## The module player's cost: silent channels, the shaper's division, mixing by blocks — planned 2026-11-23, on `next`; the first built and run on the bare bench board the same day, not heard
+## The module player's cost: silent channels, the shaper's division, mixing by blocks — planned 2026-11-23, on `next`; the first two built and run on the bare bench board the same day, not heard
 
 The user asked what in the module player could be made noticeably
 cheaper, the code not touched (2026-11-23), and then for the four
@@ -3240,22 +3240,116 @@ them and multiplies by 0.
      pack (`packs/clips-default-speaker.bin`, made again, 1 019 189
      bytes) on a board; the pack maker's page tried in a browser
      (`cargo pack-wasm` builds, 319 999 bytes).
-2. **The shaper without a division of 64 bits.** Every clip has the
-   `wide` flag, so `Shaper::run` calls the ROM's `__divdi3` once an
-   output sample; and the high-pass keeps its coefficients as `i64`,
-   which the compiler multiplies in full, some twenty `mul` a pass.
-   - The division as two of 32 bits: `q = y * drive / gain`, `r` its
-     remainder, the sample `q * STEP + r * STEP / gain`. The same
-     value as now, both divisions truncating, while `y * drive` and
-     `r * STEP` fit an `i32`; a `y` too large for that takes the
-     `i64` way as now.
-   - The coefficients as `i32`, each product an `i32` by an `i32`
-     into an `i64`: `mul` and `mulh`.
-   - What `__divdi3` costs is not measured, so neither is the gain: a
-     few points at most, and they show on Halftime and Keygen, where
-     what is not the channels' is four tenths of the cost.
-   - To check: a host test of the new division against the old over
-     the range, the limiter on and off; the dumps byte for byte.
+2. **The shaper without a division of 64 bits.** Begun 2026-11-23
+   (the user, with another session's note: measure the division;
+   while the envelope is under the knee the divisor is constant, so
+   prepare a multiplier once, with an exact correction, and when the
+   limiter works use the prepared one while it holds, counting what
+   preparing costs when the envelope moves every sample; truncation
+   toward zero, the clipping and every header's setting kept; no
+   reciprocal that is only near; a high knee is not a limiter that
+   never works).
+   - What there is: every clip has the `wide` flag, so
+     `Shaper::run` calls the ROM's `__divdi3` once an output sample
+     for `y * drive * STEP / gain` (the disassembly of `0633232`).
+   - The numbers: `gain` is the envelope or the knee, whichever is
+     more, and the envelope is never under `|y|`, so `|y| <= gain`
+     and the quotient is `drive * STEP` at most. With `gain` under
+     2^23, `a = |y| * drive` is under 2^31, and the sample is
+     `q * STEP + r * STEP / gain` for `q` and `r` the quotient and
+     remainder of `a` by `gain`, the sign put back: the same value,
+     both ways truncating toward zero. `r * STEP` is under 2^31
+     too.
+   - Each of the two divisions is a multiply: `m = 2^32 / gain`
+     rounded down, `q = (a * m) >> 32`, which is the quotient or one
+     under it for any `a` under 2^32 (the proof beside the code),
+     put right by the remainder: one test. No division while `gain`
+     is what it was, which is every sample under the knee.
+   - `m` is prepared when `gain` is not the one it was prepared for:
+     one division of 32 bits, the chip's own. A limiter at work
+     moves the envelope every sample, so that is the cost then, in
+     the ROM division's place; nothing is assumed of the knee.
+   - A `gain` of 2^23 or more (twenty channels at full level are
+     under 2^20 before the filter) takes the division of 64 bits as
+     now, out of line; so does the clip that is not `wide` there.
+     The one that is not `wide` is `q` cut to 127, times `STEP`.
+   - The high-pass's coefficients as `i32` (the first plan's other
+     half) is a second step, tried by itself after this.
+   - To check: a host test of the new scaling against the old
+     expression kept beside it, over gains to both sides of the
+     limit, levels to both ends, every drive's ends, `wide` and not,
+     and a divisor that changes and comes back; every module clip's
+     samples (`next_sample`, the 16 bits) before and after, the
+     same; `.rwtext` and `.stack`; on the board the six clips
+     against the first item's last column, Halftime and Keygen above
+     all, which is the measure of the division.
+   - Built and run on `another-bench` 2026-11-23, as the first item
+     was (the same pack, the buzzer's output, nothing heard):
+     `Shaper::scale` with `divide`, `divisor` and `inverse`, `slow`
+     for a gain of `SMALL` or more; then, by itself, the high-pass:
+     `Biquad::run` with the coefficients as `i32` and each product
+     of two `i32`, and `wild`, the old arithmetic, for an output no
+     `i32` holds. `Shaper::run` has one `divu`, where the divisor is
+     prepared, and no call. Filling, and the longest chunk; no
+     underruns in any:
+
+     | clip | `b1a72b9` | the division | and the high-pass |
+     | --- | --- | --- | --- |
+     | Halftime | 10 578 of 43 572 ms, 24.3 %; 4514 us | 9624, 22.1 %; 4149 | 9384, 21.5 %; 4078 |
+     | Keygen | 13 518 of 57 639, 23.5 %; 4498 | 12 257, 21.3 %; 4107 | 11 925, 20.7 %; 4037 |
+     | Morning Mood | 40 551 of 104 042, 39.0 %; 12 976 | 37 759, 36.3 %; 12 614 | 37 100, 35.7 %; 12 362 |
+     | Morning Mood Chip | 36 963 of 104 039, 35.5 %; 10 926 | 34 141, 32.8 %; 10 599 | 33 540, 32.2 %; 10 508 |
+     | Mountain King | 48 107 of 139 595, 34.5 %; 11 495 | 44 489, 31.9 %; 11 190 | 43 616, 31.2 %; 10 983 |
+     | Suspended Seconds | 13 902 of 48 038, 28.9 %; 7397 | 12 543, 26.1 %; 7019 | 12 248, 25.5 %; 6935 |
+
+     The ROM's division was 0.7 us an output sample by Halftime
+     (954 ms of 1.36 M samples), some 110 cycles, two to three
+     points of any clip; the high-pass's multiplies 0.18 us, half a
+     point. These clips are the buzzer's, whose limiter works, so
+     the figures have the divisor prepared for most samples in them;
+     a speaker's clip, the limiter at rest, was not run.
+   - Host: `shape`'s two tests, new (the scaling against `slow` for
+     two million levels: gains from 2 to both sides of `SMALL`, both
+     signs, drives 1 to 255, `wide` and not; `run` through a swell
+     over the knee and back against the envelope by division), the
+     201 of `core/`, both clippys; the 16 bits `next_sample` gives
+     for the six module clips of `clips/`, Children, Crush and
+     Elysium, hashed with this and with `b1a72b9`'s `shape.rs`: the
+     same, after each of the two steps. `.rwtext` 7988 bytes (8048),
+     the main stack 33 592.
+   - The speaker's pack on the line output (the user: the earlier
+     runs were on it), the same board, the pack made again
+     (1 019 189 bytes), three builds over the air one after the
+     other: the player as it was before the first item (`bad83ae`'s,
+     with the log's figure), `b1a72b9`, and this. No underruns and
+     no stray positions in any:
+
+     | clip | before either | `b1a72b9` | this |
+     | --- | --- | --- | --- |
+     | Halftime | 10 602 of 43 571 ms, 24.3 %; 4478 us | 10 586, 24.3 %; 4531 | 9368, 21.5 %; 4071 |
+     | Keygen | 13 519 of 57 641, 23.5 %; 4458 | 13 509, 23.4 %; 4497 | 11 918, 20.7 %; 4036 |
+     | Morning Mood | 73 646 of 104 040, 70.8 %; 14 285 | 40 552, 39.0 %; 12 959 | 37 121, 35.7 %; 12 458 |
+     | Morning Mood Chip | 65 214 of 104 040, 62.7 %; 12 000 | 36 970, 35.5 %; 10 908 | 33 522, 32.2 %; 10 563 |
+     | Mountain King | 73 006 of 139 592, 52.3 %; 13 044 | 48 129, 34.5 %; 11 331 | 43 738, 31.3 %; 10 916 |
+     | Suspended Seconds | 21 801 of 48 040, 45.4 %; 8260 | 13 911, 29.0 %; 7614 | 12 204, 25.4 %; 7044 |
+     | Starlight & Aurora | 72 291 of 111 036, 65.1 %; 12 896 | 44 794, 40.3 %; 10 241 | 40 490, 36.5 %; 9759 |
+
+     The figures are the buzzer's pack's to a few tens of ms: a
+     limiter at rest, with no division at all, is no cheaper than
+     one that prepares its divisor every sample, so the chip's own
+     division is not what is left of the shaper's cost. The first
+     column is the section above's table again (73 649, 65 199,
+     73 136, 21 843, 72 257).
+   - The worst chunk and underruns: a chunk is 16.4 ms of sound and
+     the ring is sixteen of them, so an underrun wants the filling
+     behind the playing for a quarter of a second on end, not one
+     slow chunk; the worst chunk was under its own length before any
+     of this (14.3 ms) and is 12.5.
+   - The board was left on this build, in `ota_0`, with the
+     speaker's pack; its output back on the buzzer and its alarm
+     armed again (both changed for the run), the melody as found.
+   - Owed: a clip heard; a SID tune, which ends in the same shaper,
+     run on a board.
 3. **The mixer by blocks.** A channel at a time over a run of mixed
    samples into a buffer of `i32` (32 to 64 of them, in `Tune`), its
    state in registers, the kind, the loop, the ramp and the block's
@@ -3264,6 +3358,11 @@ them and multiplies by 0.
    above it changes, and the sum is the same sum in another order.
    The largest of the three: all the code in `.rwtext` written
    again. To be decided after the first, by what is left to gain.
+   After the first two (2026-11-23): not wanted for underruns, the
+   dearest clip being 37 % of the processor and its worst chunk
+   three quarters of its length; it is for what else the clock
+   does while it rings, if that is ever short of time, or for
+   more channels.
 4. **`opt-level` 2 or 3 for `core` alone, last of all** (the user,
    2026-11-23: with a small cache `-Os` usually does better than
    `-O2`). The image is built at `s`. The code that runs for every

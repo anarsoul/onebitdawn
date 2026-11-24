@@ -523,7 +523,13 @@ reference that takes all its parent wants takes its place. Also
 `leb128`. `scripts/packrefs.py` is the packer both converters import.
 
 **`core/src/shape.rs`**: `Shaper`, the high-pass and limiter the
-players end in, set from a clip's header; `STEP`.
+players end in, set from a clip's header; `STEP`. Its division by
+the gain is a multiply by 2^32 over it (`divide`, exact by its
+remainder), prepared again only when the gain is another, one
+division of 32 bits then; a gain of `SMALL` or more takes the
+division of 64 bits (`slow`). The high-pass multiplies two `i32`
+into an `i64`, with `wild` for an output no `i32` holds. Both are
+the arithmetic there was, to the sample (the `shape` tests).
 
 ## Sensors
 

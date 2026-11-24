@@ -102,6 +102,7 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-23 | 36.6 → 36.3 KB | on `next`: a channel's `held` and `words`, the slices of its sample, 16 bytes of twenty (37 440 → 37 120) |
 | 2026-11-23 | 36.3 → 32.9 KB | on `next`: the module player's per-sample code in RAM, 3.5 KB of `.rwtext` (37 120 → 33 648) |
 | 2026-11-23 | 32.9 → 32.8 KB | on `next`: a quiet channel passed by, 16 bytes of `.rwtext` and four bytes a channel (33 648 → 33 528) |
+| 2026-11-23 | 32.7 → 32.8 KB | on `next`: the shaper's division as a multiply and its high-pass's coefficients as `i32`, 60 bytes less of `.rwtext` (33 528 → 33 592) |
 
 How much of it is used, measured 2026-11-23 on the bare bench board
 with the `stack-watch` feature (`src/stack.rs`: the stack painted,
