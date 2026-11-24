@@ -3058,14 +3058,18 @@ buzzer's, posted to `/clips`, on the buzzer):
     the same on a clock with a panel.
 - test-clock is dearer than the bare board for the same tune at 8
   bits (Morning 73 % against 66 %, the chip 70 against 64, Mountain
-  King 53 against 48, 2026-11-19), a panel and its tasks being there.
+  King 53 against 48, 2026-11-19). Why is not known. Not the panel
+  (the user, 2026-11-23: the same board and firmware, the scan runs
+  the same with a panel or without); the Wi-Fi may be it, one of the
+  boards hearing the same access point worse, and the time a fill
+  takes has the interrupts that fell in it.
 - The board was left with the speaker's pack, as found, `output` on
   the buzzer and the melody Morning Mood, as found (the melody put back by
   hand: a pack without the chosen clip, as the A/B packs were, leaves
   it on the beeps), and on the firmware as found, built again from
   `d982662` and sent over the air after the trial: it is in `ota_0`.
 
-## The module player's cost: silent channels, the shaper's division, mixing by blocks — planned 2026-11-23, on `next`, nothing built
+## The module player's cost: silent channels, the shaper's division, mixing by blocks — planned 2026-11-23, on `next`; the first built and run on the bare bench board the same day, not heard
 
 The user asked what in the module player could be made noticeably
 cheaper, the code not touched (2026-11-23), and then for the four
@@ -3098,26 +3102,144 @@ A looped sample whose envelope or fade has come to nothing is
 `playing` for ever, and the mixer reads its two samples, goes between
 them and multiplies by 0.
 
-1. **A silent channel is only moved on.** In `mix`, a channel with
-   `gain >> 8 == 0` and `ramp == 0` has its `pos` and `frac` moved by
-   its step, its loop wrapped and its end met, and nothing read. It
-   must go on moving: a cell with an instrument and no note starts
-   the envelope again where the sample is. Tried in the copy: the
-   output is the same, sample for sample, for the nine clips of the
-   table. Expected, if what is skipped is two thirds of a channel's
-   cost: 20 to 25 points off Morning Mood, the chip Morning and
-   Mountain King, nothing for the tunes of four channels.
-   - A predicted sample that is heard again decodes on from where it
-     was left: the largest `refill` is 91 blocks at once in Mountain
-     King and 84 in Morning Mood, where it was 2. Blocks decoded in
-     all are 98 to 99 % of what they were, so the gain is the
-     mixer's and not the decoder's. To measure on the board: the
-     clip task's longest fill, and underruns.
-   - To check: `CLIP_PCM_DUMP` of every module clip before and
-     after, byte for byte; a host test of a tune whose channel goes
-     silent and is heard again, at each of the three kinds; `.rwtext`
-     and `.stack`; each clip through on the bench board against the
-     section above's table.
+1. **A silent channel is not played.** Begun 2026-11-23 (the user:
+   "Имеет смысл не только их не микшировать, но и не играть", and
+   another session's note: the position, the loop and the end go on,
+   the effects and envelopes keep their time, and a predicted sample
+   either keeps its decoder going or has the work of being heard
+   again bounded, a long silence not to become a burst of decoding,
+   seek points not being on every sample; the silent path and the
+   first audible chunk both measured). The design:
+   - `settle`, which ends every tick, marks a channel `quiet`: it is
+     playing, its gain is 0 and no ramp runs. Nothing but a tick
+     changes that, so it holds until the next. `mix` passes a quiet
+     channel as it does one not playing: nothing read, nothing
+     written, not its position either.
+   - The next tick begins by moving each quiet channel on by the
+     mixed samples there were since (what the pool has lost,
+     `Tune::wound`), in one step of
+     64 bits where the mixer took one a sample: position, fraction,
+     the loop's wrap, the sample's end. The step is the one the last
+     tick set, so the place is the mixer's own, and everything a tick
+     reads (a note cut, a retrigger, a portamento that asks whether a
+     note is playing) finds it as before. The mix is the same, sample
+     for sample.
+   - A predicted sample, moved on, is `REACH` blocks or fewer past a
+     place decoding can start from (its start, its loop's block, a
+     seek point), or it is decoded up to where it is, there and then,
+     in the tick: on from where its decoder was, a tick's blocks at a
+     time. So a channel heard again costs `REACH` blocks and two at
+     most, and a sample with seek points or a short loop is not
+     decoded at all while it is silent; one with neither goes on
+     costing its blocks, a tick's worth at once, and not its mixing.
+   - `sounding_now` of a channel with no gain is 0 with nothing
+     decoded for it.
+   - A note that starts where a silent channel was (the common way
+     to be heard again) starts at its sample's start, as ever.
+   - To check: a host test of a tune whose channel goes silent and
+     is heard again with no new note, at each of the three kinds,
+     looped and to its end, against the same played with nothing
+     skipped (a switch for the test); the blocks decoded in one
+     output sample, the worst, counted on the host for every module
+     clip; `CLIP_PCM_DUMP` of every module clip before and after,
+     byte for byte; `.rwtext` and `.stack`; on the board each clip
+     through against the section above's table, and the longest fill
+     of a chunk, which the clip task is to log.
+   - Built 2026-11-23, on the host only: `Channel::quiet`,
+     `Tune::wound`, `pass`, `nearest` out of `refill`, `REACH` at 64
+     blocks (four seek points' worth, 1024 samples), and the clip
+     task's log line ends "a chunk in N us at most". `.rwtext` 8084
+     bytes from 8032, the main stack 33 568 from 33 648. The build,
+     both clippys and the 199 host tests pass, three of them new: a
+     channel silenced by `C00` and brought back by the volume column
+     with no new note, seven ways (loops shorter than a block and
+     longer than `REACH`, a sample's end in the silence, a slide in
+     it, a note and a retrigger in it) at each kind, against
+     `EAGER`; the blocks for one mixed sample after a silence of 28
+     rows (21 without seek points, 11 with, 87 and 11 at worst); and
+     the modules built in both ways.
+   - The raw mix (`CLIP_RAW`, `CLIP_PCM_DUMP`) of this tree and of
+     `bad83ae`, the file swapped: the same, byte for byte, for the
+     six module clips of `clips/`, Children, Crush and Elysium of
+     `packs/speaker/`, and the three predicted ones made again with
+     seek points on every sample (below), which also come out as
+     their clips without.
+   - Blocks decoded, a clip through, and the most for one output
+     sample (the host, `the_clips_built_in_sound_the_same…` with
+     `ALARM_CLIP`):
+
+     | clip | every channel played | quiet ones passed by | with seek points on every sample |
+     | --- | --- | --- | --- |
+     | Morning Mood | 2 512 575, 19 at once | 2 477 302, 576 | 867 144, 56 |
+     | Mountain King | 2 416 758, 20 | 2 364 678, 500 | 1 043 703, 19 |
+     | Suspended Seconds | 603 483, 6 | 599 222, 234 | 256 771, 5 |
+
+     So with the clips as they are the decoder does what it did, a
+     tick's blocks of every quiet channel at once (576 blocks is
+     some 2 ms by the code's count, of a chunk's 16; not measured),
+     and what is saved is the mixing: these samples are long, with
+     long loops or none, and have no seek points, the converter
+     giving those only to a sample a 9xx plays from an offset. With
+     them on every predicted sample (tried with the converter's rule
+     changed for the try) the three clips are 2964,
+     3906 and 5850 bytes more, about 2 %, a quiet channel is not
+     decoded at all and six tenths of the decoding goes.
+   - Seek points on every predicted sample, the converter's rule
+     (the user, 2026-11-23: "Делай"): `xmc::predicted` writes them
+     always and the instrument's flag says so; the count of 9xx is
+     gone. Nothing of the format changes: the player reads the flag
+     as before, and a clip made before plays as it did.
+     `clips/morning_mood.xmc`, `mountain_king.xmc` and
+     `suspended_seconds.xmc` made again, 156 456, 219 014 and
+     278 752 bytes (2964, 3906 and 5850 more), the first two the
+     same bytes as the try's; the default pack 777 948 bytes, the
+     speaker's 1 019 189, 86 % of the partition (it was 1 001 663).
+     The pack maker's tests (its test of a predicted sample now asks
+     the seek points of every one) and its clippy pass, and the 199
+     of `core/` with the eight clips built in: the three clips'
+     blocks decoded are the table's last column.
+   - On `another-bench` (the bare board, `/dev/ttyACM0`, the
+     buzzer's output, no sound heard), 2026-11-23, over the air,
+     each clip through by `/play`, the serial log by `cat`. "Before"
+     is the player of `bad83ae` with the log's new figure; the old
+     pack is the default one the board had, 748 KB, the new the
+     default one made again, 777 948 bytes. Filling, and the longest
+     chunk; no underruns and no stray positions in any, the heap
+     54 080, the watchdog's longest feed gap 1179 ms:
+
+     | clip | before | first build, old pack | first build, new pack | kept, new pack |
+     | --- | --- | --- | --- | --- |
+     | Halftime | 10 594 of 43 569 ms, 24.3 %; 4465 us | 11 396, 26.2 %; 4843 | 11 397; 4842 | 10 578, 24.3 %; 4514 |
+     | Keygen | 13 514 of 57 640, 23.4 %; 4451 | 14 542, 25.2 %; 4809 | 14 538; 4800 | 13 518, 23.5 %; 4498 |
+     | Morning Mood | 73 631 of 104 043, 70.8 %; 14 195 | 52 516, 50.5 %; 14 785 | 45 010, 43.3 %; 14 026 | 40 551, 39.0 %; 12 976 |
+     | Morning Mood Chip | 65 177 of 104 046, 62.6 %; 12 064 | 41 955, 40.3 %; 12 412 | 41 933; 12 436 | 36 963, 35.5 %; 10 926 |
+     | Mountain King | 73 088 of 139 599, 52.4 %; 13 027 | 59 380, 42.5 %; 13 253 | 53 265, 38.2 %; 12 439 | 48 107, 34.5 %; 11 495 |
+     | Suspended Seconds | 21 790 of 48 042, 45.4 %; 8288 | 16 723, 34.8 %; 8378 | 15 109, 31.5 %; 8034 | 13 902, 28.9 %; 7397 |
+
+     A chunk is 16.4 ms of sound, so Morning Mood's worst was 87 %
+     of the processor and is 79 %; the ring's sixteen chunks are
+     what a chunk that late has to spare. The worst chunk is where
+     every channel sounds, which is why it moved less than the
+     whole. The time a fill takes has the interrupts that fell in
+     it.
+   - The first build cost the tunes of four channels two points:
+     the mixer asked two things of a channel (`playing`, `quiet`)
+     and counted its samples (`Tune::mixed`), and the loop came out
+     some ten cycles a channel longer. Kept: one flag, `mixing`
+     (playing and not quiet, `settle`'s to say and the sample's end
+     to clear), which is the one test the loop had, and the samples
+     since the tick are what the pool has lost (`wind`, `wound`).
+     `.rwtext` 8048 bytes (8032 before any of this), the main stack
+     33 528; the 199 host tests and the nine clips' comparison pass
+     as before.
+   - The board was left on the kept build (`bad83ae` and the tree,
+     in `ota_1`) with the new default pack, its settings as found
+     (the buzzer's output, the chip Morning, the alarm at 19:01
+     armed).
+   - Owed: a clip heard, on a clock with a speaker; the speaker's
+     pack (`packs/clips-default-speaker.bin`, made again, 1 019 189
+     bytes) on a board; the pack maker's page tried in a browser
+     (`cargo pack-wasm` builds, 319 999 bytes).
 2. **The shaper without a division of 64 bits.** Every clip has the
    `wide` flag, so `Shaper::run` calls the ROM's `__divdi3` once an
    output sample; and the high-pass keeps its coefficients as `i64`,

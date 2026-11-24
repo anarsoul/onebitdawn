@@ -103,10 +103,12 @@ has must come out the same.
   `samples=8` cuts them to 8, rounded, which is the clip there always
   was (`XMC2`). The two tunes made here, their mix before the
   limiter against the mix of the 16 bits: 67 and 69 dB predicted, 44
-  and 47 at 8 bits (`PLAN.md`). An instrument a module plays with 9xx
-  is predicted with seek points, the decoder's state every 256
-  samples (2 % more), so that a note far into it does not decode all
-  that is before it. The
+  and 47 at 8 bits (`PLAN.md`). A predicted sample has seek points, the
+  decoder's state every 256 samples (2 % more), so that a note a 9xx
+  starts far into it does not decode all that is before it, and a
+  channel playing on with no level is not decoded until it is heard
+  (`xm::pass`); every one since 2026-11-23, only an instrument
+  played with 9xx before. The
   first two are clips a firmware up to v0.5 refuses with its pack.
   A sample too short for its table to pay for itself (a wave of one
   period: 64 samples are 128 bytes at 16 bits and 166 predicted) is

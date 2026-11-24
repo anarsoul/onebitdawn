@@ -69,11 +69,14 @@ pub const PACKED_MAGIC: &[u8; 4] = b"XMC4";
 pub const PACKED_LOOP: usize = 8;
 pub const PACKED_HEAD: usize = PACKED_LOOP + adpcm::TABLE_BYTES;
 /// Samples between a predicted sample's seek points, which is what a
-/// 9xx's offset counts in: a sample an instrument is played from an
-/// offset of has, after its table and before its blocks, for each
-/// `SEEK` samples but the first the three samples before that block,
-/// the newest first, each an `i16` (`SEEK_BYTES`), so that a note
-/// starting there has nothing before it to decode.
+/// 9xx's offset counts in: a sample has, after its table and before
+/// its blocks, for each `SEEK` samples but the first the three samples
+/// before that block, the newest first, each an `i16` (`SEEK_BYTES`),
+/// so that a note starting there has nothing before it to decode, and
+/// neither has a channel heard again after a silence (`pass`). The
+/// converter gives them to every predicted sample; a clip from before
+/// 2026-11-23 has them only where a 9xx plays its sample from an
+/// offset, and the instrument's flags say which.
 pub const SEEK: usize = 256;
 pub const SEEK_BYTES: usize = 6;
 const _: () = assert!(SEEK.is_multiple_of(BLOCK));
@@ -307,33 +310,78 @@ fn fill(d: &[u8], ch: &mut Channel<'_>, b: u32, half: usize) {
     }
 }
 
+/// The latest block at or before `block` that decoding the channel's
+/// predicted sample can start from, with the three samples before it:
+/// the sample's start, its loop's block and a seek point.
+#[inline(always)]
+fn nearest(d: &[u8], ch: &Channel<'_>, block: u32) -> (u32, [i32; 3]) {
+    let head = ch.data as usize;
+    let three = |at: usize| [word(d, at) as i16 as i32, word(d, at + 2) as i16 as i32, word(d, at + 4) as i16 as i32];
+    let mut start = (0, [0; 3]);
+    let looped = ch.loop_start / BLOCK as u32;
+    if ch.loop_len != 0 && looped <= block && looped > start.0 {
+        start = (looped, three(head));
+    }
+    let per = (SEEK / BLOCK) as u32;
+    let seek = (block / per).min(ch.seeks);
+    if seek * per > start.0 {
+        start = (seek * per, three(head + PACKED_HEAD + (seek as usize - 1) * SEEK_BYTES));
+    }
+    start
+}
+
+/// Blocks a silent channel's predicted sample may be past a place
+/// decoding can start from (`nearest`) with nothing decoded for it:
+/// what being heard again may cost at once, and two. The blocks
+/// between a sample's seek points, four times over.
+const REACH: u32 = 4 * (SEEK / BLOCK) as u32;
+
+/// A silent channel moved on by the `n` mixed samples a tick lasted,
+/// in one step where the mixer takes one a sample (`Tune::mix`, whose
+/// arithmetic this is): the position, its fraction, the loop's wrap
+/// and the sample's end. Once a tick, so in the flash.
+///
+/// A predicted sample too far past anywhere decoding can start from
+/// is decoded up to where it now is, on from where it was: a tick's
+/// blocks at once, and none of them to do when it is heard again.
+#[inline(never)]
+fn pass(d: &[u8], ch: &mut Channel<'_>, n: u32) {
+    let at = ((ch.pos as u64) << 16 | ch.frac as u64) + ch.step as u64 * n as u64;
+    ch.frac = (at & 0xFFFF) as u32;
+    let pos = at >> 16;
+    if ch.loop_len != 0 {
+        let end = ch.loop_start as u64 + ch.loop_len as u64;
+        ch.pos = if pos >= end { ch.loop_start + ((pos - end) % ch.loop_len as u64) as u32 } else { pos as u32 };
+    } else {
+        ch.pos = pos.min(u32::MAX as u64) as u32;
+        if ch.pos >= ch.len {
+            ch.playing = false;
+            return;
+        }
+    }
+    if ch.kind == Kind::Packed {
+        let block = ch.pos / BLOCK as u32;
+        if block != ch.block && block - nearest(d, ch, block).0 > REACH {
+            refill(d, ch, block);
+        }
+    }
+}
+
 /// Makes `block` and the one after it the two the channel has
 /// decoded. The next block is the common case and costs a block.
 /// Anything else decodes forward from the nearest place there is a
 /// state to start from: where the channel is, the loop's block (what
 /// the sample's head keeps, for the loop's wrap), a seek point (for
 /// a 9xx, which lands on one), and the sample's start. A sample with
-/// no seek points hit far in is decoded from its start: the converter
-/// gives seek points to those a module does that to.
+/// no seek points hit far in is decoded from its start: an older
+/// clip's, the converter giving every sample its seek points.
 #[inline(never)]
 #[cfg_attr(all(feature = "ram", target_os = "none"), unsafe(link_section = ".rwtext"))]
 fn refill(d: &[u8], ch: &mut Channel<'_>, block: u32) {
     if block == ch.block.wrapping_add(1) {
         ch.blocks.copy_within(BLOCK.., 0);
     } else {
-        let head = ch.data as usize;
-        let three = |at: usize| [word(d, at) as i16 as i32, word(d, at + 2) as i16 as i32, word(d, at + 4) as i16 as i32];
-        // The latest start with its state kept, at or before the block.
-        let mut start = (0, [0; 3]);
-        let looped = ch.loop_start / BLOCK as u32;
-        if ch.loop_len != 0 && looped <= block && looped > start.0 {
-            start = (looped, three(head));
-        }
-        let per = (SEEK / BLOCK) as u32;
-        let seek = (block / per).min(ch.seeks);
-        if seek * per > start.0 {
-            start = (seek * per, three(head + PACKED_HEAD + (seek as usize - 1) * SEEK_BYTES));
-        }
+        let start = nearest(d, ch, block);
         // Or on from where the channel is, if that is nearer.
         let on = ch.block.wrapping_add(2);
         let mut from = if ch.block != NO_BLOCK && on <= block && on >= start.0 {
@@ -486,6 +534,13 @@ struct Channel<'a> {
     before: [i32; 3],
     loop_first: i32,
     playing: bool,
+    /// Playing with no gain and no ramp to one, as the last tick left
+    /// it: the mixer passes it by and the next tick moves it on
+    /// (`pass`). And `mixing`, playing and not quiet, which is all
+    /// the mixer asks of a channel: one test, as before there was a
+    /// quiet one.
+    quiet: bool,
+    mixing: bool,
     /// Position in the sample, with 16 bits of fraction, and the step a
     /// mixed sample.
     pos: u32,
@@ -562,6 +617,10 @@ pub struct Tune<'a> {
     /// What the notes cut short were adding to the mix when they were
     /// cut, on its way to nothing (`sounding_now`).
     cut: i32,
+    /// What the pool held when the tick began (`wind`): the mixed
+    /// samples since are what it has lost, `tempo` each, for the
+    /// channels the tick left quiet.
+    wound: i32,
     channel: [Channel<'a>; MAX_CHANNELS],
     /// The high-pass and the limiter the mix ends in.
     shaper: Shaper,
@@ -600,6 +659,7 @@ impl<'a> Tune<'a> {
             last: false,
             ended: false,
             cut: 0,
+            wound: 0,
             channel: [Channel::default(); MAX_CHANNELS],
             mix_hz: if flags & FAST != 0 { FAST_MIX_HZ } else { MIX_HZ },
             shaper: Shaper::new(byte(data, 10), byte(data, 11), octaves, core::array::from_fn(|i| word(data, 18 + 2 * i) as i16), byte(data, 16), flags & WIDE != 0, byte(data, 29)),
@@ -612,6 +672,12 @@ impl<'a> Tune<'a> {
     /// Play the tune round and round, as a tracker does, or once.
     pub fn set_looping(&mut self, looping: bool) {
         self.looping = looping;
+    }
+
+    /// The pool filled for the tick that `step_tick` has just begun.
+    fn wind(&mut self) {
+        self.pool += self.tick_pool();
+        self.wound = self.pool;
     }
 
     /// What a tick's pool holds; see `mix_hz`.
@@ -641,7 +707,7 @@ impl<'a> Tune<'a> {
         for _ in 0..self.oversample {
             if self.pool <= 0 {
                 self.step_tick();
-                self.pool += self.tick_pool();
+                self.wind();
             }
             if self.ended {
                 return None;
@@ -727,6 +793,15 @@ impl<'a> Tune<'a> {
         if self.last || self.ended {
             self.ended = true;
             return;
+        }
+        // The channels the mixer passed by, to where it would have
+        // left them, before anything here asks where they are.
+        let mixed = ((self.wound - self.pool) / self.tempo as i32) as u32;
+        self.wound = self.pool;
+        for ch in &mut self.channel[..self.channels] {
+            if ch.quiet && ch.playing {
+                pass(self.d, ch, mixed);
+            }
         }
         if self.tick == 0 {
             if self.row >= self.rows {
@@ -822,7 +897,8 @@ impl<'a> Tune<'a> {
     /// carried on in `cut` and dies away there.
     fn sounding_now(&mut self, c: usize) -> i32 {
         let ch = &mut self.channel[c];
-        if !ch.playing || ch.pos >= ch.len {
+        // Nothing of a channel with no gain, and nothing decoded for it.
+        if !ch.playing || ch.pos >= ch.len || ch.gain >> 8 == 0 {
             return 0;
         }
         let sample = if ch.kind == Kind::Packed {
@@ -1034,6 +1110,12 @@ impl<'a> Tune<'a> {
             ch.ramp = (mix_hz / RAMP_PER_SECOND).max(1);
             ch.gain_step = (gain - ch.gain) / ch.ramp as i32;
         }
+        ch.quiet = ch.playing && ch.ramp == 0 && ch.gain >> 8 == 0;
+        #[cfg(test)]
+        if tests::EAGER.with(|e| e.get()) {
+            ch.quiet = false;
+        }
+        ch.mixing = ch.playing && !ch.quiet;
         // The instrument's vibrato: a sine that grows to its depth over
         // the sweep, whatever the pattern says.
         let mut auto = 0;
@@ -1065,7 +1147,8 @@ impl<'a> Tune<'a> {
             self.cut -= self.cut / CUT_DECAY + self.cut.signum();
         }
         for ch in &mut self.channel[..self.channels] {
-            if !ch.playing {
+            // A quiet channel adds nothing, and the tick moves it on.
+            if !ch.mixing {
                 continue;
             }
             let (a, b) = if ch.kind == Kind::Packed {
@@ -1100,6 +1183,7 @@ impl<'a> Tune<'a> {
                 }
             } else if ch.pos >= ch.len {
                 ch.playing = false;
+                ch.mixing = false;
             }
         }
         sum
@@ -1118,7 +1202,7 @@ pub fn raw_mix(data: &[u8]) -> Vec<i16> {
         for _ in 0..t.oversample {
             if t.pool <= 0 {
                 t.step_tick();
-                t.pool += t.tick_pool();
+                t.wind();
             }
             if t.ended {
                 return out;
@@ -1159,6 +1243,9 @@ mod tests {
     std::thread_local! {
         /// Blocks decoded on this thread, for a test to count.
         pub(super) static FILLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+        /// No channel is left quiet: the mixer plays the silent ones
+        /// too, a sample at a time, for a test to compare with.
+        pub(super) static EAGER: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
     }
 
     use crate::adpcm::tests::{rung, table};
@@ -1300,7 +1387,7 @@ mod tests {
         loop {
             if t.pool <= 0 {
                 t.step_tick();
-                t.pool += t.tick_pool();
+                t.wind();
             }
             if t.ended {
                 return out;
@@ -1828,6 +1915,148 @@ mod tests {
         let whole = two(&packed);
         let mut t = Tune::new(&whole[..whole.len() - 300]);
         while t.next_sample().is_some() {}
+    }
+
+    /// The mix with every channel played a sample at a time, silent
+    /// or not, as the mixer did before a tick moved the silent ones.
+    fn mixed_eagerly(data: &[u8]) -> Vec<i32> {
+        EAGER.with(|e| e.set(true));
+        let out = mixed(data);
+        EAGER.with(|e| e.set(false));
+        out
+    }
+
+    #[test]
+    fn a_silent_channel_is_where_the_mixer_would_have_left_it() {
+        // A note, silence by the volume (C00) for some rows, and the
+        // level back with no new note: the sample goes on from where
+        // the silence left it, to the sample, whether the mixer walked
+        // it there or the ticks moved it. Through a loop shorter than
+        // a block and one longer than `REACH`, to a sample's end in
+        // the silence, with a pitch that slides while nothing is
+        // heard, and with a note cut (a new one, a retrigger) where
+        // the silence is.
+        let wave = rung(9000);
+        let hush = (1, (0, 0, 0, 0xC, 0));
+        let back = |row: usize| (row, (0, 0, 0x50, 0, 0));
+        let tunes: [(u32, u32, Vec<At>); 7] = [
+            (0, 8000, vec![(0, (C4, 1, 0, 0, 0)), hush, back(9)]),
+            (4100, 4700, vec![(0, (C4 + 12, 1, 0, 0, 0)), hush, back(14)]),
+            (37, 5, vec![(0, (C4, 1, 0, 0, 0)), hush, back(6)]),
+            (0, 0, vec![(0, (C4, 1, 0, 0, 0)), hush, back(4), (5, (0, 0, 0, 0xC, 0)), back(15)]),
+            (100, 7000, vec![(0, (C4, 1, 0, 0, 0)), hush, (2, (0, 0, 0, 1, 0x20)), (3, (0, 0, 0, 1, 0)), back(7)]),
+            (100, 7000, vec![(0, (C4, 1, 0, 0, 0)), hush, (5, (C4 + 3, 1, 0x10, 0, 0)), (7, (0, 0, 0, 0xE, 0x93)), back(10)]),
+            (0, 9000, vec![(0, (C4 + 30, 1, 0, 0, 0)), hush, back(15)]),
+        ];
+        for (n, (loop_start, loop_len, cells)) in tunes.iter().enumerate() {
+            let len = if *loop_len == 0 { 6000 } else { (loop_start + loop_len) as usize };
+            let (_, decoded) = pack(&wave[..len], *loop_start as usize, *loop_len != 0, false);
+            let play = |ins: &Ins| module(1, 6, 125, &[0], &[pattern(16, cells)], core::slice::from_ref(ins));
+            let wide = Ins { wide: decoded.clone(), loop_start: *loop_start, loop_len: *loop_len, ..square(32) };
+            let narrow = Ins { sample: decoded.iter().map(|&s| (s >> 8) as i8).collect(), wide: vec![], ..wide.clone() };
+            let packed = |seeks| Ins { wide: wave[..len].to_vec(), packed: true, seeks, ..wide.clone() };
+            let reference = mixed_eagerly(&play(&wide));
+            assert!(reference.iter().any(|&s| s.abs() > 1000), "tune {n} is silence");
+            // Silent for a row at least, and heard after it.
+            let row = reference.len() / 16;
+            assert!(reference[2 * row..3 * row].iter().all(|&s| s == 0), "tune {n} has no silence");
+            for (kind, ins) in [("narrow", narrow), ("wide", wide.clone()), ("packed", packed(false)), ("packed with seek points", packed(true))] {
+                let clip = play(&ins);
+                let want = if kind == "narrow" { mixed_eagerly(&clip) } else { reference.clone() };
+                FILLS.with(|f| f.set(0));
+                let got = mixed(&clip);
+                let fills = FILLS.with(|f| f.get());
+                assert_eq!(got.len(), want.len());
+                if let Some(i) = (0..got.len()).find(|&i| got[i] != want[i]) {
+                    panic!("tune {n}, {kind}, sample {i} of {}: {:?} and {:?}", got.len(), &got[i.saturating_sub(3)..i + 4], &want[i.saturating_sub(3)..i + 4]);
+                }
+                // And no more decoded for it than when every sample is.
+                if kind.starts_with("packed") {
+                    FILLS.with(|f| f.set(0));
+                    mixed_eagerly(&clip);
+                    let eager = FILLS.with(|f| f.get());
+                    assert!(fills <= eager, "tune {n}, {kind}: {fills} blocks, {eager} played through");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_predicted_sample_heard_again_costs_a_few_blocks_at_most() {
+        // The blocks decoded for one mixed sample, the worst there is:
+        // two for a channel that plays on, `REACH` and two for one
+        // heard after a silence, however long that was, and a tick's
+        // own for one kept up with in its silence. A loop of 8000
+        // samples, 500 blocks, silent from its second row for 28 rows.
+        let wave = rung(8000);
+        let cells = [(0, (C4 + 12, 1, 0, 0, 0)), (1, (0, 0, 0, 0xC, 0)), (29, (0, 0, 0x50, 0, 0))];
+        for seeks in [false, true] {
+            let ins = Ins { wide: wave.clone(), loop_len: 8000, packed: true, seeks, ..square(32) };
+            let clip = module(1, 6, 125, &[0], &[pattern(32, &cells)], core::slice::from_ref(&ins));
+            let mut t = Tune::new(&clip);
+            let (mut worst, mut all, mut n) = (0, 0, 0usize);
+            // The row the level comes back on, and its first sample.
+            let (mut at_back, mut heard) = (0, 0);
+            loop {
+                FILLS.with(|f| f.set(0));
+                let tick = t.pool <= 0;
+                if tick {
+                    t.step_tick();
+                    t.wind();
+                }
+                if t.ended {
+                    break;
+                }
+                t.pool -= t.tempo as i32;
+                let was_quiet = t.channel[0].quiet;
+                t.mix();
+                let fills = FILLS.with(|f| f.get());
+                if tick && t.row == 30 && t.tick == 1 {
+                    assert!(!was_quiet);
+                    (at_back, heard) = (n, fills);
+                }
+                worst = worst.max(fills);
+                all += fills;
+                n += 1;
+            }
+            std::println!("a silence of 28 rows in a loop of 500 blocks, seek points {seeks}: {all} blocks, {worst} at once at worst, {heard} when it is heard again");
+            assert!(at_back > 0 && heard <= REACH as usize + 2, "{heard}");
+            // A tick is 1250 mixed samples, 335 of the sample's at this
+            // pitch: 21 blocks.
+            assert!(worst <= REACH as usize + 2 + 22, "{worst}");
+            if seeks {
+                // Nothing decoded in the silence.
+                assert!(all < 2 * 4 * 21 * 6 + REACH as usize, "{all}");
+            }
+        }
+    }
+
+    /// Not a test of the player but a count, over the modules built in
+    /// (`ALARM_CLIP`): the output with the silent channels passed by
+    /// against the same with each played, which must be the same, the
+    /// blocks decoded both ways, and the most for one output sample.
+    #[test]
+    fn the_clips_built_in_sound_the_same_with_their_silent_channels_passed_by() {
+        for (k, data) in crate::melody::CLIP_DATA.iter().enumerate().filter(|(_, d)| is_tune(d)) {
+            let play = |eager: bool| {
+                EAGER.with(|e| e.set(eager));
+                FILLS.with(|f| f.set(0));
+                let mut t = Tune::new(data);
+                let (mut out, mut worst, mut before) = (Vec::new(), 0, 0);
+                while let Some(s) = t.next_sample() {
+                    out.push(s);
+                    let fills = FILLS.with(|f| f.get());
+                    worst = worst.max(fills - before);
+                    before = fills;
+                }
+                EAGER.with(|e| e.set(false));
+                (out, before, worst)
+            };
+            let (eager, lazy) = (play(true), play(false));
+            std::println!("{}: {} blocks decoded, {} with every channel played; for one output sample {} at most, {}", crate::melody::CLIP_NAMES[k].0, lazy.1, eager.1, lazy.2, eager.2);
+            assert!(eager.0 == lazy.0, "{}", crate::melody::CLIP_NAMES[k].0);
+            assert!(lazy.1 <= eager.1);
+        }
     }
 
     #[test]

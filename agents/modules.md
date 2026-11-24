@@ -404,6 +404,18 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   (`melody`'s assert refuses one built in). The mixer's loop runs
   62 500 times a second for every sounding channel: a load or a
   check in it is most of a percent of the processor with twenty.
+- A channel that plays with no gain and no ramp to one is `quiet`,
+  which `settle` says at the end of each tick: the mixer passes it
+  by, and the next tick begins by moving it on by the mixed samples
+  since (what the pool has lost, `Tune::wound`) in one step (`pass`: the position, the
+  loop's wrap, the sample's end, as the mixer would have left them;
+  the mix is the same to the sample). A quiet predicted sample is
+  not decoded while it is `REACH` blocks or fewer past a place
+  decoding can start from (`nearest`: the start, the loop's block, a
+  seek point), and is decoded up to where it is, a tick's blocks at
+  once, when it is further: being heard again costs `REACH` blocks
+  and two at most. `tests::EAGER` leaves no channel quiet, for a
+  test to compare with.
 - What runs for every sample is in RAM in the firmware, by the
   crate's `ram` feature (a `link_section` of `.rwtext`, esp-hal's
   `#[ram]` section, on a target with no OS; the host's builds do not

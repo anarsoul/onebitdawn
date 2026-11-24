@@ -194,7 +194,7 @@ fn module_of_16_bits(sample: &[i16], looped: (u32, u32), cells: &[[u8; 5]]) -> V
 }
 
 #[test]
-fn a_16_bit_sample_is_predicted_and_one_played_from_an_offset_has_seek_points() {
+fn a_16_bit_sample_is_predicted_with_seek_points() {
     use onebitdawn_core::adpcm::{BLOCK, BLOCK_BYTES};
     use onebitdawn_core::xm::{PACKED_HEAD, Tune};
     // A struck string of a kind: partials, a fall, a loop off a
@@ -219,7 +219,10 @@ fn a_16_bit_sample_is_predicted_and_one_played_from_an_offset_has_seek_points() 
     assert_eq!(made(&cells, "").data, packed.data);
     // A byte more a sample, and one before them for an even offset.
     assert_eq!(wide.data.len(), cut.data.len() + wave.len() + (cut.data.len() - wave.len()) % 2);
-    assert_eq!(packed.data.len(), cut.data.len() - wave.len() + PACKED_HEAD + wave.len().div_ceil(BLOCK) * BLOCK_BYTES);
+    // Its seek points with it, six bytes for each 256 samples but the
+    // first, whatever the module does with the instrument.
+    let points = onebitdawn_core::xm::seek_points(wave.len()) * onebitdawn_core::xm::SEEK_BYTES;
+    assert_eq!(packed.data.len(), cut.data.len() - wave.len() + PACKED_HEAD + points + wave.len().div_ceil(BLOCK) * BLOCK_BYTES);
     assert_eq!(packed.notes.len(), 1, "{:?}", packed.notes);
     // Played, limiter and all, the predicted one is the 16 bits' to
     // 45 dB, through the loop, where the wave has fallen to a few of
@@ -240,14 +243,13 @@ fn a_16_bit_sample_is_predicted_and_one_played_from_an_offset_has_seek_points() 
     println!("a struck string against its 16 bits: packed {near:.1} dB, 8 bits {far:.1} dB");
     assert!(near > 45.0 && far < 25.0, "packed {near:.1} dB, 8 bits {far:.1} dB");
     // A 9xx on the instrument, or on a cell that names none: the
-    // sample is predicted all the same, with its seek points, six
-    // bytes for each 256 samples but the first, and the note that
-    // starts 512 samples in plays as the 16 bits' does.
+    // sample is predicted all the same, and the note that starts 512
+    // samples in plays as the 16 bits' does.
     for offset in [[49, 1, 0, 9, 2], [49, 0, 0, 9, 2]] {
         let cells = [note, rest, offset, rest];
         let (sought, as_it_is) = (made(&cells, ""), made(&cells, "samples=16"));
         assert_eq!((&sought.data[..4], &as_it_is.data[..4]), (&b"XMC4"[..], &b"XMC3"[..]));
-        assert_eq!(sought.data.len(), packed.data.len() + onebitdawn_core::xm::seek_points(wave.len()) * onebitdawn_core::xm::SEEK_BYTES);
+        assert_eq!(sought.data.len(), packed.data.len());
         assert_eq!(sought.notes.len(), 1, "{:?}", sought.notes);
         let (a, b) = (play(&as_it_is), play(&sought));
         assert_eq!(a.len(), b.len());

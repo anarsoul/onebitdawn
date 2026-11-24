@@ -307,8 +307,10 @@ impl Sampler {
         // The chunk the clip's last bit is in, once it has been written.
         let mut last = None;
         // Time spent making the stream, for the log: a player's share
-        // of the processor.
+        // of the processor, and the longest it took over one chunk,
+        // which is what a player that does much at once shows in.
         let mut busy_us = 0u64;
+        let mut longest_us = 0u64;
         let mut write = |chunk: u32, last: &mut Option<u32>| {
             let from = Instant::now();
             let slot = slot(chunk);
@@ -320,7 +322,9 @@ impl Sampler {
                     pair.swap(0, 1);
                 }
             }
-            busy_us += from.elapsed().as_micros();
+            let took = from.elapsed().as_micros();
+            busy_us += took;
+            longest_us = longest_us.max(took);
             if last.is_none() && player.done() {
                 *last = Some(chunk);
             }
@@ -437,8 +441,8 @@ impl Sampler {
         self.ring = Some(ring);
         let (busy, whole) = (busy_us / 1000, started.elapsed().as_millis());
         match cancelled {
-            Some(_) => info!("clip: cut short, {} underruns, {} stray positions, {busy} of {whole} ms filling", pacer.underruns(), pacer.strays()),
-            None => info!("clip: {chunks} chunks, {} underruns, {} stray positions, {busy} of {whole} ms filling", pacer.underruns(), pacer.strays()),
+            Some(_) => info!("clip: cut short, {} underruns, {} stray positions, {busy} of {whole} ms filling, a chunk in {longest_us} us at most", pacer.underruns(), pacer.strays()),
+            None => info!("clip: {chunks} chunks, {} underruns, {} stray positions, {busy} of {whole} ms filling, a chunk in {longest_us} us at most", pacer.underruns(), pacer.strays()),
         }
         cancelled
     }
