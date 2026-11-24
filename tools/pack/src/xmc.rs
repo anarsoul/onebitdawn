@@ -32,7 +32,7 @@ use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, SEEK, 
 
 use crate::bytes::{Data, text};
 use crate::shape::{rate_flag, section};
-use crate::{Options, Output};
+use crate::{Firmware, Options, Output};
 
 /// The effect R, by its number in a cell.
 const R: u8 = 0x1B;
@@ -104,7 +104,9 @@ impl Shape {
         Shape { drive: 0, release, knee: 0, highpass, passes: 1, rate: 31250, bits: 16, samples: Samples::Packed, raised: BTreeMap::new() }
     }
 
-    pub fn options(output: Output, options: &mut Options) -> Result<Self, String> {
+    /// A firmware that plays no samples of 16 bits has them cut to 8,
+    /// and an option that asks for them is refused.
+    pub fn options(output: Output, firmware: Firmware, options: &mut Options) -> Result<Self, String> {
         let mut shape = Shape::new(output);
         shape.drive = options.number("drive", shape.drive)?;
         shape.release = options.number("release", shape.release)?;
@@ -113,11 +115,12 @@ impl Shape {
         shape.passes = options.number("passes", shape.passes)?;
         shape.rate = options.number("rate", shape.rate)?;
         shape.bits = options.number("bits", shape.bits)?;
-        shape.samples = match options.text("samples")?.as_deref() {
-            None | Some("packed") => Samples::Packed,
-            Some("16") => Samples::Wide,
-            Some("8") => Samples::Cut,
-            Some(_) => return Err("samples is 8, 16 or packed".into()),
+        shape.samples = match (options.text("samples")?.as_deref(), firmware.wide()) {
+            (None, false) | (Some("8"), _) => Samples::Cut,
+            (None | Some("packed"), true) => Samples::Packed,
+            (Some("16"), true) => Samples::Wide,
+            (Some(asked @ ("16" | "packed")), false) => return Err(firmware.refuses(&format!("samples={asked}"))),
+            (Some(_), _) => return Err("samples is 8, 16 or packed".into()),
         };
         while let Some(item) = options.text("raise")? {
             let parsed = item.split_once(':').and_then(|(i, o)| Some((i.parse().ok()?, o.parse().ok()?)));

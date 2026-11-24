@@ -10774,3 +10774,40 @@ left to do but the commit, on his word.
 **The label.** A pack's label may not have `&` (`check_names`), and
 the pack maker makes "Starlight Aurora" of the module's title. The
 user's to say what the clock's pages should show.
+
+## The pack maker's page asks which firmware the pack is for — planned and built 2026-11-24, on `next`, a feature for after v0.5; the page seen by the user in a browser the same day: verified
+
+The user, 2026-11-24: the page is to have a choice of the firmware a
+pack is made for, and the maker is to hold the clips to what that
+firmware plays; v0.5 (modules and sound of 8-bit samples) and "v0.6 or
+later" (what `next` becomes) for now.
+
+Design:
+
+- `tools/pack`'s `Firmware` (`V0_5`, `V0_6`, the default the latest)
+  and `convert_for(source, output, firmware)`; `convert` is the same
+  for the latest, which is what the command goes on making.
+- For v0.5 the defaults are what its own maker made: a module's
+  16-bit samples cut to 8 (`XMC2`), a sound file as IMA ADPCM
+  (`ADP1`).
+- An option that asks for more (`samples=16`, `samples=packed`,
+  `format=packed`, `format=pcm16`) is refused with the reason, not
+  quietly made into something else.
+- A clip made already goes in as it is, so one of a version v0.5 does
+  not play (`XMC3`, `XMC4`, `ADP2`, `PCM2`) is refused: one check of
+  the made clip's magic, `Firmware::plays`, which is also the net
+  under the converters.
+- `obd_convert` takes the firmware as its minor version (5; anything
+  else is the latest); the page has a drop-down box (the user, the
+  same day; a radio group at first), "The clock's firmware is", and converts every row again when it changes,
+  as it does for the output. The default is "v0.6 or later".
+- A later clip version is one more `Firmware` and one more option.
+
+Built 2026-11-24: `cargo pack-test` and the clippy pass; the wasm
+from Node makes `ADP1` of a 16-bit `.wav` for 5, `ADP2` for 6 and for
+9, and refuses `format=pcm16` for 5 with the reason. The user tried
+the page in a browser and found it in order; its card became numbered
+steps like the installer's, the firmware first, at his word.
+
+The command has it too, `--firmware 0.5|0.6` (the user, the same
+day); the default of both is the latest, which the user confirmed.

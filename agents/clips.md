@@ -26,6 +26,16 @@ builds (the file is ignored by git). The page previews a clip through
 download; it does not post to a clock, which `http::admit` would
 refuse from a foreign `Origin`.
 
+A clip is made for a firmware, `Firmware` (`convert_for`; `convert`
+is the latest's; the command's `--firmware 0.5|0.6`): for `V0_5` a module's 16-bit
+samples are cut to 8 and a sound file is IMA ADPCM, an option that
+asks for 16 bits (`samples=16|packed`, `format=packed|pcm16`) is
+refused, and so is a clip made already of a version v0.5 does not
+play (`Firmware::plays`, by the magic). The page asks which, "v0.5"
+or "v0.6 or later" (the default), and `obd_convert` takes the minor
+version. A new version of a clip is a new `Firmware` and an option of the
+page's box.
+
 It was ported from the Python converters the clips of 2026 were made
 with (`scripts/xm2clip.py`, `mod2xm.py`, `s3m2xm.py`, `pt32clip.py`,
 `sid2clip.py`, `adpcm.py`, `mkpack.py`, gone 2026-11-19; they are in

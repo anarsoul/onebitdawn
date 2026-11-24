@@ -10,7 +10,7 @@
 use std::path::Path;
 
 use onebitdawn_core::pack::Pack;
-use onebitdawn_pack::{Clip, Output, Source, Spec, build, convert};
+use onebitdawn_pack::{Clip, Firmware, Output, Source, Spec, build, convert, convert_for};
 
 fn repo(path: &str) -> Vec<u8> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -300,6 +300,19 @@ fn a_16_bit_sample_is_predicted_with_seek_points() {
     fine[1000] |= 1;
     let source = Source { data: module_of_16_bits(&fine, looped, &cells), file: "test.xm".into(), options: vec![], label: None };
     assert_eq!(&convert(&source, Output::Speaker).unwrap().data[..4], b"XMC4");
+    // For v0.5 it is cut to 8 bits, as `samples=8` cuts it, and an
+    // option that keeps the 16 is refused.
+    let cut = Source { options: vec![("samples".into(), "8".into())], ..source.clone() };
+    let old = convert_for(&source, Output::Speaker, Firmware::V0_5).unwrap();
+    assert!(old.data.starts_with(b"XMC2") && old.data == convert(&cut, Output::Speaker).unwrap().data);
+    assert_eq!(convert_for(&cut, Output::Speaker, Firmware::V0_5).unwrap().data, old.data);
+    for asked in ["16", "packed"] {
+        let keep = Source { options: vec![("samples".into(), asked.into())], ..source.clone() };
+        assert_eq!(
+            convert_for(&keep, Output::Speaker, Firmware::V0_5).err(),
+            Some(format!("test.xm: samples={asked} makes a clip for a firmware after v0.5, and the pack is for v0.5"))
+        );
+    }
     // Asked for anything else, it says what there is.
     let source = Source { data: module_of_16_bits(&wave, looped, &cells), file: "test.xm".into(), options: vec![("samples".into(), "12".into())], label: None };
     assert_eq!(convert(&source, Output::Speaker).err().as_deref(), Some("test.xm: samples is 8, 16 or packed"));
@@ -395,6 +408,16 @@ fn a_sound_file_is_a_clip_at_the_clips_rate() {
     assert!(packed > 50.0 && four < 30.0, "predicted {packed:.1} dB, ADPCM {four:.1} dB");
     let bad = Source { file: "ring.wav".into(), data: wav(44100), options: vec![("format".into(), "flac".into())], label: None };
     assert_eq!(convert(&bad, Output::Speaker).err().as_deref(), Some("ring.wav: format=flac: packed, pcm16, adpcm or pcm"));
+    // For v0.5 a sound file is ADPCM unless it is asked for in 8
+    // bits, and never 16.
+    let ring = |options: &str| Source { file: "ring.wav".into(), data: wav(44100), options: Spec::parse(&format!("ring.wav:{options}")).options, label: None };
+    let old = convert_for(&ring("seconds=2"), Output::Speaker, Firmware::V0_5).unwrap();
+    assert!(old.data.starts_with(b"ADP1") && old.data == convert(&ring("seconds=2,format=adpcm"), Output::Speaker).unwrap().data);
+    assert!(convert_for(&ring("seconds=2,format=pcm"), Output::Speaker, Firmware::V0_5).unwrap().data.starts_with(b"PCM1"));
+    for asked in ["packed", "pcm16"] {
+        let why = convert_for(&ring(&format!("format={asked}")), Output::Speaker, Firmware::V0_5).unwrap_err();
+        assert_eq!(why, format!("ring.wav: format={asked} makes a clip for a firmware after v0.5, and the pack is for v0.5"));
+    }
     let cut = Source { file: "ring.wav".into(), data: wav(8000)[..60].to_vec(), ..Default::default() };
     assert!(convert(&cut, Output::Buzzer).is_err());
 }

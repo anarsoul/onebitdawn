@@ -22,7 +22,7 @@ use core::f64::consts::PI;
 use onebitdawn_core::clip::PCM_MAGIC;
 
 use crate::bytes::Data;
-use crate::{Options, Output, adpcm};
+use crate::{Firmware, Options, Output, adpcm};
 
 /// The options a sound file takes.
 pub const OPTIONS: &[&str] = &["seconds", "skip", "rate", "format", "highpass", "passes", "drive"];
@@ -94,17 +94,21 @@ impl Shape {
         Shape { seconds: 0.0, skip: 0.0, rate: 16000, format: Format::Packed, highpass, passes, drive }
     }
 
-    pub fn options(output: Output, options: &mut Options) -> Result<Self, String> {
+    /// A firmware that plays no samples of 16 bits gets IMA ADPCM,
+    /// its own maker's default, and an option that asks for them is
+    /// refused.
+    pub fn options(output: Output, firmware: Firmware, options: &mut Options) -> Result<Self, String> {
         let mut shape = Shape::new(output);
         shape.seconds = options.number("seconds", shape.seconds)?;
         shape.skip = options.number("skip", shape.skip)?;
         shape.rate = options.number("rate", shape.rate)?;
-        shape.format = match options.text("format")?.as_deref() {
-            None | Some("packed") => Format::Packed,
-            Some("pcm16") => Format::Wide,
-            Some("adpcm") => Format::Adpcm,
-            Some("pcm") => Format::Pcm,
-            Some(other) => return Err(format!("format={other}: packed, pcm16, adpcm or pcm")),
+        shape.format = match (options.text("format")?.as_deref(), firmware.wide()) {
+            (None, false) | (Some("adpcm"), _) => Format::Adpcm,
+            (None | Some("packed"), true) => Format::Packed,
+            (Some("pcm16"), true) => Format::Wide,
+            (Some("pcm"), _) => Format::Pcm,
+            (Some(asked @ ("packed" | "pcm16")), false) => return Err(firmware.refuses(&format!("format={asked}"))),
+            (Some(other), _) => return Err(format!("format={other}: packed, pcm16, adpcm or pcm")),
         };
         shape.highpass = options.number("highpass", shape.highpass)?;
         shape.passes = options.number("passes", shape.passes)?;

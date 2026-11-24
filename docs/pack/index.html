@@ -68,10 +68,26 @@
     button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible, summary:focus-visible, #drop:focus-visible {
       outline: 2px solid var(--accent); outline-offset: 2px;
     }
+    .steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+    .steps > li {
+      counter-increment: step; position: relative; padding: 1rem 0 1rem 2.7rem;
+      border-top: 1px solid var(--line);
+    }
+    .steps > li:first-child { border-top: 0; }
+    .steps > li::before {
+      content: counter(step); position: absolute; left: 0; top: 1rem;
+      width: 1.8rem; height: 1.8rem; border-radius: 50%;
+      border: 1.5px solid var(--accent); color: var(--accent);
+      font-weight: 700; font-size: 0.9rem; line-height: 1.6rem; text-align: center;
+    }
+    .steps h3 { font-size: 1rem; margin: 0.1rem 0 0.2rem; }
+    .steps p { margin: 0.3rem 0; }
+    .steps select { width: auto; min-width: 11rem; max-width: 100%; padding: 0.45rem 0.6rem; }
+    .steps .pick { margin: 0.5rem 0 0.2rem; }
     .pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1.2rem; }
     .pick label { display: inline-flex; align-items: center; gap: 0.35rem; }
     #drop {
-      display: block; margin-top: 1rem; padding: 1.4rem 1rem; text-align: center; cursor: pointer;
+      display: block; margin-top: 0.5rem; padding: 1.4rem 1rem; text-align: center; cursor: pointer;
       border: 1.5px dashed var(--muted); border-radius: 10px; color: var(--muted);
     }
     #drop.over { border-color: var(--accent); color: var(--accent); background: var(--notice); }
@@ -128,36 +144,54 @@
   </header>
 
   <section class="card" aria-label="The pack">
-    <div class="pick" role="radiogroup" aria-label="What the clock plays through">
-      <span>The clock plays through</span>
-      <label><input type="radio" name="output" value="buzzer" checked> its buzzer</label>
-      <label><input type="radio" name="output" value="speaker"> a speaker</label>
-    </div>
-    <p class="small">
-      The clips are shaped for it: a buzzer has no bass and wants the level pushed hard;
-      a speaker, in the buzzer's place or on the line output's amplifier, plays the bass and wants neither.
-    </p>
+    <ol class="steps">
+      <li>
+        <h3><label for="firmware">Choose the clock's firmware</label></h3>
+        <select id="firmware">
+          <option value="5">v0.5</option>
+          <option value="6" selected>v0.6 or later</option>
+        </select>
+        <p class="small">
+          The clock's own page says which, under its forms. A clock at v0.5 plays samples of 8 bits only, and refuses a pack with a clip of 16;
+          a pack made for v0.5 plays on every later firmware.
+        </p>
+      </li>
+      <li>
+        <h3 id="outputlabel">Choose the sound</h3>
+        <div class="pick" role="radiogroup" aria-labelledby="outputlabel">
+          <label><input type="radio" name="output" value="buzzer" checked> Buzzer</label>
+          <label><input type="radio" name="output" value="speaker"> Speaker</label>
+        </div>
+        <p class="small">
+          What the clock plays through, which the clips are shaped for: a buzzer has no bass and wants the level pushed hard;
+          a speaker, in the buzzer's place or on the line output's amplifier, plays the bass and wants neither.
+        </p>
+      </li>
+      <li>
+        <h3>Add the files</h3>
+        <label id="drop" tabindex="0">
+          <input type="file" id="files" multiple accept=".xm,.mod,.s3m,.sid,.pt3,.wav,.xmc,.sidc,.pt3c,.bpr,.adp,.pcm">
+          Drop files here, or click to choose:
+          <code>.xm</code> <code>.mod</code> <code>.s3m</code> <code>.sid</code> <code>.pt3</code> <code>.wav</code>
+        </label>
+        <p id="status" class="small" role="status">Loading the converters…</p>
+        <div class="pick">
+          <label><input type="checkbox" id="advanced"> Advanced: each clip's conversion options and details</label>
+        </div>
 
-    <div class="pick">
-      <label><input type="checkbox" id="advanced"> Advanced: each clip's conversion options and details</label>
-    </div>
+        <ol id="clips"></ol>
+      </li>
+      <li>
+        <h3>Download the pack</h3>
+        <div id="bar" role="img" aria-label="The clips partition"><div></div></div>
+        <p id="room" class="small"></p>
 
-    <label id="drop" tabindex="0">
-      <input type="file" id="files" multiple accept=".xm,.mod,.s3m,.sid,.pt3,.wav,.xmc,.sidc,.pt3c,.bpr,.adp,.pcm">
-      Drop files here, or click to choose:
-      <code>.xm</code> <code>.mod</code> <code>.s3m</code> <code>.sid</code> <code>.pt3</code> <code>.wav</code>
-    </label>
-    <p id="status" class="small" role="status">Loading the converters…</p>
-
-    <ol id="clips"></ol>
-
-    <div id="bar" role="img" aria-label="The clips partition"><div></div></div>
-    <p id="room" class="small"></p>
-
-    <div class="make">
-      <button id="make" class="go" disabled>Download the pack</button>
-      <span id="made" class="small" role="status"></span>
-    </div>
+        <div class="make">
+          <button id="make" class="go" disabled>Download the pack</button>
+          <span id="made" class="small" role="status"></span>
+        </div>
+      </li>
+    </ol>
   </section>
 
   <h2>Sending it to the clock</h2>
@@ -188,8 +222,8 @@
       <dt><code>knee=100</code></dt><dd>The level the limiter starts at; above the tune's peaks it is off.</dd>
       <dt><code>raise=1:2</code></dt><dd>Play instrument 1 two octaves higher, for a bass line a buzzer cannot play.</dd>
       <dt><code>rate=16000</code></dt><dd>Samples a second, 31250 by default; 16000 and 8000 are less work for the clock.</dd>
-      <dt><code>samples=16</code></dt><dd>A module's 16-bit samples are kept in 8 bits a sample and a sixteenth more, each predicted from the samples before it: nearly the sound of the 16 bits. This keeps them as they are, at twice the bytes. Either way the clip needs a firmware after v0.5; an older one refuses the pack.</dd>
-      <dt><code>samples=8</code></dt><dd>Cut them to 8 bits, for a clock at v0.5 or before: under a quiet instrument 8 bits hiss.</dd>
+      <dt><code>samples=16</code></dt><dd>A module's 16-bit samples are kept in 8 bits a sample and a sixteenth more, each predicted from the samples before it: nearly the sound of the 16 bits. This keeps them as they are, at twice the bytes. Either way the clip needs a firmware after v0.5, and neither is taken in a pack for v0.5.</dd>
+      <dt><code>samples=8</code></dt><dd>Cut them to 8 bits, which is what a pack for v0.5 gets: under a quiet instrument 8 bits hiss.</dd>
     </dl>
   </details>
   <details>
@@ -218,12 +252,12 @@
   </details>
   <details>
     <summary>Sound files: <code>.wav</code></summary>
-    <p class="small">Sampled sound takes the most room: 17 KB a second, its 16-bit samples kept in about a byte each, so the partition holds a little over a minute of it. Such a clip needs a firmware after v0.5.</p>
+    <p class="small">Sampled sound takes the most room: 17 KB a second, its 16-bit samples kept in about a byte each, so the partition holds a little over a minute of it. Such a clip needs a firmware after v0.5; a pack for v0.5 gets IMA ADPCM.</p>
     <dl>
       <dt><code>seconds=20</code></dt><dd>Keep this much, faded out at the end, from <code>skip=5</code> seconds in.</dd>
       <dt><code>rate=8000</code></dt><dd>Samples a second: 16000 by default, 8000 for half the room, 31250 for twice it.</dd>
-      <dt><code>format=adpcm</code></dt><dd>IMA ADPCM, four bits a sample: half the room, audibly rougher, and what a clock at v0.5 or before plays.</dd>
-      <dt><code>format=pcm16</code></dt><dd>The 16 bits as they are: twice the room, nothing lost.</dd>
+      <dt><code>format=adpcm</code></dt><dd>IMA ADPCM, four bits a sample: half the room, audibly rougher, and what a pack for v0.5 gets.</dd>
+      <dt><code>format=pcm16</code></dt><dd>The 16 bits as they are: twice the room, nothing lost; not for v0.5.</dd>
       <dt><code>format=pcm</code></dt><dd>Eight bits a sample: the room of the default and not its sound; any firmware plays it.</dd>
       <dt><code>highpass=900</code></dt><dd>The bass cut (100 for a speaker) and <code>passes=2</code> how many times.</dd>
       <dt><code>drive=20</code></dt><dd>The dB pushed into the limiter (10 for a speaker), 0 for none.</dd>
@@ -266,6 +300,10 @@ function answer() {
 function speaker() {
   return document.querySelector('input[name=output]:checked').value === 'speaker';
 }
+// The minor version of the firmware the pack is for.
+function firmware() {
+  return Number($('firmware').value);
+}
 
 // Make the row's clip, or again after its options changed.
 function convert(row) {
@@ -273,7 +311,7 @@ function convert(row) {
   const file = put(utf8.encode(row.file));
   const data = put(row.bytes);
   const options = put(utf8.encode(row.options));
-  const ok = x.obd_convert(...file, ...data, ...options, speaker() ? 1 : 0) === 0;
+  const ok = x.obd_convert(...file, ...data, ...options, speaker() ? 1 : 0, firmware()) === 0;
   for (const [at, len] of [file, data, options]) x.obd_free(at, len);
   const said = text.decode(answer());
   if (!ok) {
@@ -465,7 +503,7 @@ $('make').addEventListener('click', () => {
   $('made').className = 'small';
 });
 
-for (const radio of document.querySelectorAll('input[name=output]')) {
+for (const radio of [...document.querySelectorAll('input[name=output]'), $('firmware')]) {
   radio.addEventListener('change', () => { stop(); work(() => rows.forEach(convert)); });
 }
 $('advanced').addEventListener('change', (e) => document.body.classList.toggle('advanced', e.target.checked));

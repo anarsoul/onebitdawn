@@ -134,7 +134,9 @@ Commodore 64 tunes (`.sid`), ZX Spectrum ones (`.pt3`) and sound files
 
 - in a browser, at <https://anarsoul.github.io/onebitdawn/pack/>: drop
   the files, set each one's label, hear it as the clock will play it,
-  and download the pack. Nothing leaves the browser;
+  and download the pack. Nothing leaves the browser. The page asks
+  which firmware the clock has, v0.5 or a later one, and makes only
+  clips that firmware plays;
 - or with `onebitdawn-pack`, the same converters as a command, which a
   release has built for Linux, Windows and macOS
   (`onebitdawn-pack-<tag>-…`) and `cargo pack` runs from the source:
@@ -189,8 +191,9 @@ and audibly rougher; `format=pcm` is 8 bits, 16 KB. A module's
 16-bit samples are kept the first way too; `samples=16` keeps them as
 they are and `samples=8` cuts them to 8 bits. A clock at v0.5 or
 before plays only ADPCM, 8-bit PCM and 8-bit samples, and refuses a
-pack with anything else in it: for one, give `format=adpcm` and
-`samples=8`. A ZX Spectrum beeper tune is
+pack with anything else in it: for one, choose v0.5 on the page, which
+makes those and refuses the options for the others, or give the
+command `--firmware 0.5`. A ZX Spectrum beeper tune is
 recorded from a tape with `scripts/zxbeeper.py` (it needs SkoolKit)
 and its `.bpr` goes into a pack as it is.
 

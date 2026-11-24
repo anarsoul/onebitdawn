@@ -15,7 +15,7 @@ use std::path::Path;
 
 use onebitdawn_core::pack::Pack;
 use onebitdawn_pack::web::Session;
-use onebitdawn_pack::Kind;
+use onebitdawn_pack::{Firmware, Kind};
 
 const FOLDERS: [&str; 7] = ["mods", "clips", "xm", "pt3", "sid", "wav", "tap"];
 
@@ -41,7 +41,7 @@ fn every_file_at_hand_converts_and_plays() {
             let options = if kind == Kind::Wav { "name=local,seconds=15" } else { "name=local" };
             for speaker in [false, true] {
                 let mut session = Session::default();
-                if let Err(why) = session.convert(&file, &data, options, speaker) {
+                if let Err(why) = session.convert(&file, &data, options, speaker, Firmware::V0_6) {
                     assert!(why.starts_with(&file), "{why}");
                     println!("  refused: {why}");
                     refused += 1;

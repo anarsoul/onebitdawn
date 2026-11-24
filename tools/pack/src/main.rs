@@ -7,13 +7,13 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use onebitdawn_core::pack::{LABEL_MAX, NAME_MAX, ROOM};
-use onebitdawn_pack::{Output, Source, Spec, build, convert};
+use onebitdawn_pack::{Firmware, Output, Source, Spec, build, convert_for};
 
 const USAGE: &str = "\
 Make a clip pack, the alarm sounds of a onebitdawn clock.
 
-    onebitdawn-pack -o pack.bin [--sound-output buzzer|speaker] file[:option,…][=Label] …
-    onebitdawn-pack --clip clip [--sound-output buzzer|speaker] file[:option,…]
+    onebitdawn-pack -o pack.bin [--sound-output buzzer|speaker] [--firmware 0.5|0.6] file[:option,…][=Label] …
+    onebitdawn-pack --clip clip [--sound-output buzzer|speaker] [--firmware 0.5|0.6] file[:option,…]
 
 A file is a tracker module (.xm, .mod, .s3m), a Commodore 64 tune
 (.sid), a ZX Spectrum one (.pt3), a sound file (.wav), or a clip made
@@ -30,6 +30,13 @@ in a pack later, or for a firmware built with the clip in it.
 shaped for: its buzzer (the default), which has no bass and wants the
 level pushed hard, or a speaker, in the buzzer's place or on the line
 output's amplifier.
+
+--firmware is the clock's firmware, and the clips are ones it plays:
+0.6 (the default) for v0.6 or later, 0.5 for v0.5, which plays samples
+of 8 bits only. For 0.5 a module's 16-bit samples are cut to 8 and a
+sound file is IMA ADPCM, the options that ask for 16 bits are refused,
+and so is a clip made already that v0.5 does not play. A pack for 0.5
+plays on every later firmware.
 
 Options follow a file's name after a colon, with commas between them:
 
@@ -112,6 +119,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut out = None;
     let mut alone = None;
     let mut output = Output::default();
+    let mut firmware = Firmware::default();
     let mut specs = Vec::new();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -126,12 +134,17 @@ fn run(args: &[String]) -> Result<(), String> {
                 let name = args.next().ok_or("--sound-output needs buzzer or speaker")?;
                 output = Output::parse(name).ok_or_else(|| format!("--sound-output {name}: buzzer or speaker"))?;
             }
-            other => match other.strip_prefix("--sound-output=") {
-                Some(name) => output = Output::parse(name).ok_or_else(|| format!("--sound-output {name}: buzzer or speaker"))?,
-                None if other.starts_with('-') && other.len() > 1 && !Path::new(other).exists() => {
+            "--firmware" => {
+                let name = args.next().ok_or("--firmware needs 0.5 or 0.6")?;
+                firmware = Firmware::parse(name).ok_or_else(|| format!("--firmware {name}: 0.5 or 0.6"))?;
+            }
+            other => match (other.strip_prefix("--sound-output="), other.strip_prefix("--firmware=")) {
+                (Some(name), _) => output = Output::parse(name).ok_or_else(|| format!("--sound-output {name}: buzzer or speaker"))?,
+                (_, Some(name)) => firmware = Firmware::parse(name).ok_or_else(|| format!("--firmware {name}: 0.5 or 0.6"))?,
+                _ if other.starts_with('-') && other.len() > 1 && !Path::new(other).exists() => {
                     return Err(format!("no option {other}; --help says what there is"));
                 }
-                None => specs.push(other.to_string()),
+                _ => specs.push(other.to_string()),
             },
         }
     }
@@ -146,7 +159,7 @@ fn run(args: &[String]) -> Result<(), String> {
         // A file of that very name is the file, whatever its colons.
         let spec = if Path::new(arg).is_file() { Spec { file: arg.clone(), options: Vec::new(), label: None } } else { Spec::parse(arg) };
         let data = std::fs::read(&spec.file).map_err(|e| format!("{}: {e}", spec.file))?;
-        let clip = convert(&Source { file: spec.file, data, options: spec.options, label: spec.label }, output)?;
+        let clip = convert_for(&Source { file: spec.file, data, options: spec.options, label: spec.label }, output, firmware)?;
         for note in &clip.notes {
             eprintln!("{arg}: {note}");
         }
