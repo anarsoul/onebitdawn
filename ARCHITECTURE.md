@@ -34,7 +34,7 @@ shape everything else:
 | --- | --- |
 | `core/` (`onebitdawn-core`) | hardware-independent logic: the driver's wire format, panel map and font, UI state machine, settings and their flash record, form parser and HTML pages, HTTP head parser, auth rules, timezone rules, MQTT topics and discovery payload, the sound players (PCM, ADPCM, beeper, XM, SID, AY/PT3), sensor tables. Builds for the host; each module ends with its tests |
 | `tools/pack/` (`onebitdawn-pack`) | the pack maker, for the host and the browser and never the chip: the converters from modules, tunes and sound files to clips, and the pack writer, over `core`'s formats, parser and players. A command (`main.rs`) and, as WebAssembly, the page in `docs/pack/` (`web.rs`, `wasm.rs`) |
-| root (`onebitdawn`) | the tasks and drivers around it: `src/*.rs` and `src/bin/main.rs`. Re-exports `core`'s modules from `src/lib.rs`, so both halves are `crate::…` |
+| root (`onebitdawn`) | the tasks and drivers around it: `src/*.rs` and `src/bin/main.rs`. `src/lib.rs` re-exports the `core` modules that have no hardware half, and a split module's hardware half re-exports the pure types its callers need, so firmware code says `crate::…`; the players are reached through `core`'s `clip` |
 
 A module with both halves has the same name in each crate (`clock`,
 `carry`, `http`, `ota`, `pack`, `buttons`, `clip`, `mqtt`, `sensors`,
@@ -47,8 +47,10 @@ by `core/src/config.rs` and `core/build.rs`.
 
 `src/bin/main.rs`, in order:
 
-1. Release the buzzer pin (open drain, high) before anything else.
-2. Start the watchdog's timer (`watchdog::start`); open the flash;
+1. Start the watchdog's timer (`watchdog::start`) right after
+   `esp_hal::init`, then the heap and esp-rtos, and release the buzzer
+   pin (open drain, high) before any other pin is set up.
+2. Open the flash;
    read the reset reason and the RTC-RAM carry record (`carry::init`),
    restore a carried time, check the OTA slot and roll back an image
    that never confirmed itself (`ota::init`), so a boot that hangs
@@ -56,7 +58,9 @@ by `core/src/config.rs` and `core/build.rs`.
    one, and put the clip pack it holds in the melody table
    (`pack::init`).
 3. Load the settings record, fill what it lacks from
-   the build's seeds, publish it (`settings::init`).
+   the build's seeds, publish it (`settings::init`). A clock whose
+   clips go to the line output has that pin put at its rest here, the
+   amplifier shut down first.
 4. Choose the mode for this whole boot: **station**, or **access
    point** if no network is stored or the carry record asks for it.
    The driver does not do both.
@@ -94,7 +98,8 @@ that owns the receiving side and wrapped in functions:
   persist, hostname, MQTT). All writes go through `settings::update`.
 - `Signal`s for commands: play/stop to the buzzer, start/stop/done to
   the clip task, stop/resume to the scan, silence and ringing edges at
-  the display, goodbye to MQTT, rescan to the access point.
+  the display, a PIN to show there (`core::auth`), goodbye to MQTT,
+  rescan to the access point.
 - One `Channel` of button events.
 - Atomics for readings and counters (sensor millivolts, RSSI, probe
   and MQTT counts, the clip task's flag for a clip on the PDM
@@ -134,8 +139,8 @@ current setting; colour is duty per LED.
 
 The scan stops in three cases, always on the blanking frame: an
 upload, of the firmware or of a clip pack (flash writes hold
-interrupts off), a deliberate reset (`scan::halt`, latched), and a
-panic, which cannot be graceful.
+interrupts off), a deliberate reset or the watchdog feeder's
+(`scan::halt`, latched), and a panic, which cannot be graceful.
 
 ## Sound path
 
@@ -172,7 +177,7 @@ for the length of a melody on the line output and low otherwise.
   so one firmware plays a pack made for the buzzer or for a speaker.
 
 For a clip the buzzer task lends the pin to `clip_task`, which runs
-I2S0 over a sixteen-slot DMA ring: by default 16-bit samples into the
+I2S0 over a sixteen-slot DMA ring: 16-bit samples into the
 chip's PCM-to-PDM converter, or raw line bits for a beeper clip on
 the buzzer's pin (on the line output it is samples too, at the notes'
 level: `clip::Mean`). The task fills chunks ahead of the DMA, paced
@@ -240,14 +245,17 @@ operation at a time; there is exactly one flash handle.
 
 A reset is a normal event here, not a failure path. Every deliberate
 one goes through `src/heal.rs`, which says the MQTT goodbye, halts the
-scan on a dark frame and writes the time to the carry record first:
+scan on a dark frame and, but for a mode switch, writes the time to
+the carry record first:
 
 - `heal::reboot`: `/reload`, MQTT's `reload` command, after an OTA or
   a clip pack upload.
 - `heal::reset`: the self-heal, when the gateway stops answering or
   connects keep failing; waits out a ringing alarm.
-- `heal::switch_mode`: between station and access point; starts the
-  carry record over.
+- `heal::switch_mode`: between station and access point, by the
+  button hold, `/ap`, the setup form, or the persist task once a
+  changed network is saved; starts the carry record over, with no
+  time in it.
 
 A hang is ended by the watchdog (`src/watchdog.rs` over
 `core::watchdog`), in two layers. The RTC watchdog timer resets the

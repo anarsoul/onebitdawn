@@ -210,11 +210,17 @@ must keep.
 
 ## Layout
 
-The pure modules live in `core/src/` and the firmware re-exports them
-from `src/lib.rs`, so firmware code says `crate::settings`. Ten
+The pure modules live in `core/src/`. Those with no hardware half
+(`aip33628`, `auth`, `config`, `form`, `melody`, `panel`, `settings`,
+`tz`, `ui`) the firmware re-exports from `src/lib.rs`, so firmware
+code says `crate::settings`. Ten
 modules are split, the pure half in `core/src/` and the hardware half
 in `src/` under the same name: `buttons`, `clock`, `carry`, `http`,
-`ota`, `pack`, `clip`, `mqtt`, `sensors`, `watchdog`. Each `core` module ends with
+`ota`, `pack`, `clip`, `mqtt`, `sensors`, `watchdog`; the hardware
+half imports what it needs from `onebitdawn_core` and re-exports the
+types its callers use. The players (`adpcm`, `xm`, `sid`, `ay`,
+`pt3`, `refs`, `shape`) are not re-exported: the firmware reaches
+them through `core`'s `clip`. Each `core` module ends with
 its `#[cfg(test)] mod tests`. The full account of each file is
 `agents/modules.md`.
 

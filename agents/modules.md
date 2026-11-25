@@ -3,14 +3,19 @@
 What each file holds, and what the host tests cover. `AGENTS.md` has
 the one-line version; update both when a module changes its role.
 
-The pure modules live in `core/src/` and the firmware re-exports them
-from `src/lib.rs`, so firmware code says `crate::settings`; inside
-`core` the same `crate::` paths point at its own modules. Each `core`
+The pure modules live in `core/src/`. `src/lib.rs` re-exports those
+with no hardware half (`aip33628`, `auth`, `config`, `form`, `melody`,
+`panel`, `settings`, `tz`, `ui`), so firmware code says
+`crate::settings`; inside `core` the same `crate::` paths point at its
+own modules. A split module's hardware half imports from
+`onebitdawn_core` and re-exports the types its callers use, and the
+players (`adpcm`, `xm`, `sid`, `ay`, `pt3`, `refs`, `shape`) are
+reached only through `core`'s `clip`. Each `core`
 module ends with its `#[cfg(test)] mod tests`.
 `core/src/lib.rs` is `#![cfg_attr(not(test), no_std)]` and the module
 list, nothing else.
 
-Nine modules are split, the pure half in `core/src/` under the same
+Ten modules are split, the pure half in `core/src/` under the same
 name and the hardware half in `src/`:
 
 | module | pure half | hardware half |
@@ -21,9 +26,10 @@ name and the hardware half in `src/`:
 | `http` | head parser and `RESPONSE_BUF` | sockets |
 | `ota` | image constants, `Slot`, `hash_chunk`, `version_from` | flash and partitions |
 | `pack` | the clip pack's layout and checks | the partition, its mapping and the upload |
-| `clip` | the pulse-width `Player` and the ring's `Pacer` | I2S0, its DMA ring and the pin |
+| `clip` | `Player`, `Stream` and the ring's `Pacer` | I2S0, its DMA ring and the pin |
 | `mqtt` | topics, routes and the discovery payload | the session task |
 | `sensors` | the NTC and LDR tables and the thermometer's hold | the ADC task |
+| `watchdog` | the timeouts, `Party`, `verdict` and the carry word | the RTC watchdog and its feeder task |
 
 ## Display
 
@@ -146,7 +152,7 @@ its own task, with per-listener state and counters for the heartbeat.
   sends `X-Frame-Options: DENY`.
 - Before a route is looked at (`NoRequest`): a `POST` without
   `Content-Length` to a route that reads a body (`reads_body`: `/`,
-  `/settings`, `/ha`, `/api`, `/play`, `/token`, `/ota`) is answered
+  `/settings`, `/ha`, `/api`, `/play`, `/token`, `/ota`, `/clips`) is answered
   `411`, and any `Transfer-Encoding` `400`, since a bodiless post is
   not an empty form. The command posts (`/reload`, `/ap`, `/pin`,
   `/scan`, `/stop`) take a bare `curl -X POST`. A head with no end
@@ -332,7 +338,7 @@ command, looped or once, and stops within a note.
   mode with the PCM-to-PDM converter: mono 16-bit samples in the ring,
   256 bits each on the line by default. `tx_pcm_bypass` is set again
   after esp-hal 1.2.2 clears it, or the A-law compander makes white
-  noise of the samples. For a beeper clip and the software modulators
+  noise of the samples. For a beeper clip on the buzzer's pin
   it is in TDM mode: two 16-bit channels, no clock pins, so the data
   line is the ring's bits at the bit rate, each pair of the stream's
   bytes swapped in the ring since a word goes out high byte first.
@@ -432,7 +438,7 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   samples of a render (the groups' means through the shaper, in
   order) wait in `Tune::ready` for `next_sample`, or for
   `block`, which gives them as a slice (`taken` says how many were
-  used): `Player::fill_samples`, the converter's fill, writes a
+  used): `Player::fill`, the converter's fill, writes a
   module's body from it a run at a time, with no call a sample, and
   leaves the ramps and the end to `level`. `Tune::mix_one` is
   the mixer that went a sample at a time over the channels, kept for
@@ -542,7 +548,9 @@ the stack of where to go on and how many items are left that a reader
 of `BPR3` or `SID2` keeps while it reads a stretch again from earlier
 in the clip's own bytes (`leave`, `enter`, `gave`), `DEPTH` deep; a
 reference that takes all its parent wants takes its place. Also
-`leb128`. `scripts/packrefs.py` is the packer both converters import.
+`leb128`. The packer is `tools/pack/src/packrefs.rs` for a register
+log and `scripts/packrefs.py`, which `scripts/zxbeeper.py` imports,
+for a beeper clip.
 
 **`core/src/shape.rs`**: `Shaper`, the high-pass and limiter the
 players end in, set from a clip's header; `STEP`. Its division by
@@ -649,8 +657,8 @@ in. The main stack only; the figures are in `agents/sizes.md`.
 **`src/heal.rs`**: the deliberate resets.
 
 - `reboot` says the MQTT goodbye, blanks the panel through
-  `scan::halt`, carries the time and resets; for `/reload` and the OTA
-  reboot.
+  `scan::halt`, carries the time and resets; for `/reload`, MQTT's
+  `reload` and the reboot after a firmware or pack upload.
 - `reset`, the self-heal, waits out a ringing alarm and counts itself
   first.
 - `switch_mode`, the reset between station and access point, starts
@@ -740,8 +748,9 @@ Covered:
   and the 2026 transitions of both hemispheres, the UI's alarm, grace,
   skip and daylight-saving logic.
 - Clips, generally: the melodies, the ADPCM decoder against sox's
-  samples, the clip's modulator (a sine back out of the bits, one
-  centred pulse a period, the ramps, full-scale stability), the beeper
+  samples, the converter's samples of a clip with its ramps, a
+  looping clip, a beeper clip and a melody's notes as samples for the
+  line output, the beeper
   clip's runs bit for bit, the packed clip's tokens, a packer's round
   trip over random runs and the bad clips that must end.
 - The module player: pitch, volumes, each effect's periods tick by
