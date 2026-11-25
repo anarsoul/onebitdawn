@@ -3770,38 +3770,6 @@ with its first sample's offset a byte on.
 
 Run: `cargo pack-test`, and clippy over `onebitdawn-pack`.
 
-## The software modulators taken out — 2026-11-24, on `next`; built and run on the host, no clock has had it
-
-The user, 2026-11-24: "Я бы выкинул программный модулятор вообще
-(отдельным коммитом). Объективно никто не будет его использовать при
-наличии PDM". Said while the next section's work was being planned,
-which would otherwise have had to keep three paths alive.
-
-A PCM clip, a module or a tune has gone through the chip's PCM-to-PDM
-converter in every build made since 2026-11-13; `CLIP_MODULATOR=sd`
-and `pwm` were the ways back to the sigma-delta loop and the pulse a
-carrier period in `core/src/clip.rs`, kept for a stock board's
-transistor that might not follow the converter's rate. The buzzer's
-pin has had its own, lower rate since 2026-11-20
-(`clip::BUZZER_CONVERTER_BITS`), and nobody built the others.
-
-Gone: `Player`'s two modulators (`fill`'s pulses, `fill_bits`) with
-their state and their three tests (the sine's SNR out of the bits,
-the released line at both ends, the loop at full scale), the
-constants `BIT_RATE`, `OSR`, `CARRIER_HZ` and their kin,
-`config::CLIP_KBPS`, `CLIP_CARRIER_KHZ`, `CLIP_PDM` and
-`CLIP_SIGMA_DELTA`, and the build variables `CLIP_MODULATOR`,
-`CLIP_KBPS` and `CLIP_CARRIER_KHZ`, which a build now ignores.
-`clip::CONVERTER`, an `Option`, is `CONVERTER_BITS`; `Player::fill`
-is what `fill_samples` was. `CLIP_PDM_BITS` stays. A beeper clip's
-bits go out as they did, so the transmitter's TDM mode stays in
-`src/clip.rs`.
-
-Nothing a default build plays changes: the branches taken out were
-compiled away in it. `.rwtext` is 0x223c and `.stack` 0x8038 after.
-Run: `cargo build --release`, both clippys, `cargo host-test` (199
-passed; the three tests gone were the modulators').
-
 ## Checks still owed
 
 - 16 bits predicted, on a clock (2026-11-22, on `next`, above; both

@@ -263,7 +263,11 @@ command, looped or once, and stops within a note.
   the output changed to the line turns it on itself. A tone goes to the
   one `settings::get().output.tones()` names at its start; the pin of the
   tone before is taken back to its rest first when that differs,
-  since LEDC stays connected to it.
+  since LEDC stays connected to it. With that pin the line output, a
+  melody's notes are not LEDC's: `play_once` gives them to the clip
+  task (`clip::play_notes`), unless the clips are under suspicion:
+  then `tone` plays them on the line output as a pulse of
+  `clip::line_duty`, the setting's power at most.
 
 - `preview` and `stop_preview`, the pages' and the bus's, do nothing
   while the alarm rings; `ring` and `stop` are the display task's.
@@ -291,9 +295,20 @@ command, looped or once, and stops within a note.
   of what was played. A broken clip ends where it breaks, written out
   as it is. The line runs at its own `BEEPER_BIT_RATE`, 512 kbit/s
   (`Stream::bit_rate`).
-- `Runs` writes a `RunSource` (the beeper clip) out as bytes.
+- `Runs` writes a `RunSource` (the beeper clip) out as bytes, for the
+  buzzer's pin.
+- `Mean` makes samples at `FAST_HZ` of a square wave given as levels
+  and ticks (`Levels`): each sample is the wave's mean over its
+  16.384 ticks, times an amplitude (`line_level` of the `beep_volume` setting's `pct`, `LINE_PCT` its default), so
+  an edge is where it was and not on the samples' grid. For the line
+  output: a beeper clip (off the middle of the scale, on two
+  amplitudes over it) and a melody's notes (`Notes`: half periods
+  about the middle, the middle for a gap or a rest), both a
+  `Player`'s body.
 - `Stream`: either kind, by its first bytes (PCM as ADPCM, `adpcm.rs`,
-  is a `Player`'s body as a tune is). `Stream::new` is never inlined
+  is a `Player`'s body as a tune is). `Stream::of` takes a `Sound`, a
+  clip or a melody's notes, and the line output's level if the sound
+  goes there; `Stream::new` is a clip for the buzzer's pin. `of` is never inlined
   and builds a tune's player in place through `Player::take_*`:
   inlined, with a slot a kind, it was 6 KB of the clip task's frame,
   on whatever stack the interrupt found. For the firmware half it has

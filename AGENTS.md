@@ -268,6 +268,12 @@ Each with its measurements in `agents/hardware.md`.
   pin configuration for sound goes through `buzzer::Pins`, so GPIO5 is
   never built push-pull by a path meant for GPIO20; a tone takes the
   last tone's pin back to its rest before LEDC goes to the other.
+  A square wave is never the pin from rail to rail here: a beeper
+  clip and a melody's notes go through the converter as samples at
+  the `beep_volume` setting's hundredths of a module's full scale. LEDC plays the notes
+  there only with the clips under suspicion, and then as a pulse of
+  `clip::line_duty`, never a square wave: no path may put the pin's
+  whole swing for half a period into the amplifier.
 - **Amplifier shutdown (GPIO10)** is high only from before a sound on
   the line output to after it; the buzzer task brackets a melody with
   it and `Pins` is its only way. Never driven while the output is
@@ -440,7 +446,7 @@ release from that one on, with the newer one's data in flash:
   Widening a field's values is therefore allowed, and costs a
   rolled-back clock that setting.
 - **No item in the settings map is longer than `storage::ITEM_MAX`**
-  (1000 bytes, key included; the record is 408). `sequential-storage`
+  (1000 bytes, key included; the record is 409). `sequential-storage`
   reads every item it passes into the scratch, so one item too long
   for an older image fails its read of all of them: it then runs on
   the defaults and erases the map at its first save (seen on

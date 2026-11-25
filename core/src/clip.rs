@@ -12,7 +12,10 @@
 //! loop and a pulse a carrier period, which a build could choose; the
 //! converter was heard against them on 2026-11-13 and nothing was
 //! built with either since. `HISTORY.md` has them.) A beeper clip is
-//! bits already and goes out as it is (`Runs`).
+//! bits already and goes out as it is (`Runs`) on the buzzer's pin; for
+//! the line output, where a square wave from rail to rail is far
+//! louder than any module, it is made samples of at a level
+//! (`Mean`), and so are a melody's notes (`Notes`).
 //!
 //! A PCM clip is 8 bits unsigned, mono, `PCM_HZ` samples a second
 //! unless its header says otherwise (`tools/pack/src/wav.rs`).
@@ -26,6 +29,7 @@ use core::ops::Range;
 
 use crate::adpcm;
 use crate::config;
+use crate::melody::Note;
 use crate::pt3;
 use crate::refs::{self, Refs};
 use crate::sid;
@@ -71,6 +75,11 @@ enum Body<'a> {
     Sid(sid::Tune<'a>),
     /// A ZX Spectrum tune, the same (`pt3::Tune`).
     Ay(pt3::Tune<'a>),
+    /// A beeper clip for the line output: its bits as samples at a
+    /// level (`Mean`).
+    Beeper(Mean<Beeper<'a>>),
+    /// A melody's notes for the line output, the same.
+    Notes(Mean<Notes<'a>>),
 }
 
 /// Turns a clip into its samples for the chip's converter, a buffer
@@ -150,6 +159,20 @@ impl<'a> Player<'a> {
         self.len = None;
     }
 
+    /// A beeper clip as this player's body, at the level `amp`.
+    #[inline(never)]
+    fn take_beeper(&mut self, data: &'a [u8], looping: bool, amp: i32) {
+        self.body = Body::Beeper(Mean::new(Beeper::new(data).looped(looping), amp));
+        self.len = None;
+    }
+
+    /// A melody's notes as this player's body, at the level `amp`.
+    #[inline(never)]
+    fn take_notes(&mut self, notes: &'a [Note], bpm: u16, amp: i32) {
+        self.body = Body::Notes(Mean::new(Notes::new(notes, bpm), amp));
+        self.len = None;
+    }
+
     const fn with(body: Body<'a>, len: Option<usize>) -> Self {
         Self { body, len, looping: false, pcm_hz: PCM_HZ, next: 1 }
     }
@@ -177,6 +200,9 @@ impl<'a> Player<'a> {
             Body::Tune(tune) => tune.set_looping(looping),
             Body::Sid(tune) => tune.set_looping(looping),
             Body::Ay(tune) => tune.set_looping(looping),
+            // A beeper clip is told when it is made (`take_beeper`),
+            // and notes are played once: the buzzer task repeats them.
+            Body::Beeper(_) | Body::Notes(_) => {}
         }
     }
 
@@ -200,6 +226,8 @@ impl<'a> Player<'a> {
                 Body::Tune(tune) => tune.next_sample().map(|s| s as i32 * step / xm::STEP),
                 Body::Sid(tune) => sid_sample(tune).map(|s| s as i32 * step / xm::STEP),
                 Body::Ay(tune) => ay_sample(tune).map(|s| s as i32 * step / xm::STEP),
+                Body::Beeper(mean) => beeper_sample(mean),
+                Body::Notes(mean) => notes_sample(mean),
             };
             match level {
                 Some(level) => return Some(level),
@@ -217,6 +245,7 @@ impl<'a> Player<'a> {
             Body::Tune(tune) => tune.rate(),
             Body::Sid(tune) => tune.rate(),
             Body::Ay(tune) => tune.rate(),
+            Body::Beeper(_) | Body::Notes(_) => FAST_HZ,
         }
     }
 
@@ -437,6 +466,16 @@ fn ay_sample(tune: &mut pt3::Tune<'_>) -> Option<i16> {
     tune.next_sample()
 }
 
+#[inline(never)]
+fn beeper_sample(mean: &mut Mean<Beeper<'_>>) -> Option<i32> {
+    mean.next_sample()
+}
+
+#[inline(never)]
+fn notes_sample(mean: &mut Mean<Notes<'_>>) -> Option<i32> {
+    mean.next_sample()
+}
+
 /// Whether `data` is a beeper clip.
 pub const fn is_beeper(data: &[u8]) -> bool {
     has_magic(data, BEEPER_MAGIC, BEEPER_HEADER) || has_magic(data, BEEPER_PACKED_MAGIC, BEEPER_HEADER)
@@ -623,19 +662,210 @@ impl RunSource for Beeper<'_> {
     }
 }
 
+/// A square wave as runs: a level, in the amplitude `Mean` is given,
+/// and how many ticks of `1 / BEEPER_TICK_HZ` it lasts. A run of no
+/// ticks is allowed.
+pub trait Levels {
+    fn next_level(&mut self) -> Option<(i32, u32)>;
+}
+
+/// A beeper clip's line: off is the middle of the scale, where a
+/// stream's ramps leave it and its silences stay, and on is two
+/// amplitudes over it, so its square waves are as large as a
+/// melody's notes.
+impl Levels for Beeper<'_> {
+    fn next_level(&mut self) -> Option<(i32, u32)> {
+        self.next_run().map(|(on, ticks)| (if on { 2 } else { 0 }, ticks))
+    }
+}
+
+/// What a square wave on the line output is unless the `beep_volume`
+/// setting says otherwise, a beeper clip's or a note's: its amplitude
+/// in hundredths of a module's full scale. On the pin as it is, rail
+/// to rail (LEDC's tones, a beeper clip's bits), a square wave is some
+/// 15 dB over what a module of the amplifier's pack comes to, and the
+/// amplifier's volume is one for both.
+pub const LINE_PCT: u8 = 20;
+/// The most `line_level` takes, and so the most the setting may be:
+/// what a PT3 module comes to with its three channels at their top
+/// level together and its limiter doing nothing (`pt3`'s `FLAT` at a
+/// drive of 127), a swing from bottom to top of a module's full
+/// scale. The user, 2026-11-24: a beep is not to be set louder than
+/// the AY can be. A beeper clip's on, two amplitudes over the middle,
+/// is then a module's full scale exactly.
+pub const LINE_PCT_MAX: u8 = 50;
+
+/// The amplitude `pct` hundredths of a module's full scale is, in the
+/// units of a `Player`'s levels.
+pub const fn line_level(pct: u8) -> i32 {
+    let pct = if pct > LINE_PCT_MAX { LINE_PCT_MAX } else { pct };
+    127 * CONVERTER_LEVEL * pct as i32 / 100
+}
+const _: () = assert!(2 * line_level(LINE_PCT_MAX) == 127 * CONVERTER_LEVEL && 127 * CONVERTER_LEVEL <= FULL && LINE_PCT <= LINE_PCT_MAX);
+
+/// The pulse of a tone that is the pin itself on the line output,
+/// LEDC's, in `steps`ths of its period: the longest whose power is
+/// no more than that of the square wave `pct` asks for through the
+/// converter, and one step at least. For the one case LEDC still
+/// plays notes there (the clips under suspicion): a pulse of the
+/// pin's whole swing for half the period would be some 15 dB over the
+/// setting's most, into an amplifier and a speaker.
+///
+/// A pulse a part `d` of the period has a mean square of `d (1 - d)`
+/// of the swing's about its mean; the square wave's amplitude is
+/// `line_level(pct)` of `2 * FULL`, the swing, and its mean square
+/// that squared. The pulse's fundamental is then well under the
+/// square wave's, its power being spread over harmonics the filter
+/// and the speaker take most of: quieter and thinner, never louder.
+pub const fn line_duty(pct: u8, steps: u32) -> u32 {
+    let (level, steps) = (line_level(pct) as u64, steps as u64);
+    let mut n = 1;
+    // (n + 1) (steps - n - 1) / steps^2 <= (level / (2 FULL))^2
+    while 2 * (n + 1) <= steps && (n + 1) * (steps - n - 1) * 4 * (FULL as u64 * FULL as u64) <= level * level * steps * steps {
+        n += 1;
+    }
+    n as u32
+}
+
+/// A sample of the converter's at `FAST_HZ`, and a tick, in the units
+/// `Mean` counts time in: a sample is 16.384 ticks.
+const WINDOW: u32 = 2048;
+const TICK: u64 = 125;
+const _: () = assert!(BEEPER_TICK_HZ as u64 * TICK == FAST_HZ as u64 * WINDOW as u64);
+/// Runs of no ticks one after another that `Mean` takes before it
+/// gives a source up: a clip of nothing else would never give a sample.
+const EMPTY_RUNS: u32 = 4096;
+
+/// Makes samples at `FAST_HZ` of a square wave, for the chip's
+/// converter: each is the wave's mean over the sample's time, times
+/// the amplitude. An edge inside a sample is thus a level between,
+/// and no edge is moved to the samples' grid (32 µs, which a note
+/// would be heard to waver on, and a beeper tune's pulse widths, a
+/// few ticks apart, would be lost on).
+pub struct Mean<S> {
+    source: S,
+    /// The run being read: its level and what is left of it.
+    level: i32,
+    left: u64,
+    amp: i32,
+    finished: bool,
+}
+
+impl<S: Levels> Mean<S> {
+    pub const fn new(source: S, amp: i32) -> Self {
+        Self { source, level: 0, left: 0, amp, finished: false }
+    }
+
+    /// The next sample as a `Player`'s level; `None` after the last,
+    /// which may be of less than a sample's time.
+    pub fn next_sample(&mut self) -> Option<i32> {
+        let (mut need, mut sum, mut empty) = (WINDOW, 0i32, 0);
+        while need > 0 {
+            if self.left == 0 {
+                if self.finished {
+                    break;
+                }
+                match self.source.next_level() {
+                    Some((level, ticks)) => (self.level, self.left) = (level, ticks as u64 * TICK),
+                    None => self.finished = true,
+                }
+                empty += 1;
+                self.finished |= empty > EMPTY_RUNS;
+                continue;
+            }
+            let k = self.left.min(need as u64) as u32;
+            sum += self.level * k as i32;
+            self.left -= k as u64;
+            need -= k;
+            empty = 0;
+        }
+        (need < WINDOW).then(|| sum * self.amp / WINDOW as i32)
+    }
+}
+
+/// A melody's notes as a square wave: a note is half periods up and
+/// down about the middle of the scale for as long as it sounds
+/// (`Note::sounding_ms`), then the middle for its gap, as a rest is
+/// throughout. A plain square wave whatever the pitch: the third of
+/// a period `melody::duty_pct` gives the low notes is for the
+/// buzzer's resonance.
+pub struct Notes<'a> {
+    notes: &'a [Note],
+    bpm: u16,
+    /// The note being played: its pitch, the ticks it still sounds
+    /// for and those of its gap, what the last half period left of a
+    /// tick (in ticks times the pitch), and the half it is in.
+    hz: u32,
+    sounding: u32,
+    gap: u32,
+    part: u32,
+    up: bool,
+}
+
+impl<'a> Notes<'a> {
+    pub const fn new(notes: &'a [Note], bpm: u16) -> Self {
+        Self { notes, bpm, hz: 0, sounding: 0, gap: 0, part: 0, up: false }
+    }
+}
+
+impl Levels for Notes<'_> {
+    fn next_level(&mut self) -> Option<(i32, u32)> {
+        const TICKS_MS: u32 = BEEPER_TICK_HZ / 1000;
+        loop {
+            if self.sounding > 0 {
+                // Half a period is `BEEPER_TICK_HZ / 2` over the pitch
+                // ticks, and what that leaves goes on to the next.
+                self.part += BEEPER_TICK_HZ / 2;
+                let ticks = (self.part / self.hz).clamp(1, self.sounding);
+                self.part %= self.hz;
+                self.sounding -= ticks;
+                self.up = !self.up;
+                return Some((if self.up { 1 } else { -1 }, ticks));
+            }
+            if self.gap > 0 {
+                return Some((0, core::mem::take(&mut self.gap)));
+            }
+            let (note, rest) = self.notes.split_first()?;
+            self.notes = rest;
+            let (all, sounding) = (note.ms(self.bpm), note.sounding_ms(self.bpm));
+            (self.hz, self.part, self.up) = (note.hz, 0, false);
+            (self.sounding, self.gap) = (sounding * TICKS_MS, (all - sounding) * TICKS_MS);
+        }
+    }
+}
+
+/// What a `Stream` is made of.
+#[derive(Clone, Copy)]
+pub enum Sound<'a> {
+    /// A clip of any kind, played once or, `looping`, round and round.
+    Clip { data: &'a [u8], looping: bool },
+    /// A melody's notes, once.
+    Notes { notes: &'a [Note], bpm: u16 },
+}
+
 /// A clip of any kind as what the ring holds: samples for the chip's
 /// converter, or a beeper clip's bits.
 #[allow(clippy::large_enum_variant, reason = "there is no heap to box the tune's state in, and one clip plays at a time")]
 pub enum Stream<'a> {
     /// PCM, as it is or as ADPCM, or a tracker module, a SID tune or
-    /// a PT3 module, as samples.
+    /// a PT3 module, as samples; and for the line output a beeper
+    /// clip or a melody's notes.
     Pcm(Player<'a>),
     Beeper(Runs<Beeper<'a>>),
 }
 
 impl<'a> Stream<'a> {
-    /// The clip `data` as a stream, played once or, `looping`, round
-    /// and round with no gap, which never ends.
+    /// The clip `data` as a stream for the buzzer's pin, played once
+    /// or, `looping`, round and round with no gap, which never ends.
+    pub fn new(data: &'a [u8], looping: bool) -> Self {
+        Self::of(Sound::Clip { data, looping }, None)
+    }
+
+    /// `sound` as a stream. `line` is the amplitude of a square wave
+    /// on the line output (`line_level`), for a sound that goes there:
+    /// a beeper clip is then samples at that level and not its bits.
+    /// Notes are samples wherever they go, at that level or
+    /// `LINE_PCT`'s.
     ///
     /// A tune's player is a kilobyte, and is built in the stream where
     /// it stays, each kind by a function of its own: the clip task
@@ -643,9 +873,26 @@ impl<'a> Stream<'a> {
     /// found, and all four kinds built in this frame and moved from it
     /// took 6 KB and the Wi-Fi task's stack with it (2026-11-13).
     #[inline(never)]
-    pub fn new(data: &'a [u8], looping: bool) -> Self {
+    pub fn of(sound: Sound<'a>, line: Option<i32>) -> Self {
+        let (data, looping) = match sound {
+            Sound::Clip { data, looping } => (data, looping),
+            Sound::Notes { notes, bpm } => {
+                let mut stream = Self::Pcm(Player::new(&[]));
+                if let Self::Pcm(player) = &mut stream {
+                    player.take_notes(notes, bpm, line.unwrap_or(line_level(LINE_PCT)));
+                }
+                return stream;
+            }
+        };
         if is_beeper(data) {
-            return Self::Beeper(Runs::new(Beeper::new(data).looped(looping)));
+            let Some(amp) = line else {
+                return Self::Beeper(Runs::new(Beeper::new(data).looped(looping)));
+            };
+            let mut stream = Self::Pcm(Player::new(&[]));
+            if let Self::Pcm(player) = &mut stream {
+                player.take_beeper(data, looping, amp);
+            }
+            return stream;
         }
         let tune = adpcm::is_clip(data) || xm::is_tune(data) || sid::is_tune(data) || pt3::is_tune(data);
         let mut stream = Self::Pcm(if tune { Player::new(&[]) } else { Player::pcm(data) });
@@ -1125,6 +1372,142 @@ mod tests {
             let runs = runs_of(data, false, usize::MAX);
             assert_eq!(runs.iter().map(|&r| r as u64).sum::<u64>(), total, "{} runs", runs.len());
             println!("a beeper clip of {} bytes: {} runs, {} ms", data.len(), runs.len(), duration_ms(data));
+        }
+    }
+
+    /// A stream's samples to its end, ramps and all, but for the rest
+    /// after it, which the down ramp's last sample is as well.
+    fn samples_of(stream: &mut Stream) -> Vec<i32> {
+        let mut got = Vec::new();
+        // In uneven pieces, to show the state carries across calls.
+        let mut size = 1;
+        while !stream.done() {
+            let mut out = vec![0u8; size * SAMPLE_BYTES];
+            stream.fill(&mut out);
+            got.extend(out.as_chunks::<2>().0.iter().map(|p| i16::from_le_bytes(*p) as i32));
+            size = size % 61 + 7;
+        }
+        while got.last() == Some(&(SAMPLE_REST as i32)) {
+            got.pop();
+        }
+        got
+    }
+
+    #[test]
+    fn a_beeper_clip_for_the_line_output_is_samples_at_a_level() {
+        let amp = line_level(LINE_PCT);
+        assert_eq!(amp, 127 * CONVERTER_LEVEL / 5);
+        assert_eq!((line_level(200), line_level(0)), (line_level(LINE_PCT_MAX), 0));
+        // 2048 ticks off, a square wave of 8 ticks on and 8 off for as
+        // long, the line held on, and off again: 125 samples each.
+        let mut runs = vec![2048];
+        runs.extend([8u32; 256]);
+        runs.extend([2048, 2048]);
+        let data = beeper_clip(&runs);
+        // On the buzzer's pin it is its bits, as ever.
+        assert!(matches!(Stream::of(Sound::Clip { data: &data, looping: false }, None), Stream::Beeper(_)));
+        let mut stream = Stream::of(Sound::Clip { data: &data, looping: false }, Some(amp));
+        assert_eq!((stream.converter(), stream.sample_rate(), stream.bit_rate()), (Some(CONVERTER_BITS), FAST_HZ, 16 * FAST_HZ));
+        let got = samples_of(&mut stream);
+        // The ramp up, 4 × 125 samples, the ramp down.
+        assert_eq!(got.len(), RAMP - 1 + 500 + RAMP - 1);
+        let body = &got[RAMP - 1..RAMP - 1 + 500];
+        // Off is the middle of the scale and on two amplitudes over it
+        // (a sample is half a level).
+        assert!(body[..125].iter().all(|&s| s == 0) && body[376..].iter().all(|&s| s == 0), "off");
+        assert!(body[251..374].iter().all(|&s| s == amp), "on: {:?}", &body[250..376]);
+        // The square wave, 64 kHz, is over the band: its mean, one
+        // amplitude, give or take what a sample's 16.384 ticks leave
+        // of a period.
+        assert!(body[126..249].iter().all(|&s| (s - amp / 2).abs() <= amp / 2 / 16 + 1), "{:?}", &body[125..250]);
+        // No sample is over the top, and the whole comes to what the runs were.
+        assert!(body.iter().all(|&s| (0..=amp).contains(&s)));
+        let (sum, on) = (body.iter().sum::<i32>() as i64, 128 * 8 + 2048);
+        assert!((sum - on * 125 * amp as i64 / 2048).abs() <= 500, "{sum}");
+        // An edge inside a sample is a level between: on from tick 8 of
+        // the first sample's 16.384 is 8.384 of them at two amplitudes.
+        let edge = beeper_clip(&[8, 4000]);
+        let got = samples_of(&mut Stream::of(Sound::Clip { data: &edge, looping: false }, Some(amp)));
+        assert_eq!(got[RAMP - 1], 2 * (2048 - 1000) * amp / 2048 / 2);
+        assert_eq!(got[RAMP], amp);
+        // Round and round it never ends, and a clip of nothing but
+        // runs of nothing does.
+        let mut round = Stream::of(Sound::Clip { data: &data, looping: true }, Some(amp));
+        let mut out = vec![0u8; CHUNK];
+        (0..40).for_each(|_| round.fill(&mut out));
+        assert!(!round.done());
+        let mut data = BEEPER_MAGIC.to_vec();
+        data.extend([0; 4 + 64]);
+        let mut nothing = Stream::of(Sound::Clip { data: &data, looping: true }, Some(amp));
+        (0..4).for_each(|_| nothing.fill(&mut out));
+        assert!(nothing.done());
+    }
+
+    #[test]
+    fn a_tone_of_the_pin_itself_has_no_more_power_than_the_setting() {
+        // Of 1024 steps: 7 for the default, 48 for the most, one at least.
+        assert_eq!((line_duty(LINE_PCT, 1024), line_duty(LINE_PCT_MAX, 1024), line_duty(1, 1024), line_duty(0, 1024)), (7, 48, 1, 1));
+        let mut last = 0;
+        for pct in 1..=LINE_PCT_MAX {
+            let n = line_duty(pct, 1024);
+            // The square wave's amplitude and the pulse's RMS, of the swing.
+            let wave = line_level(pct) as f64 / (2 * FULL) as f64;
+            let rms = |n: u32| (n as f64 / 1024.0 * (1.0 - n as f64 / 1024.0)).sqrt();
+            assert!(n == 1 || rms(n) <= wave, "{pct}: {n}");
+            assert!(rms(n + 1) > wave, "{pct}: {n} is not the longest");
+            assert!(n >= last && n < 52, "{pct}: {n}");
+            last = n;
+        }
+        // Never near the square wave LEDC gives the buzzer, 512 of them.
+        assert!(line_duty(255, 1024) == line_duty(LINE_PCT_MAX, 1024));
+    }
+
+    #[test]
+    fn notes_for_the_line_output_are_square_waves_about_the_middle() {
+        use crate::melody::{Note, REST};
+        let amp = line_level(LINE_PCT);
+        // A quarter at 120 a minute is 500 ms, of which the last 60
+        // are the gap; a rest is the middle of the scale throughout.
+        let notes = [Note { hz: 440, len: 4 }, Note { hz: REST, len: 4 }, Note { hz: 1319, len: 2 }];
+        let mut stream = Stream::of(Sound::Notes { notes: &notes, bpm: 120 }, Some(amp));
+        assert_eq!((stream.converter(), stream.sample_rate()), (Some(CONVERTER_BITS), FAST_HZ));
+        let got = samples_of(&mut stream);
+        let ms = |ms: usize| ms * FAST_HZ as usize / 1000;
+        // (1250 ms are 39 062 samples and a half, which is one more.)
+        assert_eq!(got.len(), RAMP - 1 + ms(1250) + 1 + RAMP - 1);
+        let body = &got[RAMP - 1..RAMP - 1 + ms(1250)];
+        // A sample is half a level.
+        let amp = amp / 2;
+        assert!(body.iter().all(|&s| s.abs() <= amp));
+        // Half periods the pitch's, to a hundredth: counted by the
+        // changes of sign.
+        let crossings = |part: &[i32]| part.windows(2).filter(|w| (w[0] > 0) != (w[1] > 0)).count() as i32;
+        let first = &body[..ms(440)];
+        assert!((crossings(first) - 2 * 440 * 440 / 1000).abs() <= 4, "{}", crossings(first));
+        // Nearly every sample is at one amplitude or the other, the
+        // rest an edge's; and the two are as many, so the mean is the middle
+        let flat = first.iter().filter(|&&s| s.abs() == amp).count();
+        assert!(flat > first.len() * 9 / 10, "{flat} of {}", first.len());
+        // (over 400 ms, which are whole periods of it)
+        let whole = first[..ms(400)].iter().sum::<i32>();
+        assert!(whole.abs() <= 2 * amp, "{whole}");
+        // The gap and the rest.
+        assert!(body[ms(440) + 1..ms(1000)].iter().all(|&s| s == 0));
+        let last = &body[ms(1000)..ms(1000) + ms(220)];
+        assert!((crossings(last) - 2 * 1319 * 220 / 1000).abs() <= 6, "{}", crossings(last));
+        assert!(body[ms(1220) + 1..].iter().all(|&s| s == 0));
+        // With no level given they are at the default's.
+        let got = samples_of(&mut Stream::of(Sound::Notes { notes: &notes[..1], bpm: 120 }, None));
+        assert_eq!(got[RAMP - 1..got.len() - RAMP].iter().map(|s| s.abs()).max(), Some(amp));
+        // Every melody of the firmware's comes to its length.
+        for k in 0..crate::melody::count() {
+            let m = crate::melody::get(k);
+            if m.clip.is_some() || m.notes.is_empty() {
+                continue;
+            }
+            let got = samples_of(&mut Stream::of(Sound::Notes { notes: m.notes, bpm: m.bpm }, Some(amp)));
+            let want = m.duration_ms() as usize * FAST_HZ as usize / 1000;
+            assert!((got.len() - 2 * RAMP + 2).abs_diff(want) <= m.notes.len(), "{}: {} for {want}", m.name, got.len());
         }
     }
 

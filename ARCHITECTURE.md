@@ -77,7 +77,7 @@ executor** runs the rest cooperatively.
 | thread | `display::display_task` | the UI state | tick, button or settings change → `ui` → render → publish; rings the alarm |
 | thread | `watchdog::watchdog_task` | the RTC watchdog | feeds it while the display task, and the clip task during a clip, check in; resets the clock when one does not |
 | thread | `buttons::button_task` | GPIO3, GPIO4 | debounce into press events |
-| thread | `buzzer::buzzer_task` | LEDC, the buzzer pin, the line output and the amplifier's shutdown pin | note melodies; hands clips to the clip task |
+| thread | `buzzer::buzzer_task` | LEDC, the buzzer pin, the line output and the amplifier's shutdown pin | note melodies; hands clips, and the notes for the line output, to the clip task |
 | thread | `sensors::sensor_task` | ADC1, GPIO0, GPIO1 | filtered NTC and LDR readings |
 | thread | `storage::persist_task` | the `nvs` map | debounced save of changed settings |
 | thread | `net::net_task` | the stack's runner | embassy-net |
@@ -149,7 +149,9 @@ pin is that amplifier's shutdown, which the buzzer task holds high
 for the length of a melody on the line output and low otherwise.
 
 - **Note melodies**: `buzzer_task` plays pitch-and-length tables from
-  `core::melody` as LEDC PWM.
+  `core::melody` as LEDC PWM on the buzzer; for the line output it
+  hands them to `clip_task`, which plays them as samples at a level
+  (`clip::Notes`).
 - **Clips**: the files of the clip pack (`core::pack`), a partition
   of its own that `src/pack.rs` maps through the flash MMU so they are
   read in place, checked by a SHA-256 at boot; or, with no pack, files
@@ -171,7 +173,9 @@ for the length of a melody on the line output and low otherwise.
 
 For a clip the buzzer task lends the pin to `clip_task`, which runs
 I2S0 over a sixteen-slot DMA ring: by default 16-bit samples into the
-chip's PCM-to-PDM converter, or raw line bits for a beeper clip. The task fills chunks ahead of the DMA, paced
+chip's PCM-to-PDM converter, or raw line bits for a beeper clip on
+the buzzer's pin (on the line output it is samples too, at the notes'
+level: `clip::Mean`). The task fills chunks ahead of the DMA, paced
 by elapsed time (`clip::Pacer`), which is why it sits on the interrupt
 executor.
 

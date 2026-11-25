@@ -22,7 +22,11 @@
 //! The line output (`settings::SoundPin::Line`) is the other pin a
 //! sound can go out of: GPIO20, push-pull, into an RC filter and an
 //! amplifier's input. It rests driven low, so a tone there is silent at
-//! a duty of 0 %, where the buzzer's is 100 %. Which pin is the
+//! a duty of 0 %, where the buzzer's is 100 %. (A melody's notes for
+//! the line output are not LEDC's but the clip task's, at a level,
+//! `clip::play_notes`; LEDC plays them there only with the clips
+//! under suspicion, and then as a pulse too short to be louder than
+//! the level allows, `clip::line_duty`.) Which pin is the
 //! `output` setting, read at every tone here (`AudioOut::tones`) and at
 //! every clip in `clip.rs` (`AudioOut::clips`), which need not be the
 //! same pin, so it changes with no reset; `Pins` is the two pins and
@@ -52,7 +56,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use esp_hal::gpio::{AnyPin, DriveMode, Level, Output, OutputConfig};
-use esp_hal::ledc::channel::{self, ChannelIFace};
+use esp_hal::ledc::channel::{self, ChannelHW, ChannelIFace};
 use esp_hal::ledc::timer::{self, TimerIFace};
 use esp_hal::ledc::{Ledc, LowSpeed};
 use esp_hal::rng::Rng;
@@ -60,6 +64,7 @@ use esp_hal::time::Rate;
 use log::{info, warn};
 
 use crate::clip;
+use onebitdawn_core::clip::line_duty;
 use crate::display;
 use crate::melody::{self, Melody};
 use crate::settings::{self, SoundPin};
@@ -252,6 +257,14 @@ async fn play_once(ledc: &Ledc<'static>, pins: &mut Pins, on: &mut SoundPin, m: 
         // The clip task has the pins until this returns.
         return clip::play(k, round && melody::clip_loops(k), &COMMAND).await;
     }
+    // On the line output the notes are the clip task's too, as samples
+    // at a level: LEDC's square wave is the pin from rail to rail, far
+    // louder than a clip. Not with the clips under suspicion (`resolve`):
+    // then LEDC, as a short pulse (`tone`), and an alarm that rings.
+    if settings::get().output.tones() == SoundPin::Line && !watchdog::clips_suspect() {
+        // LEDC is off the pin once the clip task has connected its own.
+        return clip::play_notes(m.notes, m.bpm, &COMMAND).await;
+    }
     for note in m.notes {
         let total = note.ms(m.bpm) as u64;
         let sounding = note.sounding_ms(m.bpm) as u64;
@@ -352,7 +365,11 @@ impl Drop for Sounding<'_> {
     }
 }
 
-/// Sound one tone at the duty `melody::duty_pct` gives its pitch, then
+/// Steps in a period of the tones' PWM: `Duty10Bit`.
+const DUTY_STEPS: u32 = 1 << 10;
+
+/// Sound one tone, at the duty `melody::duty_pct` gives its pitch on
+/// the buzzer and as a short pulse on the line output, then
 /// leave the line at its rest. Cancel-safe through `Sounding`. The tone
 /// goes to the pin the `output` setting names now; `on` is the pin of
 /// the tone before, which LEDC is still connected to and is taken off
@@ -390,7 +407,16 @@ async fn tone(ledc: &Ledc<'static>, pins: &mut Pins, on: &mut SoundPin, freq_hz:
     }
 
     let sounding = Sounding(channel, silent);
-    let _ = sounding.0.set_duty(melody::duty_pct(freq_hz));
+    match out {
+        SoundPin::Buzzer => {
+            let _ = sounding.0.set_duty(melody::duty_pct(freq_hz));
+        }
+        // The pin's whole swing into an amplifier: a pulse no longer
+        // than has the power of the square wave the setting asks for
+        // (`clip::line_duty`), and not half the period, which is some
+        // 15 dB over the setting's most and a speaker's to bear.
+        SoundPin::Line => sounding.0.set_duty_hw(line_duty(settings::get().beep_volume.pct(), DUTY_STEPS)),
+    }
     Timer::after(Duration::from_millis(ms)).await;
     drop(sounding);
 }

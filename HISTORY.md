@@ -10811,3 +10811,184 @@ steps like the installer's, the firmware first, at his word.
 
 The command has it too, `--firmware 0.5|0.6` (the user, the same
 day); the default of both is the latest, which the user confirmed.
+
+## The software modulators taken out — 2026-11-24, on `next`; built and run on the host, on white-clock the same day with the section after it: verified
+
+The user, 2026-11-24: "Я бы выкинул программный модулятор вообще
+(отдельным коммитом). Объективно никто не будет его использовать при
+наличии PDM". Said while the next section's work was being planned,
+which would otherwise have had to keep three paths alive.
+
+A PCM clip, a module or a tune has gone through the chip's PCM-to-PDM
+converter in every build made since 2026-11-13; `CLIP_MODULATOR=sd`
+and `pwm` were the ways back to the sigma-delta loop and the pulse a
+carrier period in `core/src/clip.rs`, kept for a stock board's
+transistor that might not follow the converter's rate. The buzzer's
+pin has had its own, lower rate since 2026-11-20
+(`clip::BUZZER_CONVERTER_BITS`), and nobody built the others.
+
+Gone: `Player`'s two modulators (`fill`'s pulses, `fill_bits`) with
+their state and their three tests (the sine's SNR out of the bits,
+the released line at both ends, the loop at full scale), the
+constants `BIT_RATE`, `OSR`, `CARRIER_HZ` and their kin,
+`config::CLIP_KBPS`, `CLIP_CARRIER_KHZ`, `CLIP_PDM` and
+`CLIP_SIGMA_DELTA`, and the build variables `CLIP_MODULATOR`,
+`CLIP_KBPS` and `CLIP_CARRIER_KHZ`, which a build now ignores.
+`clip::CONVERTER`, an `Option`, is `CONVERTER_BITS`; `Player::fill`
+is what `fill_samples` was. `CLIP_PDM_BITS` stays. A beeper clip's
+bits go out as they did, so the transmitter's TDM mode stays in
+`src/clip.rs`.
+
+Nothing a default build plays changes: the branches taken out were
+compiled away in it. `.rwtext` is 0x223c and `.stack` 0x8038 after.
+Run: `cargo build --release`, both clippys, `cargo host-test` (199
+passed; the three tests gone were the modulators').
+
+## Beeps and beeper clips on the line output through the converter, at a level — built 2026-11-24, on `next`; heard and seen by the user on white-clock the same day: verified
+
+The user, 2026-11-24, having heard the amplifier's pack on
+white-clock ("всё хорошо"): could the loudness of the beeper melodies
+be limited where they go to the speaker? Both kinds were meant, the
+note melodies and Trantor. Offered first: thinning a beeper clip's
+bits (one of two, four or eight, a carrier of 256 to 64 kHz) and a
+narrow pulse for LEDC's notes, which changes their timbre. The user:
+"М.б. если бипы и трантор идут через усилитель, то гнать их через
+PDM, с ограничением максимального уровня?" That is what is built.
+
+**Why they are loud.** On GPIO20 both are the pin itself from rail to
+rail, LEDC's square wave and a beeper clip's bits at 512 kbit/s, where
+a module is the converter's samples and those of the amplifier's pack
+have an RMS near 16 dB under full scale.
+
+**Built.**
+
+- `clip::Mean` (`core/src/clip.rs`) makes samples at `FAST_HZ` of a
+  square wave given as levels and ticks of 1/512 000 s: each sample
+  is the wave's mean over its time, 16.384 ticks, counted in 125ths
+  of a tick so that it is exact, times an amplitude. An edge inside
+  a sample is a level between, so a beeper tune's pulse widths
+  (Follin's are a few ticks apart) and a note's pitch are kept, and
+  nothing waits for the samples' grid of 32 µs.
+- A beeper clip for the line output is `Beeper` through `Mean`: off
+  the middle of the scale, where the stream's ramps leave it and its
+  silences stay, on two amplitudes over it.
+- A melody's notes are `clip::Notes` through `Mean`: half periods up
+  and down about the middle for as long as the note sounds, the
+  middle for its gap and for a rest. A plain square wave at every
+  pitch: the third of a period the low notes have on LEDC is for the
+  buzzer's resonance.
+- The amplitude is a setting, `beep_level`: 1 to 50 hundredths of a
+  module's full scale, 20 by default (`clip::LINE_PCT`), 14 dB under
+  it, an RMS a little over the amplifier's pack's; a guess from those
+  figures until it is heard. A constant at first, with a bench route
+  to try levels by; the user: "Почему не сделать уровень
+  конфигурируемым в настройках, если бипер идёт через усилитель?" So
+  it is one: the amplifier's volume is for everything, and this is
+  the beeps against the clips. Record version 15 appends its byte
+  (409 bytes); an older image reads the record by its prefix, and a
+  level this image does not allow is the default. On the settings
+  page under the sound output, in `/api` and so in the MQTT state;
+  not a `set/` key and not a Home Assistant entity.
+- A number at first, `beep_level`, 1 to 50. Then the user, with the
+  fallback heard: "переименовать настройку в Beeps volume on
+  amplifier, сделать drop down меню, 4 опции: от quiet до loud.
+  Настройка должна быть активна, только если выбран выход через
+  amplifier." So it is `beep_volume`, an enum of four
+  (`settings::BeepVolume`): `quietest`, `quiet`, `loud`, `loudest`
+  (the first names were `quiet`, `medium_quiet`, `medium_loud` and
+  `loud`; the user: "М.б. лучше quietest, quiet, loud, loudest?"),
+  at 12, 20, 32 and 50 hundredths, some 4 dB a step; the
+  default the second, the loudest the most there is. The record's
+  byte is the step, and one a later image added is the default. On
+  the page a select, disabled while the output is `buzzer` (the
+  page says so as it is written, and the output's select lets it go
+  when moved; with `split` it is live, Trantor being on the
+  amplifier there). A disabled field is not sent, which a form, a
+  partial update, takes; `/api` takes the key whatever the output.
+- The most is 50, and that is a rule now and not only the headroom
+  it began as (a beeper clip's on is two amplitudes over the
+  middle). The user: "максимальный уровень биперных мелодий и
+  Трантора ограничим максимальным уровнем достижимым на PT3, т.е. не
+  должно быть возможности выставить громче", and, asked which of
+  three readings (a module's full scale, which a limiter brings a
+  PT3 tune's peaks to, 100; the three channels at their top level
+  with no limiter, 50; one channel so in the amplifier's pack, 17):
+  the three channels with no limiter. A `const` assert holds
+  `LINE_PCT_MAX` to it, a swing of a module's full scale from bottom
+  to top.
+- `Stream::of(sound, line)` takes a `Sound`, a clip or notes, and the
+  line output's amplitude if the sound goes there. On the buzzer's
+  pin a beeper clip is its bits, as it was.
+- `src/clip.rs`: the buzzer task asks for a clip or, new, for notes
+  (`play_notes`); the clip task plays either, the notes on the pin
+  `output.tones()` names. `src/buzzer.rs`: `play_once` gives a
+  melody's notes to the clip task when that pin is the line output.
+  With `split` the notes are on the buzzer, LEDC's, and Trantor here.
+- With the clips under suspicion (the clip task hung in one and the
+  watchdog reset the clock) notes are LEDC's on the line output too:
+  that path is what makes the alarm ring after such a reset, and it
+  must not be the clip task's. Loud at first, the pin's square wave;
+  the user: "если мы идём в режим восстановления после упавшего
+  плеера и снова начнем играть на усилитель через ledc, то есть шанс
+  повредить динамик из-за избыточной громкости". So LEDC's tone on
+  the line output is a pulse and not a square wave
+  (`clip::line_duty`): the longest, in the period's 1024 steps, whose
+  power is no more than that of the square wave the setting asks
+  for. A pulse a part d of the period has d (1 - d) of the swing's
+  mean square: 2, 7, 19 and 48 steps for the setting's four, 1 at
+  least, against the buzzer's 512. Its fundamental is far under the
+  square wave's of the same power (the rest is harmonics, which the
+  filter and the speaker take most of), so it is quieter than the
+  setting and thinner: an alarm that rings, which is all that path
+  is for. The setting bounds it as it bounds the converter's sounds,
+  and nothing puts the pin's whole swing for half a period into the
+  amplifier any more.
+
+What comes with it, unasked: beeps and Trantor on the line output
+get the stream's ramps at both ends and the fall to the rest at a
+Stop, which the bits and LEDC had not.
+
+Not changed: the buzzer's sounds, any clip or pack, the settings,
+`/api`.
+
+**Measured on the host.** `.rwtext` 0x227c (0x223c before), 64 bytes,
+`Player::level`'s two arms; `.stack` 0x7fc8 (0x8038), 112 bytes, those
+and the setting's byte where `Settings` is held. The settings page is
+4804 bytes of 8032 and its form's body 294 of 640 at their worst. The tests
+`a_beeper_clip_for_the_line_output_is_samples_at_a_level` and
+`notes_for_the_line_output_are_square_waves_about_the_middle`: the
+levels, an edge inside a sample, the sum over a clip against its
+runs, a note's half periods counted by the changes of sign, the gaps
+and the rests at the middle, every melody of the firmware's at its
+length. `cargo host-test` 201 passed.
+
+**Not known.** Whether a plain mean is enough for Trantor: it leaves
+what is between 15.6 and 31 kHz in the band, folded, at a level a
+triangle over two samples would cut further; to be heard first. The
+clip task's share of the processor for Trantor through `Mean`, which
+the log's `clip:` line will say.
+
+**To hear, on white-clock** (the output at `line`):
+
+1. A note melody and Trantor from the clips page against a module of
+   the amplifier's pack: about as loud, neither clicking at its start,
+   its end or a Stop.
+2. "Beeps volume on amplifier" at each of its four before a
+   preview: whether the steps and the default are right. And the
+   select: greyed with the output at Buzzer, live at once when the
+   output's select is moved to the amplifier.
+3. The output at `split` and at `buzzer`: the notes on the buzzer as
+   they were.
+4. The log's `clip:` line after Trantor: no underruns, and the
+   filling's share.
+5. The fallback, with `--features bench-hang`: `POST /hang/clip`
+   during a clip, and after the watchdog's reset a note melody on the
+   line output: thin and quiet, and heard; louder with the setting
+   at its loudest, never as loud as it was. (Run on white-clock,
+   2026-11-24, at the default: the watchdog reset the clock, the
+   clips were paused, and of the beeps after it the user: "Звучит
+   нормально".)
+
+**Heard and seen on white-clock, 2026-11-24.** The plain build over
+the air, the output at `line`, after the fallback's run above. The
+user: "Tested, all looks and sounds good."

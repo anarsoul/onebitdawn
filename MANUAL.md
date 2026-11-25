@@ -330,7 +330,15 @@ in the browser's light or dark:
   pin, or, for one that has both, the note melodies on the buzzer and
   the clips on the amplifier. On a clock without an amplifier the
   second choice is silence and the third silent clips; it takes
-  effect at the next sound. With either of the two, GPIO10 is the
+  effect at the next sound. On the amplifier the note melodies and
+  Trantor are not played at the full swing the buzzer gets, which
+  is far louder than the other clips: "Beeps volume on amplifier"
+  (`beep_volume` in `/api`: `quietest`, `quiet`, the default,
+  `loud` or `loudest`) is how loud they are against the clips;
+  the amplifier's own volume is for all of them. The loudest is as
+  loud as the three channels of a ZX Spectrum tune at their top
+  together. The page lets it be changed only while the output is
+  not the buzzer. With either of the two, GPIO10 is the
   amplifier's shutdown pin: high while a sound plays there and low
   otherwise, so the amplifier is silent at rest (the wiring is
   `bench/pdm-amp.md`); an amplifier with nothing wired to it works as

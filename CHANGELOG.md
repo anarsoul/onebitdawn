@@ -13,6 +13,14 @@ from `http://<ip>/update`; its settings survive the update.
 
 ### Changed
 
+- On the line output the note melodies and a beeper clip (Trantor)
+  are no louder than the other clips (on `next`, for the release
+  after v0.5): they go through the chip's converter as samples at a
+  level, where they were the pin from rail to rail, some 15 dB over
+  the amplifier's pack. The level is a setting, "Beeps volume on
+  amplifier" on the settings page and `beep_volume` in `/api`:
+  `quietest`, `quiet` (the default), `loud` or `loudest`. The buzzer's
+  sounds are as they were.
 - A clip on the buzzer's pin goes through the chip's converter at 128
   bits a sample and no longer at 256 (the line output keeps the
   build's): a speaker in the buzzer's place, on the buzzer's

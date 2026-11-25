@@ -127,6 +127,23 @@ and its figures are `bench/pdm-amp.md` until it is built and heard.
 - Push-pull, at rest driven low. The tones' LEDC is silent there at a
   duty of 0 %, and a clip's stream goes out with no inverter, its
   zeros the bottom rail.
+- Every sound here is the converter's, at a level. A square wave as
+  the pin itself, rail to rail (LEDC's tones, a beeper clip's bits),
+  is some 15 dB over the RMS of the amplifier's pack's modules, and
+  the amplifier's volume is one for both: so a beeper clip and a
+  melody's notes are made samples of (`clip::Mean`), their square
+  waves at the `beep_volume` setting's hundredths of a module's full
+  scale, 12, 20, 32 or 50 (`BeepVolume::pct`): the most is what a PT3 module's three channels are
+  at their top level together with no limiter. LEDC plays notes here only with the clips under
+  suspicion (`watchdog::clips_suspect`), and then as a pulse of
+  `clip::line_duty` steps of the period's 1024: the longest with no
+  more power than the setting's square wave, 2, 7, 19 or 48 by the
+  setting (7 are 13 µs at C5 and 5 at E6), where the buzzer's tone is 512.
+  Its fundamental is some 20 dB under that square wave's and the
+  filter takes more of so short a pulse: an alarm that is heard, thin
+  and quiet, and no speaker's risk (heard on white-clock at the
+  default, 2026-11-24: "звучит нормально"). The default, 20
+  (`clip::LINE_PCT`), is from the packs' figures.
 - GPIO20 is UART0's RX, which nothing uses: an input with a pull-up
   while the ROM runs. The firmware drives it only once the setting is
   `line` or `split`: at boot if stored so, else at the first sound

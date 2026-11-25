@@ -20,7 +20,7 @@
 //! for 16 kHz). A ratio of one, 64 bits a sample, is noise as well,
 //! bypass or no.
 //!
-//! A beeper clip is bits already, and for it the
+//! A beeper clip is bits already, and for it, on the buzzer's pin, the
 //! transmitter runs in TDM mode with two 16-bit channels and no
 //! clock pins, so its data line carries the ring's bits at the clip's
 //! bit rate (`Stream::bit_rate`). Sixteen bits and not eight, though
@@ -52,7 +52,13 @@
 //! back when that has gone out, a tenth of a second later at 16 kHz;
 //! taken back at once, from the middle of the scale, it was a click in
 //! the speaker at every Stop (heard 2026-11-18). A stream of bits has
-//! no level to ramp and is cut as before. The rest of this is the
+//! no level to ramp and is cut as before; but on the line output there
+//! is none: a beeper clip is samples there too, its line's mean over
+//! each (`clip::Mean`) at a level, the `beep_volume` setting's
+//! hundredths of a module's full scale, and so are a melody's notes,
+//! which the buzzer task sends here (`play_notes`) and not to LEDC: a
+//! square wave from rail to rail was some 15 dB over the clips of the
+//! amplifier's pack, and the amplifier's volume is one for both. The rest of this is the
 //! buzzer's pin.
 //!
 //! The pin is the one that must never be pushed high (see `buzzer.rs`).
@@ -91,7 +97,8 @@ use esp_hal::gpio::OutputSignal;
 use esp_hal::i2s::master::{Channels, DataFormat, I2s, PdmConfig, PdmSlotMode, PdmTxConfig, TdmConfig};
 use esp_hal::peripherals::{DMA, DMA_CH1, I2S0};
 use esp_hal::time::Rate;
-use onebitdawn_core::clip::{CHUNK, Pacer, SLOTS, Stream, chunk_us, chunks_in, converter_bits, converter_clock, fade};
+use onebitdawn_core::clip::{CHUNK, Pacer, SLOTS, Sound, Stream, chunk_us, chunks_in, converter_bits, converter_clock, fade, line_level};
+use onebitdawn_core::melody::Note;
 use log::{info, warn};
 use static_cell::ConstStaticCell;
 
@@ -117,9 +124,18 @@ const DMA_CHANNEL: usize = 1;
 
 static DESCRIPTORS: ConstStaticCell<InternalMemory<[DmaDescriptor; SLOTS]>> =
     ConstStaticCell::new(InternalMemory::new([DmaDescriptor::EMPTY; SLOTS]));
-/// From the buzzer task to the clip task: play this clip, and stop.
-/// And back: the clip has ended, the line released.
-static START: Signal<CriticalSectionRawMutex, (usize, bool)> = Signal::new();
+/// What the buzzer task asks for: a clip of the melody table, by its
+/// index, once or round and round; or a melody's notes, once, for the
+/// line output.
+#[derive(Clone, Copy)]
+enum Request {
+    Clip(usize, bool),
+    Notes(&'static [Note], u16),
+}
+
+/// From the buzzer task to the clip task: play this, and stop.
+/// And back: the sound has ended, the line released.
+static START: Signal<CriticalSectionRawMutex, Request> = Signal::new();
 static STOP: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static DONE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
@@ -208,9 +224,21 @@ pub fn converting() -> bool {
 /// started. For the buzzer task, which must leave the pin alone until
 /// this returns.
 pub async fn play<T: Send>(index: usize, looping: bool, cancel: &Signal<CriticalSectionRawMutex, T>) -> Option<T> {
+    ask(Request::Clip(index, looping), cancel).await
+}
+
+/// Play a melody's notes on the clip task, once, as samples through
+/// the chip's converter at the line output's level (`clip::Notes`):
+/// for the line output, where LEDC's square wave from rail to rail is
+/// far louder than any clip. Returns as `play` does.
+pub async fn play_notes<T: Send>(notes: &'static [Note], bpm: u16, cancel: &Signal<CriticalSectionRawMutex, T>) -> Option<T> {
+    ask(Request::Notes(notes, bpm), cancel).await
+}
+
+async fn ask<T: Send>(request: Request, cancel: &Signal<CriticalSectionRawMutex, T>) -> Option<T> {
     STOP.reset();
     DONE.reset();
-    START.signal((index, looping));
+    START.signal(request);
     match select(DONE.wait(), cancel.wait()).await {
         Either::First(()) => None,
         Either::Second(c) => {
@@ -228,17 +256,22 @@ pub async fn clip_task(hw: Hardware, pins: Pins) -> ! {
     let mut sampler = Sampler::new(hw);
     let mut pins = pins;
     loop {
-        let (index, looping) = START.wait().await;
         // The data and the note of where it is are taken in one step, with
         // no await between: `pack::install`, on the thread executor, takes
         // the pack out of the table and then waits for this to be clear
-        // of it.
-        if let Some(data) = melody::clip_data(index) {
-            PLAYING.store(data.as_ptr() as usize, Ordering::Relaxed);
-            // Watched from here to the clip's end; the loop that fills
+        // of it. Notes are the firmware's own and in no pack.
+        let sound = match START.wait().await {
+            Request::Clip(index, looping) => melody::clip_data(index).map(|data| {
+                PLAYING.store(data.as_ptr() as usize, Ordering::Relaxed);
+                Sound::Clip { data, looping }
+            }),
+            Request::Notes(notes, bpm) => Some(Sound::Notes { notes, bpm }),
+        };
+        if let Some(sound) = sound {
+            // Watched from here to the sound's end; the loop that fills
             // the ring checks in.
             watchdog::expect(Party::Clip, true);
-            sampler.play(&mut pins, data, looping, &STOP).await;
+            sampler.play(&mut pins, sound, &STOP).await;
             watchdog::expect(Party::Clip, false);
             PLAYING.store(0, Ordering::Relaxed);
         }
@@ -260,16 +293,10 @@ impl Sampler {
         Self { hw, ring: Some(Ring::new()) }
     }
 
-    /// Play the clip `data`, PCM or beeper, once on the pin the `output` setting names. Returns early with what `cancel` was
-    /// signalled with, the line released by then; `None` when the clip
+    /// Play `sound`, a clip of any kind or a melody's notes, on the pin the `output` setting names for it. Returns early with what `cancel` was
+    /// signalled with, the line released by then; `None` when the sound
     /// has ended, or could not be started.
-    async fn play<T: Send>(
-        &mut self,
-        pins: &mut Pins,
-        data: &'static [u8],
-        looping: bool,
-        cancel: &Signal<CriticalSectionRawMutex, T>,
-    ) -> Option<T> {
+    async fn play<T: Send>(&mut self, pins: &mut Pins, sound: Sound<'static>, cancel: &Signal<CriticalSectionRawMutex, T>) -> Option<T> {
         let mut ring = self.ring.take()?;
         // The slots are written through these while the transfer owns
         // the ring. The DMA is the only other party, and the pacer
@@ -280,9 +307,21 @@ impl Sampler {
         let first = ring.descriptors.as_ptr() as usize;
         let slot = |chunk: u32| unsafe { core::slice::from_raw_parts_mut((base as *mut u8).add(chunk as usize % SLOTS * CHUNK), CHUNK) };
 
-        let mut player = Stream::new(data, looping);
-        // The pin, as the setting is now, for the whole clip.
-        let out = settings::get().output.clips();
+        // The pin, as the setting is now, for the whole sound.
+        // (The two fields and not the settings, which are large to
+        // keep in the task's future.)
+        let (output, level) = {
+            let now = settings::get();
+            (now.output, now.beep_volume.pct())
+        };
+        let out = match sound {
+            Sound::Clip { .. } => output.clips(),
+            Sound::Notes { .. } => output.tones(),
+        };
+        // On the line output a square wave, a beeper clip's or a
+        // note's, is samples at a level, the `beep_volume` setting's,
+        // and not the pin from rail to rail.
+        let mut player = Stream::of(sound, (out == SoundPin::Line).then(|| line_level(level)));
         // Set for a clip that goes through the chip's converter: the
         // bits it is to make of a sample, fewer on the buzzer's pin,
         // whose transistor makes a hiss of the edges.

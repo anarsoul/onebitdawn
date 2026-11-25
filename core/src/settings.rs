@@ -474,6 +474,50 @@ impl AudioOut {
     }
 }
 
+/// How loud a square wave is on the line output, a melody's notes and
+/// a beeper clip's: four steps of some 4 dB. The amplifier's own
+/// volume is for everything; this is the beeps against the clips.
+/// Nothing on the buzzer's pin hears of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum BeepVolume {
+    Quietest = 0,
+    Quiet = 1,
+    Loud = 2,
+    Loudest = 3,
+}
+
+impl BeepVolume {
+    /// The form and API names, in record-byte order.
+    pub const NAMES: [&str; 4] = ["quietest", "quiet", "loud", "loudest"];
+    /// The page's labels, in the same order.
+    pub const LABELS: [&str; 4] = ["Quietest", "Quiet", "Loud", "Loudest"];
+    pub const ALL: [BeepVolume; 4] = [BeepVolume::Quietest, BeepVolume::Quiet, BeepVolume::Loud, BeepVolume::Loudest];
+    /// The square wave's amplitude at each, in hundredths of a
+    /// module's full scale (`clip::line_level`). The loudest is the
+    /// most there is, `clip::LINE_PCT_MAX`: a PT3 module's three
+    /// channels at their top level with no limiter, and no way to
+    /// set a beep over that. The default's is `clip::LINE_PCT`.
+    const PCT: [u8; 4] = [12, 20, 32, crate::clip::LINE_PCT_MAX];
+
+    pub const fn pct(self) -> u8 {
+        Self::PCT[self as usize]
+    }
+
+    pub fn from_byte(b: u8) -> Option<Self> {
+        Self::ALL.get(b as usize).copied()
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::NAMES.iter().position(|n| *n == name).and_then(|i| Self::from_byte(i as u8))
+    }
+
+    pub fn name(self) -> &'static str {
+        Self::NAMES[self as usize]
+    }
+}
+const _: () = assert!(BeepVolume::Quiet.pct() == crate::clip::LINE_PCT && BeepVolume::Loudest.pct() == crate::clip::LINE_PCT_MAX);
+
 /// The Wi-Fi transmit powers the driver has, as the form and API name
 /// them in dBm and as it takes them in quarter dBm (the table in
 /// esp-wifi-sys's `esp_wifi_set_max_tx_power` doc; 16 dBm is 66 to 71,
@@ -561,10 +605,13 @@ pub struct Settings {
     /// The pin the tones and the clips go out of. Read at each tone and
     /// each clip, so a change needs no reset.
     pub output: AudioOut,
+    /// How loud a melody's notes and a beeper clip are on the line
+    /// output. Read at each sound there.
+    pub beep_volume: BeepVolume,
 }
 
 /// Bytes in a stored record.
-pub const RECORD_LEN: usize = 408;
+pub const RECORD_LEN: usize = 409;
 
 /// The thermometer offset's bound, tenths of a degree either way.
 pub const TEMP_OFFSET_LIMIT_DC: i16 = 100;
@@ -578,8 +625,9 @@ pub const TEMP_OFFSET_LIMIT_DC: i16 = 100;
 /// only (`from_record`), and the record with its key stays within
 /// `storage::ITEM_MAX` bytes (1000), which that image's map can read; a
 /// record that outgrows it goes on in a second item. Version 13 appends
-/// the sound output, version 14 the alarm sound's name.
-const RECORD_VERSION: u8 = 14;
+/// the sound output, version 14 the alarm sound's name, version 15 the
+/// beeps' volume on the line output.
+const RECORD_VERSION: u8 = 15;
 
 /// Whether a stored record is of a layout before this image's: one an
 /// older firmware wrote, which the store writes again in this layout at
@@ -657,7 +705,11 @@ const RECORD_OUTPUT: usize = RECORD_TX_POWER + 1;
 /// with no name.
 const RECORD_MELODY_NAME_LEN: usize = RECORD_OUTPUT + 1;
 const RECORD_MELODY_NAME: usize = RECORD_MELODY_NAME_LEN + 1;
-const _: () = assert!(RECORD_MELODY_NAME + crate::pack::NAME_MAX == RECORD_LEN, "RECORD_LEN does not match the layout");
+
+/// Where the beeps' volume on the line output sits in a version 15
+/// record.
+const RECORD_BEEP_VOLUME: usize = RECORD_MELODY_NAME + crate::pack::NAME_MAX;
+const _: () = assert!(RECORD_BEEP_VOLUME + 1 == RECORD_LEN, "RECORD_LEN does not match the layout");
 
 /// The timezone at boot until the user sets it: `TZ_RULE` from the build,
 /// checked here so a bad rule fails the build, or else `TZ_OFFSET_MINUTES`
@@ -710,6 +762,7 @@ impl Settings {
         mqtt_cleared: false,
         tx_power_qdbm: DEFAULT_TX_POWER_QDBM,
         output: AudioOut::Buzzer,
+        beep_volume: BeepVolume::Quiet,
     };
 
     /// Fill in what the build has and the record lacks: the network, the
@@ -825,6 +878,7 @@ impl Settings {
         r[RECORD_TZ..RECORD_TZ + TZ_MAX].copy_from_slice(&self.tz.bytes);
         r[RECORD_TX_POWER] = self.tx_power_qdbm as u8;
         r[RECORD_OUTPUT] = self.output as u8;
+        r[RECORD_BEEP_VOLUME] = self.beep_volume as u8;
         r
     }
 
@@ -843,7 +897,8 @@ impl Settings {
     /// transmit power is the build's, and version 12 after the power, so
     /// the sound goes to the buzzer, and version 13 after the output, so
     /// the alarm sound is the one at the index and not the one of a
-    /// name. Versions are append-only, so a record
+    /// name, and version 14 after the name, so the beeps on the line
+    /// output are at their default volume. Versions are append-only, so a record
     /// from a newer image is read by the prefix this one knows, and a
     /// colour, brightness or melody index past this image's table (an
     /// entry a newer image added, or a higher current ceiling) lands on
@@ -974,6 +1029,10 @@ impl Settings {
         {
             s.melody = melody::index_of(name.as_str()).unwrap_or(0);
         }
+        // A volume a later image added is the default.
+        if version >= 15 {
+            s.beep_volume = BeepVolume::from_byte(*r.get(RECORD_BEEP_VOLUME)?).unwrap_or(d.beep_volume);
+        }
         s.color = s.color.min(PALETTE.len() - 1);
         // A record saved by a build with a higher ceiling, or by a later
         // image with more steps, may name a step this build does not
@@ -1061,6 +1120,7 @@ mod tests {
             mqtt_cleared: false,
             tx_power_qdbm: 34,
             output: AudioOut::Line,
+            beep_volume: BeepVolume::Loudest,
         }
     }
 
@@ -1164,6 +1224,7 @@ mod tests {
             11 => RECORD_TX_POWER,
             12 => RECORD_OUTPUT,
             13 => RECORD_MELODY_NAME_LEN,
+            14 => RECORD_BEEP_VOLUME,
             _ => RECORD_LEN,
         }
     }
@@ -1261,6 +1322,7 @@ mod tests {
             assert!(!got.mqtt_cleared);
             assert_eq!(got.tx_power_qdbm, if version >= 12 { s.tx_power_qdbm } else { d.tx_power_qdbm }, "v{version} transmit power");
             assert_eq!(got.output, if version >= 13 { s.output } else { d.output }, "v{version} sound output");
+            assert_eq!(got.beep_volume, d.beep_volume, "v{version} beeps' volume");
         }
     }
 
@@ -1330,6 +1392,7 @@ mod tests {
         but("another face for the temperature", &|r| r[RECORD_TEMP_SHOW] = 9, Settings { temp_show: d.temp_show, ..s });
         but("a transmit power that is no level", &|r| r[RECORD_TX_POWER] = 69, Settings { tx_power_qdbm: d.tx_power_qdbm, ..s });
         but("an output of a later image", &|r| r[RECORD_OUTPUT] = 3, Settings { output: d.output, ..s });
+        but("a beeps' volume of a later image", &|r| r[RECORD_BEEP_VOLUME] = 4, Settings { beep_volume: d.beep_volume, ..s });
         but(
             "an offset past the limit",
             &|r| r[RECORD_TEMP_OFFSET..RECORD_TEMP_OFFSET + 2].copy_from_slice(&(TEMP_OFFSET_LIMIT_DC + 1).to_le_bytes()),
@@ -1549,6 +1612,14 @@ mod tests {
             assert_eq!(AudioOut::from_byte(o as u8), Some(o));
         }
         assert_eq!(Settings::DEFAULT.output, AudioOut::Buzzer, "what a stock clock has");
+        assert_eq!(Settings::DEFAULT.beep_volume.pct(), crate::clip::LINE_PCT);
+        assert_eq!((BeepVolume::from_name("Loudest"), BeepVolume::from_byte(4)), (None, None));
+        for v in BeepVolume::ALL {
+            assert_eq!((BeepVolume::from_name(v.name()), BeepVolume::from_byte(v as u8)), (Some(v), Some(v)));
+        }
+        // Louder each step, and the loudest the most there is.
+        let pcts = BeepVolume::ALL.map(BeepVolume::pct);
+        assert!(pcts.windows(2).all(|w| w[0] < w[1]) && pcts[3] == crate::clip::LINE_PCT_MAX, "{pcts:?}");
         for (out, tones, clips) in [
             (AudioOut::Buzzer, SoundPin::Buzzer, SoundPin::Buzzer),
             (AudioOut::Line, SoundPin::Line, SoundPin::Line),
