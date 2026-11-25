@@ -28,10 +28,17 @@ host and the browser, over `core`. `CLAUDE.md` is a symlink to this file; edit t
   was learned; read the backlog before proposing work and strike items
   you finish. `HISTORY.md` is the design record of every milestone so
   far. When a section's work is built and the user has confirmed it on
-  the panel, mark it verified and move it to the end of `HISTORY.md`
-  as it stands; a section built and moved before its check leaves a
-  line under `PLAN.md`'s "Checks still owed". Nothing in `HISTORY.md`
-  is rewritten: a later finding is a new section or a dated note.
+  the panel, mark it verified and move it to the end of `HISTORY.md`,
+  cut down to what was decided and why, the figures that settled it,
+  what was learned and what is owed; a section built and moved before
+  its check leaves a line under `PLAN.md`'s "Checks still owed". A
+  later finding is a new section or a dated note in `HISTORY.md`.
+- Keep both brief (the user, 2026-11-24, when they were condensed to
+  a fifth): a section holds the context somebody needs later, not the
+  story of how it went. No quotes of the user: what was decided or
+  observed, summarised in English. No intermediate attempts beyond
+  the figure that shows why one lost, no test counts, file lists or
+  commit hashes. What is still owed is always stated.
 - Update `ARCHITECTURE.md` in the same change as any major change to
   the architecture: a task or executor added, removed or moved, a new
   peripheral or DMA path, a new way tasks talk to each other, a new
