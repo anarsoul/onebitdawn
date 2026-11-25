@@ -5,11 +5,14 @@
 //! `esp-storage`, and a task that writes a changed value once the user has
 //! stopped pressing buttons.
 //!
-//! Every flash operation runs with interrupts off and the cache disabled,
-//! so the scan task cannot restart a DMA transfer meanwhile. A record
-//! write is well under a millisecond and invisible; a sector erase is tens
-//! of milliseconds, a brief dark blink, and happens once per few hundred
-//! changes.
+//! Every flash operation runs with interrupts off and the cache
+//! disabled. A record write is well under a millisecond; a sector erase
+//! is tens of milliseconds and happens once per few hundred changes.
+//! When the scan task restarted every DMA transfer the erase was a
+//! brief dark blink; the scan is a ring the hardware loops over by
+//! itself now (`ring.rs`), and what an erase does to it has not been
+//! looked at since. The task below still debounces and skips a write
+//! that would change nothing, and an upload stops the scan first.
 //!
 //! There is one flash handle for the whole firmware, `with_flash`, shared
 //! with the firmware updater. A second `FlashStorage` is not an option:
