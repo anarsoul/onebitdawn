@@ -131,8 +131,7 @@ changes): `WIFI_SSID`, `WIFI_PASSWORD`, `TZ_RULE` (or the older
 `TZ_OFFSET_MINUTES`), `API_TOKEN`, `AP_PASSWORD`, `MAX_CURRENT_STEP`,
 `WIFI_TX_POWER_QDBM`, `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER`,
 `MQTT_PASSWORD`, and for the sound path `ALARM_CLIP`,
-`ALARM_CLIP_LABEL`, `CLIP_MODULATOR`, `CLIP_KBPS`, `CLIP_CARRIER_KHZ`
-and `CLIP_PDM_BITS` (`agents/clips.md`). The network, the token, the
+`ALARM_CLIP_LABEL` and `CLIP_PDM_BITS` (`agents/clips.md`). The network, the token, the
 timezone and the broker are seeds: a stored record wins over a later
 build's constants. `ESP_LOG` on the command line overrides the
 config's `info`. The `bench-hang` feature (never in a release) adds

@@ -361,8 +361,6 @@ scripts/speaker-clips.sh
 
 ```
 ALARM_CLIP=clips/keygen.xmc,wav/tune.pcm cargo build --release
-CLIP_MODULATOR=sd CLIP_KBPS=256 cargo build --release
-CLIP_MODULATOR=pwm cargo build --release
 CLIP_PDM_BITS=128 cargo build --release
 ```
 
@@ -374,14 +372,10 @@ CLIP_PDM_BITS=128 cargo build --release
   ringing alarm loops a beeper clip, a module, a SID tune or a PT3
   module with no gap and repeats PCM after a pause, unless the file is
   given as `file:once` or `file:loop`.
-- `CLIP_MODULATOR=sd` sends a PCM clip or a module through the
-  software sigma-delta and not the chip's PDM converter (the default,
-  `pdm`, 256 bits a sample), for a buzzer circuit that the converter's
-  rate is too fast for. `CLIP_KBPS` is 128, 256 or 512 (the default);
-  a 16 kHz clip runs at twice the figure.
-- `CLIP_MODULATOR=pwm` is the other software modulator: a pulse a
-  carrier period (`CLIP_CARRIER_KHZ`, default 16).
-- `CLIP_PDM_BITS=128` is the PDM converter at 128 bits a sample, 2.048
+- `CLIP_PDM_BITS=128` is the chip's PDM converter, which every PCM
+  clip, module and tune goes through (the software modulators a build
+  could choose, `CLIP_MODULATOR`, `CLIP_KBPS` and `CLIP_CARRIER_KHZ`,
+  were taken out on 2026-11-24), at 128 bits a sample, 2.048
   Mbit/s for a 16 kHz clip, as the clocks' buzzers have heard it. 256
   (4.096 Mbit/s) is the default and 384 the third. More bits are less
   of the converter's own noise and shorter pulses for the transistor.

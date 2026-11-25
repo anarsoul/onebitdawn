@@ -55,8 +55,8 @@ The bit rate:
   128 bits and 31 250 Hz.
 - At 2.048 Mbit/s (16 kHz, `CLIP_PDM_BITS=128`) on white-clock
   (flyback diode, R5 at 5.1 k) it was cleaner than the software
-  sigma-delta at 1 Mbit/s (2026-11-13). A stock board's transistor has
-  not been heard at either; `CLIP_MODULATOR=sd` is the way back.
+  sigma-delta at 1 Mbit/s (2026-11-13), which was taken out on
+  2026-11-24. A stock board's transistor has not been heard at it.
 - The default of 256 bits a sample is the user's choice of 2026-11-13,
   and no clock's own transistor and buzzer have had it yet. It was
   heard only on a breadboard copy of the stage with headphones for the

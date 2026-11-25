@@ -172,60 +172,11 @@ pub const MAX_CURRENT_STEP: u8 = {
     step as u8
 };
 
-/// Bit rate of a PCM clip's or a module's stream on the buzzer line
-/// under a software modulator (`CLIP_MODULATOR=sd` or `pwm`; the
-/// default build's converter makes `CLIP_PDM_BITS` of a sample whatever this
-/// says), in kbit/s, from `CLIP_KBPS` at build time: 128, 256 or 512; a module
-/// or PCM at 16 kHz runs at twice it. The default is 512, 64 bits a
-/// sample and 1.024 Mbit/s for a 16 kHz clip: with the modules'
-/// samples at 16 bits the user heard far less noise there than at 256,
-/// which was the default before, and no skips (2026-11-13, on a clock
-/// with a flyback diode across the buzzer and R5 at 5.1 k; a stock
-/// board's transistor has not been heard at this rate).
-pub const CLIP_KBPS: u32 = {
-    let kbps = match option_env!("CLIP_KBPS") {
-        Some(s) => parse_i32(s),
-        None => 512,
-    };
-    assert!(kbps == 128 || kbps == 256 || kbps == 512, "CLIP_KBPS must be 128, 256 or 512");
-    kbps as u32
-};
-
-/// Pulses per second of the clip's stream, in kHz, from
-/// `CLIP_CARRIER_KHZ` at build time: 8, 16 or 32. Lower is longer
-/// pulses, so more current in the buzzer's coil and fewer edges next to
-/// the button pins, and more pulse lengths at a bit rate; but 8 kHz is
-/// a whine in the band of the ear, and only from 32 kHz is there room
-/// to shape the rounding error out of the band. See `clip.rs`.
-pub const CLIP_CARRIER_KHZ: u32 = {
-    let khz = match option_env!("CLIP_CARRIER_KHZ") {
-        Some(s) => parse_i32(s),
-        None => 16,
-    };
-    assert!(khz == 8 || khz == 16 || khz == 32, "CLIP_CARRIER_KHZ must be 8, 16 or 32");
-    khz as u32
-};
-
-/// Whether a PCM clip or a module goes to the chip's own PCM-to-PDM
-/// converter as samples (`CLIP_MODULATOR=pdm`, the default) and is not
-/// modulated in software. Heard on a clock on 2026-11-13 against the
-/// software sigma-delta at 1.024 Mbit/s: cleaner, less noise, at
-/// 2.048 Mbit/s (128 bits a sample; at 64 the converter gives noise).
-/// That clock has a flyback diode across the buzzer and R5 at 5.1 k; a
-/// stock board's transistor has not been heard at that rate, which is
-/// why `sd` and `pwm` remain.
-pub const CLIP_PDM: bool = match option_env!("CLIP_MODULATOR") {
-    None => true,
-    Some(m) => {
-        let m = m.as_bytes();
-        m.len() == 3 && m[0] == b'p' && m[1] == b'd' && m[2] == b'm'
-    }
-};
-
-/// Bits the chip's converter makes of a sample, from `CLIP_PDM_BITS` at
+/// Bits the chip's PCM-to-PDM converter makes of a sample of a PCM
+/// clip, a module or a tune, from `CLIP_PDM_BITS` at
 /// build time: 128 (2.048 Mbit/s for 16 kHz), 256 (the default,
 /// 4.096 Mbit/s) or 384, the converter's ratios of two, four and six.
-/// At 64 it gives noise. More bits a sample are less of the modulator's
+/// At 64 it gives noise. More bits a sample are less of the converter's
 /// own noise in the audio band and shorter pulses for the transistor
 /// to follow. 128 was the first default, heard on a clock's buzzer;
 /// 256 is the user's choice of 2026-11-13, from a breadboard copy of
@@ -241,27 +192,6 @@ pub const CLIP_PDM_BITS: u32 = {
     bits as u32
 };
 
-/// Of the two software modulators, whether a PCM clip or a module is
-/// sent as a sigma-delta stream, a
-/// decision a bit, and not as a pulse a carrier period:
-/// `CLIP_MODULATOR=sd`, or `pwm` at build time (with `pdm` neither is
-/// used, and the tests run this one). The
-/// pulses were written when the first sigma-delta clip was quiet and
-/// crackled, which turned out to be the pacer rewriting the ring under
-/// the DMA and not the modulator; with that fixed, a flyback diode
-/// across the buzzer and R5 at 3.2 k, sigma-delta is what the user
-/// listened to and kept. On the stock circuit neither has been judged
-/// since the fix.
-pub const CLIP_SIGMA_DELTA: bool = match option_env!("CLIP_MODULATOR") {
-    None => true,
-    Some(m) => {
-        let m = m.as_bytes();
-        let sd = m.len() == 2 && m[0] == b's' && m[1] == b'd';
-        let pwm = m.len() == 3 && m[0] == b'p' && m[1] == b'w' && m[2] == b'm';
-        assert!(sd || pwm || CLIP_PDM, "CLIP_MODULATOR must be pdm, sd or pwm");
-        !pwm
-    }
-};
 
 /// Ceiling on Wi-Fi transmit power, in quarter dBm, 8 to 84. esp-radio
 /// starts at 20 (5 dBm), which does not reach a far access point. 34

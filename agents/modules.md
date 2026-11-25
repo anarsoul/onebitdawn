@@ -276,21 +276,13 @@ command, looped or once, and stops within a note.
 
 **`core/src/clip.rs`**: sampled sound for the 1-bit buzzer line, pure.
 
-- `Player`, default build (`CONVERTER`, from `config::CLIP_PDM`):
-  writes a PCM clip's or a module's levels as 16-bit samples for the
-  chip's PCM-to-PDM converter. `fill_samples` does the ramps and the
-  clip, with full scale at 0.85 of the rail (`CONVERTER_LEVEL`, the
+- `Player` writes a PCM clip's or a module's levels as 16-bit samples
+  for the chip's PCM-to-PDM converter (`CONVERTER_BITS` of each, from
+  `config::CLIP_PDM_BITS`). `fill` does the 30 ms ramps from and to
+  the released line and the clip, with full scale at 0.85 of the rail (`CONVERTER_LEVEL`, the
   loudest that did not overload by ear) and `SAMPLE_REST` for the
   released line. `converter_clock` gives the bit-clock divider and the
   true ring rate under the converter's whole dividers.
-- `Player`, `CLIP_MODULATOR=sd` or `pwm` build: a software modulator
-  that writes a clip's bitstream a buffer at a time, wrapped in 30 ms
-  ramps from and to the released line. Sigma-delta works a bit at a
-  time. Pulse-width is one pulse per carrier period, centred, its
-  length the level at mid-period, with the rounding error fed back as
-  far as the carrier leaves room (`ORDER`). Integer; linear
-  interpolation between the 8 kHz samples; a sample of 255 is 0.95 of
-  the rail.
 - `Beeper`: a clip that is the line's level as run lengths, counts of
   1/512 000 s, off and on alternately (`scripts/zxbeeper.py`). `BPR2`
   has LEB128 counts. `BPR3`, the packed one, has tokens that are a run
@@ -311,8 +303,7 @@ command, looped or once, and stops within a note.
   the start alone (one crystal clocks the line and the timer). It
   counts underruns, and counts as strays the reads of the DMA's
   descriptor register that are not two slots on from that.
-- Constants: `BIT_RATE` and `CARRIER_HZ` from `config::CLIP_KBPS` and
-  `CLIP_CARRIER_KHZ`, `CHUNK` 1024, `SLOTS` 16.
+- Constants: `CHUNK` 1024, `SLOTS` 16.
 
 **`src/clip.rs`**: `clip_task` and `Sampler`.
 
@@ -437,8 +428,8 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   `#[ram]` section, on a target with no OS; the host's builds do not
   have it): `Tune::next_sample` and `render` with the mixer inlined, `refill`,
   `fill` and `adpcm::decode_block` for a predicted sample,
-  `Shaper::run`, and `clip.rs`'s `Player::level`, `fill_samples` and
-  `fill_bits` above them. `step_tick` is kept out of line and in the
+  `Shaper::run`, and `clip.rs`'s `Player::level` and `fill`
+  above them. `step_tick` is kept out of line and in the
   flash, as are the SID's and the PT3's players (`clip::sid_sample`,
   `ay_sample`), which `Player::level` would otherwise take to RAM
   with it.
@@ -752,8 +743,7 @@ Covered:
   version, rows and tempo, sample lines and their sums, ornaments,
   slides and portamento, the envelope, the positions, the loop and the
   fresh start, cut and random modules.
-- The ring's pacer, run against a model of the DMA. `CLIP_KBPS` and
-  `CLIP_CARRIER_KHZ` change what is tested; `ALARM_CLIP=… cargo
+- The ring's pacer, run against a model of the DMA. `ALARM_CLIP=… cargo
   host-test` covers the table with the clip in it.
 - Sensors: the NTC and LDR tables against their equations, the
   thermometer's hold.

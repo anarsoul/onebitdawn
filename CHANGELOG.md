@@ -68,6 +68,14 @@ from `http://<ip>/update`; its settings survive the update.
   builds clips into the firmware, for such a clock; it is empty by
   default now.
 
+### Removed
+
+- The software modulators for a PCM clip or a module, and their build
+  variables `CLIP_MODULATOR`, `CLIP_KBPS` and `CLIP_CARRIER_KHZ` (on
+  `next`, for the release after v0.5): every such clip goes through
+  the chip's PCM-to-PDM converter, as it has in every prebuilt image.
+  `CLIP_PDM_BITS` stays.
+
 ### Fixed
 
 - A timezone typed as `UTC+3` or `GMT+3` is three hours east, as it

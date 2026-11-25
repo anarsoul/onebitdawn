@@ -171,8 +171,7 @@ for the length of a melody on the line output and low otherwise.
 
 For a clip the buzzer task lends the pin to `clip_task`, which runs
 I2S0 over a sixteen-slot DMA ring: by default 16-bit samples into the
-chip's PCM-to-PDM converter, or raw line bits for a beeper clip and
-the software modulators. The task fills chunks ahead of the DMA, paced
+chip's PCM-to-PDM converter, or raw line bits for a beeper clip. The task fills chunks ahead of the DMA, paced
 by elapsed time (`clip::Pacer`), which is why it sits on the interrupt
 executor.
 
