@@ -119,11 +119,11 @@ The alarm melodies that are not notes (sampled sound, a ZX Spectrum
 beeper tune, tracker modules, Commodore 64 and AY tunes) are clips,
 and a clock's clips are a *clip pack* in a flash partition of their
 own, `clips`, 1152 KB, so they can be changed without a new
-firmware. The default pack is the seven clips in `clips/`; a release
+firmware. The default pack is the eight clips in `clips/`; a release
 has it as `onebitdawn-clips-<tag>.bin`.
-`onebitdawn-clips-speaker-<tag>.bin` is the same seven made for a
+`onebitdawn-clips-speaker-<tag>.bin` is the same eight made for a
 clock with a speaker (in the buzzer's place, or on the line output's
-amplifier), the bass left in and a gentler limiter, and an eighth,
+amplifier), the bass left in and a gentler limiter, and a ninth,
 "Starlight and Aurora", which a buzzer cannot say. The web installer
 asks which of the two to write; later, upload one in the other's
 place.

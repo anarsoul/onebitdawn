@@ -70,9 +70,10 @@ host and the browser, over `core`. `CLAUDE.md` is a symlink to this file; edit t
   distributed, unmodified or as converted from its module by
   onebitdawn's tools, as part of onebitdawn clip packs, including
   commercially; all other rights reserved". The other
-  three are ours, Grieg's Morning (twice) and In the Hall of the
-  Mountain King as modules `scripts/mkxm.py` writes from `mods/src/`,
-  with CC0 recordings in them (`agents/clips.md`). A clip
+  four are ours, as modules `scripts/mkxm.py` writes from `mods/src/`:
+  Grieg's Morning (twice) and In the Hall of the Mountain King,
+  with CC0 recordings in them, and "Serial Dawn", a chiptune written
+  here of waves the script makes (`agents/clips.md`). A clip
   nobody may redistribute stays in the ignored `wav/`, `tap/`, `sid/`, `pt3/` and `xm/`,
   and a pack made of such in the ignored `packs/`.
 - The project is licensed MIT OR Apache-2.0 (`LICENSE-MIT`,

@@ -600,6 +600,7 @@ class Module:
         self.rows = 0
         self.polys = []
         self.tempos = []
+        self.restart = 0
 
     def instrument(self, sample, **how):
         ins = Instrument(sample, **how)
@@ -636,6 +637,12 @@ class Module:
     def length(self, rows):
         self.rows = max(self.rows, int(math.ceil(rows)))
 
+    def loop_from(self, row):
+        """Played round and round, the tune starts over from `row`,
+        which is a pattern's first: the module's restart position."""
+        assert row % self.pattern_rows == 0, f"row {row} is not a pattern's first"
+        self.restart = row // self.pattern_rows
+
     # The file.
 
     def write(self, path):
@@ -668,10 +675,11 @@ class Module:
                 patterns.append((count, data))
             orders.append(seen[count, data])
         assert len(orders) <= 256 and len(patterns) <= 256
+        assert self.restart < len(orders), f"restart at order {self.restart} of {len(orders)}"
         out = bytearray()
         out += b"Extended Module: " + self.title.encode("ascii")[:20].ljust(20) + b"\x1a"
         out += b"onebitdawn mkxm.py".ljust(20) + struct.pack("<H", 0x0104)
-        out += struct.pack("<IHHHHHHHH", 276, len(orders), 0, self.channels, len(patterns), len(self.instruments), 1, self.speed, self.bpm)
+        out += struct.pack("<IHHHHHHHH", 276, len(orders), self.restart, self.channels, len(patterns), len(self.instruments), 1, self.speed, self.bpm)
         out += bytes(orders).ljust(256, b"\0")
         for count, data in patterns:
             out += struct.pack("<IBHH", 9, 0, count, len(data)) + data

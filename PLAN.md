@@ -1956,6 +1956,66 @@ until the next tag.
 
 Owed: an install of each choice from the page onto a clock.
 
+## A keygen-style tune of our own for the alarm, "Serial Dawn" — built 2026-11-25, in the default packs, on white-clock in the speaker's pack
+
+The user asked for a module in the key generators' manner, of
+samples made in the script and none recorded, for the speaker and the
+buzzer alike: a rising arpeggio to open, tonic, subdominant, dominant,
+tonic in the middle, little bass, and its end going round to what
+follows the introduction. It went into the default packs in
+Trantor's room, on master: a change of the melodies with no code
+changed is not a feature (the user).
+
+The design:
+
+- `mods/src/serial_dawn.py` for `scripts/mkxm.py`, `mods/serial-dawn.xm`.
+  A minor, 150 beats a minute, a row a sixteenth (speed 6), a pattern
+  four bars, 28 bars: 44.8 s the first time, 38.4 s a round.
+- The introduction, four bars, order 0: sixteenths climbing through
+  Am, Dm, E and E7, from one quiet voice to full level, an echo three
+  rows behind from the second bar, bass and hats from the third, a
+  snare roll in the last beat.
+- A, eight bars: Am, Dm, E, Am twice, a pulse lead with its echo,
+  chord stabs as effect 0 arpeggios, an octave bass, drums.
+- B, eight bars: F, G, Em, Am, F, G, E, E, ending on the
+  introduction's climb over the dominant.
+- A again with rolling sixteenths under the lead; its last bar is the
+  pickup into A, and the module's restart position is order 1.
+- Instruments: pulses of three widths (lead, stabs and bass, echo), a
+  swept sine for the kick, noise for the snare and the hat. The bass
+  is a pulse an octave up from where a bass would sit (A2 to G3) and
+  under the lead's level.
+- `mkxm.py` gets `Module.loop_from(row)`, the restart position, which
+  it wrote as 0; `xmc.rs` and `xm.rs` have it already.
+
+Built as designed: 21982 bytes of module, 19880 of clip, eight
+instruments in 6888 bytes of samples, fourteen channels and the
+tempo's, no note without a channel. The XM's restart position and the
+clip's byte 28 are 1. Two things learned:
+
+- A narrow pulse has a mean, and a note of it starting or stopping is
+  a step. The pulses are put about their mean in the tune's script
+  (`mkxm.py`'s `pulse` is as it was, for the Grieg kits).
+- openmpt123's render against Keygen's (the module, 48 kHz, no
+  limiter): 20 to 150 Hz is 14 dB under the whole here and 4 dB under
+  there; 1 to 3 kHz 3 dB under here, 8 there. Its RMS is 9 dB under
+  Keygen's before the clip's limiter.
+
+The notes were written without being heard, so the tune, its levels
+and the limiter's settings were the user's ear's to judge. `packs/serial-dawn.bin` and
+`packs/serial-dawn-speaker.bin` (ignored) hold it alone.
+
+In the default packs, 2026-11-25: `clips/serial_dawn.xmc` (the pack maker's defaults, 19880
+bytes) is the buzzer's eighth clip, after Suspended Seconds, and the
+speaker's pack makes its own from the module before Starlight and
+Aurora, which is the ninth again; 680 KB and 902 KB. Both scripts,
+both workflows, the pack maker's tests (the clip from the module byte
+for byte, the names and labels), `clips/README.md`, the manual, the
+README and the changelog have it. It is the project's, under its
+licence. The speaker's pack was written to white-clock (nine clips,
+the line output) and the user had it committed after; what he heard
+is not recorded here.
+
 ## Trantor out of the default pack — built 2026-11-25, on the host
 
 The user: the right to distribute Trantor's title music is not to be

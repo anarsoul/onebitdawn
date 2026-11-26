@@ -129,11 +129,16 @@ from `http://<ip>/update`; its settings survive the update.
   written for the clock, played with its velocities and its sustain
   pedal. The tune is its composer's and not under the project's
   licence (`clips/README.md`).
-  The pack is seven clips and 660 KB.
-- The speaker's pack has an eighth, "Starlight & Aurora" (on the pages
+- An eighth, "Serial Dawn", a chiptune in the manner of the key
+  generators' music, written for the clock: a rising arpeggio, then a
+  pulse lead over tonic, subdominant and dominant, of waves made by
+  its script and nothing recorded. A ringing alarm plays it round
+  from after its introduction. It is the project's, under its licence.
+  The pack is eight clips and 680 KB.
+- The speaker's pack has a ninth, "Starlight & Aurora" (on the pages
   "Starlight and Aurora"), his too and under the same terms: a soft
   piano, a bell, a lead and a bass, which a buzzer cannot say. That
-  pack is 882 KB.
+  pack is 902 KB.
 - The alarm sound is stored by its name and no longer by its place in
   the list: an alarm keeps its clip through a new clip pack that still
   has it, in whatever order, and through a firmware with more note

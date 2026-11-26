@@ -60,7 +60,7 @@ jobs:
       - name: Test the pack maker
         run: cargo pack-test
       - name: Test with the clips built in
-        run: ALARM_CLIP=clips/halftime.xmc,clips/keygen.xmc,clips/synchronization.pt3c,clips/morning_mood.xmc,clips/morning_mood_chip.xmc,clips/mountain_king.xmc,clips/suspended_seconds.xmc cargo host-test
+        run: ALARM_CLIP=clips/halftime.xmc,clips/keygen.xmc,clips/synchronization.pt3c,clips/morning_mood.xmc,clips/morning_mood_chip.xmc,clips/mountain_king.xmc,clips/suspended_seconds.xmc,clips/serial_dawn.xmc cargo host-test
       - name: Build
         run: cargo build --release
       - name: Clippy
@@ -94,11 +94,11 @@ jobs:
             clips/halftime.xmc clips/keygen.xmc \
             clips/synchronization.pt3c clips/morning_mood.xmc \
             clips/morning_mood_chip.xmc clips/mountain_king.xmc \
-            clips/suspended_seconds.xmc
+            clips/suspended_seconds.xmc clips/serial_dawn.xmc
           CLIP_PACK_FILE="images/onebitdawn-clips-${GITHUB_REF_NAME}.bin" \
             cargo host-test the_pack_file_parses -- --nocapture
-          # The same seven for a clock with a speaker, converted again
-          # from mods/, and an eighth that a buzzer cannot say
+          # The same eight for a clock with a speaker, converted again
+          # from mods/, and a ninth that a buzzer cannot say
           # (scripts/speaker-clips.sh): for the Clips page
           # or `espflash write-bin 0x2e0000`; the web installer writes
           # the buzzer's.

@@ -4,16 +4,16 @@ The clips of the default clip pack, the extra alarm melodies a clock
 has in its `clips` partition (see "Clip packs" in `MANUAL.md`):
 
 ```
-scripts/clips.sh                                       # packs/clips-default.bin, these seven
+scripts/clips.sh                                       # packs/clips-default.bin, these eight
 cargo pack -o packs/one.bin clips/keygen.xmc           # a pack of one of them
 ALARM_CLIP=clips/keygen.xmc cargo build --release      # or built into the firmware, the older way
 ```
 
 The first three are other people's music and are **not** covered by
 the project's MIT OR Apache-2.0 licence; each is credited below, and
-copyright stays with its author. The next three were made here. The
-last is the project's author's own tune, and is **not** under the
-project's licence either; so is an eighth that only the speaker's pack
+copyright stays with its author. The next three were made here, and
+so was the last. The seventh is the project's author's own tune, and
+is **not** under the project's licence either; so is a ninth that only the speaker's pack
 has, at the end of this file.
 
 ## `halftime.xmc` and `keygen.xmc`
@@ -125,6 +125,23 @@ cargo pack --clip clips/suspended_seconds.xmc mods/suspended-seconds.xm:knee=12,
 
 For a speaker (`scripts/speaker-clips.sh`) it is `knee=12,release=13`.
 
+## `serial_dawn.xmc`
+
+"Serial Dawn" (2026), a chiptune in the manner of the key generators'
+music, written for this project as an alarm for a buzzer and a small
+speaker: a rising arpeggio, then A minor's tonic, subdominant and
+dominant under a pulse lead. Nothing in it is recorded: its
+instruments are pulse waves, a swept sine and noise that the script
+makes. The tune, the script and the module are this project's, under
+its licence, MIT OR Apache-2.0.
+
+```
+scripts/mkxm.py mods/src/serial_dawn.py mods/serial-dawn.xm
+cargo pack --clip clips/serial_dawn.xmc mods/serial-dawn.xm
+```
+
+A ringing alarm plays it round from after its introduction.
+
 ## "Starlight & Aurora", in the speaker's pack only
 
 "Starlight & Aurora" (2026) by **Vasily Khoruzhick**, a tune for
@@ -166,7 +183,7 @@ buzzer does not say, so only the pack for a clock with a speaker
 scripts/surgenotes.py "/usr/share/surge-xt/patches_3rdparty/LinnStrument MPE/Keys/Acoustic Grand.fxp" \
     xm/surge/acoustic-grand F3:56 F3:78 G3:56 A3:78 C4:56 C4:78 D4:56 E4:56 E4:78 F4:78
 scripts/mkxm.py mods/src/starlight_aurora.py mods/starlight-aurora.xm
-scripts/speaker-clips.sh        # the module with knee=64,release=13, the pack's eighth clip
+scripts/speaker-clips.sh        # the module with knee=64,release=13, the pack's ninth clip
 ```
 
 The limiter is off, a knee of 64 being over the tune's peak: at the

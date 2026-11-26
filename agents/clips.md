@@ -200,7 +200,7 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
 - "Starlight & Aurora" (`mods/src/starlight_aurora.py`,
   `mods/starlight-aurora.xm`) is the user's second tune, four parts
   from his MIDI file as they are there. It is the speaker's pack's
-  eighth clip and in no other: on a buzzer it does not sound (the
+  ninth clip and in no other: on a buzzer it does not sound (the
   user, 2026-11-20), so `clips/` has no clip of it and
   `scripts/speaker-clips.sh` makes it from the module. Its label is
   the module's title, "Starlight and Aurora" (a label may not have
@@ -216,6 +216,16 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
   under its quiet piano on a speaker in the buzzer's place is the
   transistor's stage and not the clip: the line output has none
   (`PLAN.md`). The terms are those of "Suspended Seconds".
+- "Serial Dawn" (`mods/src/serial_dawn.py`, `mods/serial-dawn.xm`)
+  is a tune in the key generators' manner, written here, of waves and
+  noise made in its script: pulses put about their mean, a swept sine
+  for the kick. It is the default pack's eighth clip
+  (`clips/serial_dawn.xmc`, the pack maker's defaults; a speaker's
+  defaults in the speaker's pack), and the project's, under its
+  licence. Played round it starts over after its introduction:
+  `Module.loop_from(row)` is the XM's restart position, which the
+  alarm follows. Its chords are effect 0 on one channel, written into
+  the cells by the script, since `Line` has no call for it.
 - The other two there are Grieg's Morning (shortened; read off a scan) and
   In the Hall of the Mountain King (Mutopia's MIDI file). Morning in
   both kits and the Mountain King in `bright` are in the default

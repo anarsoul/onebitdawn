@@ -283,7 +283,7 @@ SID tunes and ZX Spectrum AY tunes (Pro Tracker 3), the last three
 played by the clock's own players and chip emulations. A clock's clips
 are a clip pack in a flash partition of their own, so they can be
 changed without a new firmware, from `http://<ip>/clips` or with
-`scripts/clips.sh`. The default pack is the seven clips in `clips/`,
+`scripts/clips.sh`. The default pack is the eight clips in `clips/`,
 and the web installer writes it, or the same made for a speaker if
 the clock has one; a pack of your own tunes is made
 [in the browser](https://anarsoul.github.io/onebitdawn/pack/) or with

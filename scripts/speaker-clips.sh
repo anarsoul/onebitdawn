@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 Vasily Khoruzhick
 # Make the default clip pack for a clock with a speaker in the buzzer's
-# place (speaker-mod/README.md): the seven clips of clips/, the
+# place (speaker-mod/README.md): the eight clips of clips/, the
 # XM modules converted again from mods/ with the bass left in (a high-pass
 # at 100 Hz, once) and the limiter letting go over 128 ms and not 16:
 # as hard a drive as the buzzer's clips have, but a gain that follows
@@ -21,7 +21,7 @@
 # second (release=13) from a low knee, so it rides a passage's level
 # and not a note's (the user's choice, 2026-11-19; the buzzer's clip
 # has release=10).
-# Starlight and Aurora is this pack's alone, its eighth and last: a
+# Starlight and Aurora is this pack's alone, its ninth and last: a
 # soft piano under 350 Hz and a bass under 110, which on a buzzer does
 # not sound (the user, 2026-11-20), so the buzzer's pack and clips/
 # have no clip of it. Its limiter is off, a knee of 64 being over the
@@ -36,7 +36,7 @@
 # The pack maker's `--sound-output speaker` is these settings, so the
 # pack is the default one's sources through it: packs/clips-default-speaker.bin,
 # under the default pack's names, so a clock's melody setting means the
-# same tune after it (the eighth but for a clock that had it chosen and
+# same tune after it (the ninth but for a clock that had it chosen and
 # is given the buzzer's pack).
 # Usage: scripts/speaker-clips.sh [pack.bin]    the pack's path, from the
 #                                               repository's root; the
@@ -50,4 +50,5 @@ cargo pack -o "$pack" --sound-output speaker \
     "mods/Orion - Nero Burning ROM v5.5.7.8kg.xm:name=halftime" mods/Orion-Nero6.3.0.2.xm:name=keygen \
     mods/nq-synchronization.pt3:restart,name=synchronization \
     mods/grieg-morning-bright.xm mods/grieg-morning-chip.xm mods/grieg-mountain-king-bright.xm \
-    mods/suspended-seconds.xm:knee=12,release=13 mods/starlight-aurora.xm:knee=64,release=13
+    mods/suspended-seconds.xm:knee=12,release=13 mods/serial-dawn.xm \
+    mods/starlight-aurora.xm:knee=64,release=13
