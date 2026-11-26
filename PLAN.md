@@ -85,6 +85,19 @@ substitutes the lowest step at draw time while dark is set. A user
 who has chosen the lowest step sees no difference. The current step
 `IS` still comes from the step actually drawn, cap and all.
 
+### A station on a weak access point never looks for a better one — seen 2026-11-24, not designed
+
+From the rc6 soak (its section below): the near access point went
+away for a couple of minutes, the clock rejoined the house's far one
+at −82 within 10 s, and stayed there when the near one came back at
+−40. It left only because the far link got bad enough for the
+self-heal's ten probes lost in a row, 19 minutes later; a link that
+answers one probe in four would hold it for good, with MQTT dropping
+and the pages mostly unreachable. A scan now and then while the RSSI
+is poor, and a reconnect when a much stronger BSSID of the same
+network is seen, is the obvious shape; nothing is designed. A
+feature, so for `next`, not for master before v0.5.
+
 ### A line output on the adapter for an amplifier — an idea of 2026-11-15; the setting and the pin built 2026-11-18, not flashed, nothing heard or measured
 
 The user's, of the speaker mod: with a proper amplifier in place of
@@ -1955,6 +1968,185 @@ of its own, shown only while the speaker is chosen. Not deployed
 until the next tag.
 
 Owed: an install of each choice from the page onto a clock.
+
+## A 24 h soak of the v0.5-rc6 release, installed from nothing through the access point — passed 2026-11-25, with a Wi-Fi outage and a self-heal on the way
+
+The release's own files on the bare bench board (`another-bench`,
+`/dev/ttyACM0`), as the rc3 soak of 2026-11-19 was run (its section
+above): `onebitdawn-v0.5-rc6.bin` and the buzzer's pack
+`onebitdawn-clips-v0.5-rc6.bin` fetched from the GitHub release, the
+flash erased whole, the image at 0, the pack at 0x2E0000, a reset and
+only then the serial `cat`. The setup as a new owner makes it: the
+dongle (`wlp0s20f0u1`, a profile with no default route) on the
+clock's access point, the setup form in headless Chromium (the home
+network, the hostname, the browser's zone, 16 dBm), and on the LAN
+the token set on `/system` with a PIN from the serial log and the
+broker on `/ha`.
+
+The driver, the watcher, the load and the pass criteria are those of
+the soaks of 2026-11-18, 2026-11-20 and 2026-11-21; the files are in
+`soak-rc6/` (untracked). The start is the station boot the setup's
+save makes; the watcher does not count the setup's `API token set`
+warning and lets a lone lost gateway probe pass. The board was found
+on a local build, `v0.5-rc5-20-g722ce63-dirty` in `ota_0`, with the
+output `line`; the erase leaves the output at its default, `buzzer`,
+as the earlier soaks had it.
+
+The install, 2026-11-24, as planned (the release's pack is 727891
+bytes, as rc3's was): the access point `clock-1bf4` on channel 1,
+`/api` there `v0.5-rc6` in `ota_0`, `clips: pack`, nothing stored,
+the output `buzzer`. The dongle had 192.168.4.2 and the host kept its
+default route; `/generate_204` a 302 to the form. The form listed
+five networks; the home one picked (the typed name hidden and
+disabled), the password, "Use this browser's zone" (`PDT7`), the
+hostname `another-bench`, 16 dBm; "Saved", the reset into the station
+2 s later, 10.1.1.65 by DHCP at 5.6 s and the time synced at 5.7 s.
+That boot's log: `firmware v0.5-rc6`, `pack of 8 clips and 0 of a
+version this firmware does not play … checked in 501 ms`. On the LAN,
+from the pages: the token set on `/system` with the PIN from the
+serial log, no reset; the broker on `/ha`, connected 3 s after the
+save as `clock-6a1bf4`. The very first boot's log was not captured:
+setting the port raw from Python reset the board (the access point's
+uptime was 33 s a minute and a half after `espflash reset`), and the
+capture begins 29 s into that second boot.
+
+Started 2026-11-24 11:39:23 MST (the station boot, `CoreSw`, the
+setup's own reset), to end 2026-11-25 11:39. First heartbeat: heap
+free 54080, longest feed gap 1185 ms, one MQTT connect. Rings due at
+about 12:02, 18:02, 00:02 and 06:02, on Morning Mood, Mountain King,
+Suspended Seconds and the chip Morning Mood. `start-line` in
+`soak-rc6/` is the line of `serial.log` the run begins at;
+`summary.sh` there gives the figures so far.
+
+The first ring, Morning Mood at 12:02: 299943 ms, no underruns, no
+stray positions.
+
+The watcher ended at 16:43:47, 5 h 4 min in, on the home access
+point going away, not on the clock: at 16:43:04 the host lost it too,
+on both its interfaces at once (`CTRL-EVENT-BEACON-LOSS` on the
+dongle on 80:69:1a:1f:25:cc, `Connection to AP 80:69:1a:1f:25:cd
+lost` on the 5 GHz one), and the dongle came back on the house's
+other access point, 28:d1:27:06:3c:de on channel 3. The clock, at
+uptime 18225 s: one gateway probe lost, `esp_wifi_internal_tx
+returned error: 12294`, `disconnected … after 18224 s: BeaconTimeout,
+rssi -50`, the link down, the MQTT session lost; 6.8 s later the scan
+found only the far access point at −82, joined it in 2.7 s, the same
+address by DHCP 0.6 s after that (10.1 s from the disconnect), MQTT
+connected 4.3 s later (the second session), the probe back at its
+next turn. No reset, no heal, no watchdog count; heap free 54032 at
+the next heartbeat. Two `http: write: ConnectionReset` warnings
+followed, the host's requests cut by the outage; the host lost one
+tick's ping and `/api` and one round of pages. Why the access point
+dropped is not known (the user was not asked yet).
+
+The clock stays on the far access point, at −80 to −82 where it had
+−39 to −52: it does not roam back, and nothing short of a reset moves
+it. The run goes on there, so from 16:43 it is a soak on a weak link,
+and its lost probes and the host's failures are to be read with that.
+The watcher was given a baseline (`watcher.sh <end> <count>`) and
+restarted not counting the outage's seven warnings.
+
+It ended again three minutes later, at 16:46:31, as the weak link
+said it would: gateway probes lost at uptimes 18317, 18379 and 18411
+s, the last two in a row (4 failed of 614), and one `/api` in 1232
+ms. The criteria of a −40 link do not fit this one. Restarted
+(`watcher.sh <end> 5 'probe: gateway\|http: L[0-9] write'`) letting
+every probe warning and every cut write pass, and still ending on a
+second boot (a self-heal after ten probes lost in a row would be one,
+and would put the clock back on the near access point), a panic, a
+watchdog count, a clip's underruns, a disconnect or five `/api`
+failures running.
+
+That one ended at 16:49:48 on five `/api` failures running; the clock
+was up, the link was not: ten probes lost of 623 by 16:51, in runs of
+two to four, one answered in 1134 ms. The probe comes back before ten
+in a row each time, so the self-heal does not fire.
+
+The outage was the user's own, a couple of minutes of the home
+Wi-Fi, and the near access point was back by 16:51 (the host's dongle
+on it again); the clock stays on the far one. The user, 2026-11-24:
+no reset, "let's see how it survives on marginal link". So from
+16:43 the run is that: the same boot, the same load and the same end,
+2026-11-25 11:39, and what is asked of it is no longer the −40 link's
+criteria but that the clock itself holds: one boot or a self-heal
+that is the design's (ten probes lost in a row), no panic, no
+watchdog count, the feed gap and the heap as before, every clip that
+plays with 0 underruns, and the link's losses counted. The watcher is
+`watcher-marginal.sh`, which ends on a second boot, a panic, a
+watchdog count in a heartbeat, a clip's underruns or strays, or the
+serial log silent for five minutes, and leaves the link's warnings
+to the summary.
+
+Seen and to go in the backlog whatever the run says: a station that
+rejoined a much weaker access point during an outage never looks for
+the better one again, and a link that answers one probe in four keeps
+the self-heal from firing for as long as it does.
+
+**The marginal link, 16:43 to 17:02: 19 minutes, ended by the
+self-heal as designed.** The far access point's signal fell from −82
+to −86…−90; 28 probes lost of 644, the runs growing (1, 1, 2, 4, 3,
+then 10); the MQTT session lost twice more and not found again in
+the last five minutes; the host reached the clock at 9 ticks of 30
+(21 pings and 19 `/api` lost). A preview posted at 16:58 played, and
+ran on to 40 s with its `/stop` not arriving, 0 underruns and 0
+stray positions like the 26 before it. At uptime 19391 s (17:02:33)
+`heal: gateway 10.1.1.1 unreachable for 10 probes (300 s) with the
+link up; self-heal reset 1 since power-up: blanking the panel and
+rebooting`. The boot after it, `CoreSw`: `heals: 1` and the time
+carried, the pack checked in 501 ms, the scan saw both access points
+(−87 and −40) and took the near one, the address at 5.6 s, the time
+synced at 5.7 s, MQTT at 6.8 s. Throughout the 19 minutes: heap free
+54080 (53840 once), the feed gap 1185 ms, no watchdog count, no
+panic.
+
+The first stretch, then, is 5 h 23 min on one boot (19391 s), clean
+for the 5 h 4 min before the outage: 27 clips and one ring with no
+underruns, one probe lost of 606 (the outage's), heap 54080 with
+three one-minute dips, the feed gap 1185 ms in all 323 heartbeats.
+
+**The 24 h begins again at the self-heal's boot**, 2026-11-24
+17:02:33 MST, to end 2026-11-25 17:02, on the near access point with
+the first run's criteria and its watcher (`watcher.sh`, now expecting
+`heals:1` in `/api`); the driver ran on through it all, so its rings
+stay where they were due, about 18:02, 00:02, 06:02 and 12:02.
+`start-line` is this boot's line of `serial.log` (`start-line-1` and
+`end-epoch-1` the first stretch's).
+
+**Passed, 2026-11-25 17:02**: 24 h on one boot from the self-heal's
+(last heartbeat 86404 s, `/api` uptime 86425 s), heals still 1 (the
+outage's), watchdog 0, no panic, and no warning but two lone lost
+gateway probes. Against the criteria:
+
+- Heap free 54080 until 16:50 of the second day, then 53892 to the
+  end (the 188-byte step of the earlier soaks, here at the heartbeat
+  of 85684 s and not at 21:34: on 2026-11-24 at 21:34 this boot, four
+  and a half hours old, showed nothing); nine one-minute dips in 1440
+  heartbeats, lowest 50672. No trend.
+- Longest feed gap 1180 ms in every heartbeat (1185 ms in the first
+  stretch's), through 115 clips, 28 saves and four rings.
+- All 115 `clip:` lines with 0 underruns and 0 stray positions; the
+  four rings (Mountain King 18:08, Suspended Seconds 00:10, the chip
+  Morning Mood 06:11, Trantor 12:12) each five minutes, 299966 to
+  300032 ms.
+- The descriptor index moving; 84351 images published, no stop. The
+  index read 2 once in 1440 heartbeats, as in the master soak.
+- The gateway probe: 2 lost of 2880 (uptimes 14142 and 52764 s), none
+  two in a row.
+- One MQTT session (1468 published), one association, RSSI −36 to
+  −40.
+- The host: 2870 ticks, no `/api` failure, the slowest 387 ms; three
+  lost pings, each alone; every page 200, all 314 actions answered,
+  and the page's time the host's 286 times of 287 (the one, at
+  21:33:59, the host's 21:33 against the page's 21:34: the minute
+  turned between the two reads).
+
+With the first stretch that is 29 h 23 min of rc6 on this board, and
+the only reset in it the self-heal the outage led to. The driver was
+stopped at the end and left the alarm armed at 12:12 on Trantor, the
+colour lime; the clock runs on in `ota_0` with the serial `cat` still
+attached. The uploads the soak of 2026-11-18 ended with were not
+made. The logs are in `soak-rc6/`; `summary.sh` there counts
+`watch.log` whole, the far access point's 19 minutes included.
 
 ## A keygen-style tune of our own for the alarm, "Serial Dawn" — built 2026-11-25, in the default packs, on white-clock in the speaker's pack
 
