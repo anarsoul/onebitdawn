@@ -185,7 +185,7 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
 - "Suspended Seconds" (`mods/src/suspended_seconds.py`,
   `mods/suspended-seconds.xm`, `clips/suspended_seconds.xmc`) is the
   user's own piano tune from his MIDI file, velocities and pedal
-  kept, quantized to eighths, the default pack's eighth clip. Its kit
+  kept, quantized to eighths, the default pack's seventh clip. Its kit
   is `upright` (VSCO's upright at mf; the user's ear, 2026-11-19);
   the tune's file has six others that were tried (VSCO's at pp, the
   University of Iowa's Steinway B, lifted ones). A piano's attacks
@@ -200,7 +200,7 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
 - "Starlight & Aurora" (`mods/src/starlight_aurora.py`,
   `mods/starlight-aurora.xm`) is the user's second tune, four parts
   from his MIDI file as they are there. It is the speaker's pack's
-  ninth clip and in no other: on a buzzer it does not sound (the
+  eighth clip and in no other: on a buzzer it does not sound (the
   user, 2026-11-20), so `clips/` has no clip of it and
   `scripts/speaker-clips.sh` makes it from the module. Its label is
   the module's title, "Starlight and Aurora" (a label may not have
@@ -259,7 +259,7 @@ scripts/speaker-clips.sh
 ## Build variables
 
 ```
-ALARM_CLIP=clips/trantor.bpr,wav/tune.pcm cargo build --release
+ALARM_CLIP=clips/halftime.xmc,wav/tune.pcm cargo build --release
 CLIP_MODULATOR=sd CLIP_KBPS=256 cargo build --release
 CLIP_MODULATOR=pwm cargo build --release
 CLIP_PDM_BITS=128 cargo build --release

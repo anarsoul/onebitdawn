@@ -89,9 +89,9 @@ from `http://<ip>/update`; its settings survive the update.
 - `/api` refuses a `password` with no network to use it on, which an
   unprovisioned access point used to save.
 - A clip no longer plays an octave down and stuttering, which every
-  sampled clip, module and chip tune did now and then after Trantor
-  (the beeper clip) had been played, until Trantor was played again.
-- Trantor (the beeper clip) plays at its own rate every time. On
+  sampled clip, module and chip tune did now and then after a beeper
+  clip had been played, until one was played again.
+- A beeper clip plays at its own rate every time. On
   every play but the first after a reset the line ran 0.16 % off the
   clock the clip is fed by, which a long ring would have run into.
 - Play no longer interrupts a ringing alarm (it played the melody
@@ -100,6 +100,13 @@ from `http://<ip>/update`; its settings survive the update.
   the MQTT `silence` command ends it.
 - The System page's line after an upload or a reboot has its full
   stop.
+
+### Removed
+
+- Trantor, the ZX Spectrum beeper tune, is no longer in the default
+  clip pack: the right to distribute it is not to be had. A clock
+  whose alarm had it chosen rings its default melody after the new
+  pack is written. The beeper player stays, for a pack of your own.
 
 ### Added
 
@@ -118,15 +125,15 @@ from `http://<ip>/update`; its settings survive the update.
   Grieg's first *Peer Gynt* suite: "Morning Mood" with an orchestra's
   instruments and again as a chiptune, and "Mountain King" (In the
   Hall of the Mountain King).
-- An eighth, "Suspended Seconds", a piano tune by Vasily Khoruzhick
+- A seventh, "Suspended Seconds", a piano tune by Vasily Khoruzhick
   written for the clock, played with its velocities and its sustain
   pedal. The tune is its composer's and not under the project's
   licence (`clips/README.md`).
-  The pack is eight clips and 728 KB.
-- The speaker's pack has a ninth, "Starlight & Aurora" (on the pages
+  The pack is seven clips and 660 KB.
+- The speaker's pack has an eighth, "Starlight & Aurora" (on the pages
   "Starlight and Aurora"), his too and under the same terms: a soft
   piano, a bell, a lead and a bass, which a buzzer cannot say. That
-  pack is 950 KB.
+  pack is 882 KB.
 - The alarm sound is stored by its name and no longer by its place in
   the list: an alarm keeps its clip through a new clip pack that still
   has it, in whatever order, and through a firmware with more note
@@ -162,9 +169,7 @@ from `http://<ip>/update`; its settings survive the update.
   into the new pack. `/api` has a read-only `clips` key, `pack` or
   `builtin`.
 
-- Four more alarm melodies that are not beeps: the title music of
-  *Trantor: The Last Stormtrooper* by David Whittaker, as the ZX
-  Spectrum's speaker played it, two chiptunes by Dualtrax (from
+- Three more alarm melodies that are not beeps: two chiptunes by Dualtrax (from
   ORiON's key generators), "Halftime" and "Keygen", played from their tracker modules by a player in the
   firmware, and "Synchronization" by n1k-o, a ZX Spectrum AY tune
   played from its Pro Tracker 3 module by a player and an AY-3-8910
@@ -176,9 +181,8 @@ from `http://<ip>/update`; its settings survive the update.
   round with no gap, as they are written to loop. The music is its
   authors'; see `clips/README.md`.
 - A beeper clip is packed (`BPR3`): runs that were played before are
-  a reference to them, read in place from the flash. Trantor is 68 KB
-  for 146 and the default pack 105 KB for 183, with the same pulses on
-  the line. `scripts/zxbeeper.py` writes it, and packs an older clip
+  a reference to them, read in place from the flash: a tune of 146 KB
+  is 68, with the same pulses on the line. `scripts/zxbeeper.py` writes it, and packs an older clip
   given in a tape's place; the older format still plays.
 - A SID tune's record is packed the same way (`SID2`,
   the pack maker's): a tune of 62 KB is 12.

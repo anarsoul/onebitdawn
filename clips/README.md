@@ -4,31 +4,17 @@ The clips of the default clip pack, the extra alarm melodies a clock
 has in its `clips` partition (see "Clip packs" in `MANUAL.md`):
 
 ```
-scripts/clips.sh                                       # packs/clips-default.bin, these eight
-cargo pack -o packs/one.bin clips/trantor.bpr          # a pack of one of them
-ALARM_CLIP=clips/trantor.bpr cargo build --release     # or built into the firmware, the older way
+scripts/clips.sh                                       # packs/clips-default.bin, these seven
+cargo pack -o packs/one.bin clips/keygen.xmc           # a pack of one of them
+ALARM_CLIP=clips/keygen.xmc cargo build --release      # or built into the firmware, the older way
 ```
 
-The first four are other people's music and are **not** covered by
+The first three are other people's music and are **not** covered by
 the project's MIT OR Apache-2.0 licence; each is credited below, and
 copyright stays with its author. The next three were made here. The
 last is the project's author's own tune, and is **not** under the
-project's licence either; so is a ninth that only the speaker's pack
+project's licence either; so is an eighth that only the speaker's pack
 has, at the end of this file.
-
-## `trantor.bpr`
-
-The title music of *Trantor: The Last Stormtrooper* (ZX Spectrum, Probe
-Software / Go!, 1987), composed by **David Whittaker**. The music is
-his; copyright remains with him and the game's publishers, and nothing
-here grants any right to it.
-
-The file is what the game's own player sends to the Spectrum's
-speaker, recorded in an emulator as run lengths of the speaker bit by
-`scripts/zxbeeper.py --seconds 126.5` (one pass of the tune, to the
-point where the game starts it over; pulses as played), which writes
-a stretch of runs that has been played before as a reference to it:
-the file is half the size and the runs are the same. It is not a new arrangement or performance.
 
 ## `halftime.xmc` and `keygen.xmc`
 
@@ -180,7 +166,7 @@ buzzer does not say, so only the pack for a clock with a speaker
 scripts/surgenotes.py "/usr/share/surge-xt/patches_3rdparty/LinnStrument MPE/Keys/Acoustic Grand.fxp" \
     xm/surge/acoustic-grand F3:56 F3:78 G3:56 A3:78 C4:56 C4:78 D4:56 E4:56 E4:78 F4:78
 scripts/mkxm.py mods/src/starlight_aurora.py mods/starlight-aurora.xm
-scripts/speaker-clips.sh        # the module with knee=64,release=13, the pack's ninth clip
+scripts/speaker-clips.sh        # the module with knee=64,release=13, the pack's eighth clip
 ```
 
 The limiter is off, a knee of 64 being over the tune's peak: at the

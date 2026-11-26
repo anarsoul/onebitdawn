@@ -56,8 +56,7 @@ host and the browser, over `core`. `CLAUDE.md` is a symlink to this file; edit t
 - `3rdparty/` is the reverse-engineering reference (public domain), ignored
   by git. Read it; do not modify it.
 - `clips/` holds the clips of the default clip pack
-  (`scripts/clips.sh`, the CI and the release make it): Trantor's title
-  music, two of Dualtrax's modules (written for ORiON's key
+  (`scripts/clips.sh`, the CI and the release make it): two of Dualtrax's modules (written for ORiON's key
   generators, hence the file names) and n1k-o's "synchronization", a
   PT3 module that is here with his permission (the user asked him,
   2026-11-16); the modules' sources are in `mods/`. They

@@ -2,14 +2,13 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 Vasily Khoruzhick
 # Make the default clip pack for a clock with a speaker in the buzzer's
-# place (speaker-mod/README.md): the eight clips of clips/, the
+# place (speaker-mod/README.md): the seven clips of clips/, the
 # XM modules converted again from mods/ with the bass left in (a high-pass
 # at 100 Hz, once) and the limiter letting go over 128 ms and not 16:
 # as hard a drive as the buzzer's clips have, but a gain that follows
 # the tune's level and not its waveform, which on a speaker is heard
 # as overdrive. Some 2 dB under the buzzer's clips; with no limiter at
 # all (--knee) they were 6 dB under and too quiet (2026-11-15).
-# Trantor is the Spectrum's speaker bit and is the same for either.
 # Synchronization has the noise at full level, the high-pass at
 # 100 Hz, the release at 128 ms, and a gentler limiter than the
 # modules': its knee at 37 (22 dB over the player's own, so the tune's
@@ -22,7 +21,7 @@
 # second (release=13) from a low knee, so it rides a passage's level
 # and not a note's (the user's choice, 2026-11-19; the buzzer's clip
 # has release=10).
-# Starlight and Aurora is this pack's alone, its ninth and last: a
+# Starlight and Aurora is this pack's alone, its eighth and last: a
 # soft piano under 350 Hz and a bass under 110, which on a buzzer does
 # not sound (the user, 2026-11-20), so the buzzer's pack and clips/
 # have no clip of it. Its limiter is off, a knee of 64 being over the
@@ -37,7 +36,7 @@
 # The pack maker's `--sound-output speaker` is these settings, so the
 # pack is the default one's sources through it: packs/clips-default-speaker.bin,
 # under the default pack's names, so a clock's melody setting means the
-# same tune after it (the ninth but for a clock that had it chosen and
+# same tune after it (the eighth but for a clock that had it chosen and
 # is given the buzzer's pack).
 # Usage: scripts/speaker-clips.sh [pack.bin]    the pack's path, from the
 #                                               repository's root; the
@@ -47,7 +46,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 pack=${1:-packs/clips-default-speaker.bin}
-cargo pack -o "$pack" --sound-output speaker clips/trantor.bpr \
+cargo pack -o "$pack" --sound-output speaker \
     "mods/Orion - Nero Burning ROM v5.5.7.8kg.xm:name=halftime" mods/Orion-Nero6.3.0.2.xm:name=keygen \
     mods/nq-synchronization.pt3:restart,name=synchronization \
     mods/grieg-morning-bright.xm mods/grieg-morning-chip.xm mods/grieg-mountain-king-bright.xm \

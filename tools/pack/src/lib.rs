@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn a_name_is_the_files_letters() {
         assert_eq!(names("mods/Orion - Nero Burning ROM v5.5.7.8kg.xm").unwrap().0, "orion_nero_burning_rom_v_kg");
-        assert_eq!(names("clips/trantor.bpr").unwrap(), ("trantor".into(), "Trantor".into()));
+        assert_eq!(names("tap/trantor.bpr").unwrap(), ("trantor".into(), "Trantor".into()));
         assert_eq!(names("C:\\tunes\\nq-synchronization.PT3").unwrap(), ("nq_synchronization".into(), "Nq Synchronization".into()));
         assert_eq!(names("ORiON.xm").unwrap().1, "Orion");
         assert!(names("1234.wav").is_none());

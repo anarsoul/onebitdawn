@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn an_argument_comes_apart() {
-        assert_eq!(Spec::parse("clips/trantor.bpr"), spec("clips/trantor.bpr", &[], None));
+        assert_eq!(Spec::parse("tap/trantor.bpr"), spec("tap/trantor.bpr", &[], None));
         assert_eq!(Spec::parse("wav/tune.pcm:loop=My Tune"), spec("wav/tune.pcm", &[("loop", "")], Some("My Tune")));
         assert_eq!(Spec::parse("a.wav=My: Tune"), spec("a.wav", &[], Some("My: Tune")));
         assert_eq!(Spec::parse("a.sid:song=2,seconds=90"), spec("a.sid", &[("song", "2"), ("seconds", "90")], None));

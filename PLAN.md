@@ -1956,6 +1956,32 @@ until the next tag.
 
 Owed: an install of each choice from the page onto a clock.
 
+## Trantor out of the default pack — built 2026-11-25, on the host
+
+The user: the right to distribute Trantor's title music is not to be
+had, so it leaves the default pack and the repository's tree for the
+local packs. A fix of what is distributed, so on master.
+
+- `clips/trantor.bpr` is `tap/trantor-packed.bpr` (ignored), and
+  `packs/local.sh` takes it from there under its old name and label,
+  first in the three local packs as it was.
+- The default pack is seven clips, 660 KB, and the speaker's eight,
+  882 KB: `scripts/clips.sh`, `scripts/speaker-clips.sh`, both
+  workflows (the pack, the built-in clips' test run, the pack maker's
+  check), the pack maker's tests, `clips/README.md`, `MANUAL.md`,
+  `README.md`, `CHANGELOG.md`.
+- The melody is kept by name: a clock with Trantor chosen rings its
+  default after the new pack. The beeper player and
+  `scripts/zxbeeper.py` stay; no clip in the repository is a beeper
+  clip now, so the CI's run with the clips built in no longer covers
+  `the_beeper_clips_built_in_add_up` (the synthetic beeper tests
+  remain).
+- The file is still in the repository's history and in the packs of
+  the releases up to v0.5-rc6; nothing was done about either.
+
+Run on the host: `cargo pack-test`, `cargo host-test` with and
+without the seven built in, both packs made, `packs/local.sh`.
+
 ## Checks still owed
 
 - "Suspended Seconds" (2026-11-19, in `HISTORY.md`): the processor's
