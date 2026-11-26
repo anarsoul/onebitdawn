@@ -20,7 +20,7 @@ from `http://<ip>/update`; its settings survive the update.
   edges.
 - The module player no longer clicks where a note is cut by the next
   on its channel or a level changes: both are ramped over a few
-  milliseconds, as FastTracker does. Halftime and Keygen are played
+  milliseconds, as FastTracker does. Keygen is played
   with it too.
 - **The project is now called onebitdawn** (it was esp32clock; the
   releases up to v0.4 and their files keep that name). What changes
@@ -57,7 +57,7 @@ from `http://<ip>/update`; its settings survive the update.
   partition, `clips`: half a megabyte from each of the two firmware
   slots and the 128 KB at the end of the flash that nothing used. A pack is made with `onebitdawn-pack` or on its web page (up to
   16 clips), checked by a SHA-256 at upload and at every boot, and
-  played in place from the flash. The default pack, the eight clips
+  played in place from the flash. The default pack, the seven clips
   below, is `onebitdawn-clips-<tag>.bin` on a release, and the web
   installer writes it.
 - **A clock flashed before this release has the old partition table,
@@ -107,6 +107,10 @@ from `http://<ip>/update`; its settings survive the update.
   clip pack: the right to distribute it is not to be had. A clock
   whose alarm had it chosen rings its default melody after the new
   pack is written. The beeper player stays, for a pack of your own.
+- Halftime, Dualtrax's other chiptune, is no longer in the default
+  clip pack either: no licence for it is known, and its author could
+  not be reached. A clock whose alarm had it chosen rings its default
+  melody after the new pack is written.
 
 ### Added
 
@@ -125,20 +129,20 @@ from `http://<ip>/update`; its settings survive the update.
   Grieg's first *Peer Gynt* suite: "Morning Mood" with an orchestra's
   instruments and again as a chiptune, and "Mountain King" (In the
   Hall of the Mountain King).
-- A seventh, "Suspended Seconds", a piano tune by Vasily Khoruzhick
+- A sixth, "Suspended Seconds", a piano tune by Vasily Khoruzhick
   written for the clock, played with its velocities and its sustain
   pedal. The tune is its composer's and not under the project's
   licence (`clips/README.md`).
-- An eighth, "Serial Dawn", a chiptune in the manner of the key
+- A seventh, "Serial Dawn", a chiptune in the manner of the key
   generators' music, written for the clock: a rising arpeggio, then a
   pulse lead over tonic, subdominant and dominant, of waves made by
   its script and nothing recorded. A ringing alarm plays it round
   from after its introduction. It is the project's, under its licence.
-  The pack is eight clips and 680 KB.
-- The speaker's pack has a ninth, "Starlight & Aurora" (on the pages
+  The pack is seven clips and 669 KB.
+- The speaker's pack has an eighth, "Starlight & Aurora" (on the pages
   "Starlight and Aurora"), his too and under the same terms: a soft
   piano, a bell, a lead and a bass, which a buzzer cannot say. That
-  pack is 902 KB.
+  pack is 891 KB.
 - The alarm sound is stored by its name and no longer by its place in
   the list: an alarm keeps its clip through a new clip pack that still
   has it, in whatever order, and through a firmware with more note
@@ -174,8 +178,8 @@ from `http://<ip>/update`; its settings survive the update.
   into the new pack. `/api` has a read-only `clips` key, `pack` or
   `builtin`.
 
-- Three more alarm melodies that are not beeps: two chiptunes by Dualtrax (from
-  ORiON's key generators), "Halftime" and "Keygen", played from their tracker modules by a player in the
+- Two more alarm melodies that are not beeps: "Keygen", a chiptune by Dualtrax (from
+  ORiON's key generators; CC BY 3.0), played from its tracker module by a player in the
   firmware, and "Synchronization" by n1k-o, a ZX Spectrum AY tune
   played from its Pro Tracker 3 module by a player and an AY-3-8910
   in the firmware, here with his permission. They go out of the buzzer pin as a bitstream from I2S (the

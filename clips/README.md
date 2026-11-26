@@ -4,45 +4,41 @@ The clips of the default clip pack, the extra alarm melodies a clock
 has in its `clips` partition (see "Clip packs" in `MANUAL.md`):
 
 ```
-scripts/clips.sh                                       # packs/clips-default.bin, these eight
+scripts/clips.sh                                       # packs/clips-default.bin, these seven
 cargo pack -o packs/one.bin clips/keygen.xmc           # a pack of one of them
 ALARM_CLIP=clips/keygen.xmc cargo build --release      # or built into the firmware, the older way
 ```
 
-The first three are other people's music and are **not** covered by
+The first two are other people's music and are **not** covered by
 the project's MIT OR Apache-2.0 licence; each is credited below with
-its terms (the second is CC BY 3.0), and
+its terms (the first is CC BY 3.0), and
 copyright stays with its author. The next three were made here, and
-so was the last. The seventh is the project's author's own tune, and
-is **not** under the project's licence either; so is a ninth that only the speaker's pack
+so was the last. The sixth is the project's author's own tune, and
+is **not** under the project's licence either; so is an eighth that only the speaker's pack
 has, at the end of this file.
 
-## `halftime.xmc` and `keygen.xmc`
+## `keygen.xmc`
 
-Two chiptunes by **Dualtrax** (of Chemical Reaction and Analogik),
-written as FastTracker 2 modules for the key generators of the group
-ORiON: "halftime" (2002) and "keygentune2003 orn". The modules are
-signed in their instrument names, `dt/cro/analogik` and
-`dualtrax/cro/`; see [Dualtrax on Demozoo](https://demozoo.org/sceners/5763/).
-The music is Dualtrax's, and copyright remains with its author.
+"keygentune2003 orn" by **Dualtrax** (of Chemical Reaction and
+Analogik), a chiptune written as a FastTracker 2 module for the key
+generators of the group ORiON. The module is signed in its instrument
+names, `dualtrax/cro/`; see
+[Dualtrax on Demozoo](https://demozoo.org/sceners/5763/). The music
+is Dualtrax's, and copyright remains with its author. He has
+published it as
+["dualtrax - orion keygentune 2003"](https://soundcloud.com/dualtrax/dualtrax-orion-keygentune-2003)
+under the Creative Commons Attribution 3.0 Unported licence,
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), and it is
+here, and in the clip packs, under that licence. `keygen.xmc` is
+changed from his module only as described below: converted for the
+clock's player, and labelled "Keygen" on the clock's pages.
 
-- **"keygentune2003 orn"** he has published as
-  ["dualtrax - orion keygentune 2003"](https://soundcloud.com/dualtrax/dualtrax-orion-keygentune-2003)
-  under the Creative Commons Attribution 3.0 Unported licence,
-  [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), and it
-  is here, and in the clip packs, under that licence. `keygen.xmc` is
-  changed from his module only as described below: converted for the
-  clock's player, and labelled "Keygen" on the clock's pages.
-- **"halftime"** has no licence that we know of, and nothing here
-  grants any right to it.
-
-The modules themselves are in `mods/` as they were found, and these
-two files are what the pack maker (`tools/pack`) makes of them for the clock's
+The module itself is in `mods/` as it was found, and this file is
+what the pack maker (`tools/pack`) makes of it for the clock's
 own player (`core/src/xm.rs`), with its defaults: the same patterns
 and samples rearranged, nothing rendered.
 
 ```
-cargo pack --clip clips/halftime.xmc "mods/Orion - Nero Burning ROM v5.5.7.8kg.xm:name=halftime"
 cargo pack --clip clips/keygen.xmc mods/Orion-Nero6.3.0.2.xm
 ```
 
@@ -193,7 +189,7 @@ buzzer does not say, so only the pack for a clock with a speaker
 scripts/surgenotes.py "/usr/share/surge-xt/patches_3rdparty/LinnStrument MPE/Keys/Acoustic Grand.fxp" \
     xm/surge/acoustic-grand F3:56 F3:78 G3:56 A3:78 C4:56 C4:78 D4:56 E4:56 E4:78 F4:78
 scripts/mkxm.py mods/src/starlight_aurora.py mods/starlight-aurora.xm
-scripts/speaker-clips.sh        # the module with knee=64,release=13, the pack's ninth clip
+scripts/speaker-clips.sh        # the module with knee=64,release=13, the pack's eighth clip
 ```
 
 The limiter is off, a knee of 64 being over the tune's peak: at the

@@ -119,11 +119,11 @@ The alarm melodies that are not notes (sampled sound, a ZX Spectrum
 beeper tune, tracker modules, Commodore 64 and AY tunes) are clips,
 and a clock's clips are a *clip pack* in a flash partition of their
 own, `clips`, 1152 KB, so they can be changed without a new
-firmware. The default pack is the eight clips in `clips/`; a release
+firmware. The default pack is the seven clips in `clips/`; a release
 has it as `onebitdawn-clips-<tag>.bin`.
-`onebitdawn-clips-speaker-<tag>.bin` is the same eight made for a
+`onebitdawn-clips-speaker-<tag>.bin` is the same seven made for a
 clock with a speaker (in the buzzer's place, or on the line output's
-amplifier), the bass left in and a gentler limiter, and a ninth,
+amplifier), the bass left in and a gentler limiter, and an eighth,
 "Starlight and Aurora", which a buzzer cannot say. The web installer
 asks which of the two to write; later, upload one in the other's
 place.
@@ -189,7 +189,7 @@ and its `.bpr` goes into a pack as it is.
 A clock flashed before the partition existed keeps its old partition
 table through updates over the LAN: it runs the new firmware, with the
 note melodies only, until it is flashed once over USB or from the web
-installer (the settings survive both). `ALARM_CLIP=clips/halftime.xmc,…
+installer (the settings survive both). `ALARM_CLIP=clips/keygen.xmc,…
 cargo build --release` still builds clips into the firmware, for such
 a clock; a pack, where there is one, takes their place.
 

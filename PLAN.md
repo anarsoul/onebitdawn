@@ -2234,6 +2234,37 @@ local packs. A fix of what is distributed, so on master.
 Run on the host: `cargo pack-test`, `cargo host-test` with and
 without the seven built in, both packs made, `packs/local.sh`.
 
+## Halftime out of the default pack; Keygen is CC BY 3.0 — built 2026-11-26, on the host
+
+The user: Dualtrax published Keygen on SoundCloud as CC BY (the
+page's licence field is `cc-by`; 3.0 Unported by the user's word),
+and no licence is to be found for Halftime, whose author does not
+answer. So Keygen stays under that licence and Halftime leaves the
+default pack and the tree for the local packs. A fix of what is
+distributed, so on master.
+
+- `clips/README.md` has Keygen's terms: the credit, the track's
+  page, the licence's link, what was changed (converted, labelled).
+- Halftime's module and clip are in the ignored `xm/`, and
+  `packs/local.sh` converts the module from there under its old name
+  and label, second as it was; the buzzer's local pack is the same
+  786 623 bytes.
+- The default pack is seven clips, 669 KB, and the speaker's eight,
+  891 KB: the same places as for Trantor, above. The pack maker's
+  check in both workflows takes `clips/serial_dawn.xmc` for the clip
+  made already.
+- The melody is kept by name: a clock with Halftime chosen rings its
+  default after the new pack.
+- The files are still in the repository's history and in the packs
+  of the releases up to v0.5-rc6; nothing was done about either.
+- Found on the way, not fixed: `packs/local.sh` gives the speaker's
+  and the amplifier's packs `--limiter`, which master's pack maker
+  has not, so only the buzzer's local pack is made here.
+
+Run on the host: `cargo pack-test`, `cargo host-test` with and
+without the seven built in, both default packs made, the buzzer's
+local pack.
+
 ## Checks still owed
 
 - "Suspended Seconds" (2026-11-19, in `HISTORY.md`): the processor's

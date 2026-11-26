@@ -60,7 +60,7 @@ jobs:
       - name: Test the pack maker
         run: cargo pack-test
       - name: Test with the clips built in
-        run: ALARM_CLIP=clips/halftime.xmc,clips/keygen.xmc,clips/synchronization.pt3c,clips/morning_mood.xmc,clips/morning_mood_chip.xmc,clips/mountain_king.xmc,clips/suspended_seconds.xmc,clips/serial_dawn.xmc cargo host-test
+        run: ALARM_CLIP=clips/keygen.xmc,clips/synchronization.pt3c,clips/morning_mood.xmc,clips/morning_mood_chip.xmc,clips/mountain_king.xmc,clips/suspended_seconds.xmc,clips/serial_dawn.xmc cargo host-test
       - name: Build
         run: cargo build --release
       - name: Clippy
@@ -91,14 +91,14 @@ jobs:
           # firmware has no clips built in, so the web installer writes
           # it too. Checked by the parser the clock reads it with.
           cargo pack -o "images/onebitdawn-clips-${GITHUB_REF_NAME}.bin" \
-            clips/halftime.xmc clips/keygen.xmc \
-            clips/synchronization.pt3c clips/morning_mood.xmc \
+            clips/keygen.xmc clips/synchronization.pt3c \
+            clips/morning_mood.xmc \
             clips/morning_mood_chip.xmc clips/mountain_king.xmc \
             clips/suspended_seconds.xmc clips/serial_dawn.xmc
           CLIP_PACK_FILE="images/onebitdawn-clips-${GITHUB_REF_NAME}.bin" \
             cargo host-test the_pack_file_parses -- --nocapture
-          # The same eight for a clock with a speaker, converted again
-          # from mods/, and a ninth that a buzzer cannot say
+          # The same seven for a clock with a speaker, converted again
+          # from mods/, and an eighth that a buzzer cannot say
           # (scripts/speaker-clips.sh): for the Clips page
           # or `espflash write-bin 0x2e0000`; the web installer writes
           # the buzzer's.
@@ -144,7 +144,7 @@ jobs:
           cp "target/${{ matrix.target }}/tool/onebitdawn-pack${{ matrix.exe }}" \
             "tools-out/onebitdawn-pack-${GITHUB_REF_NAME}-${{ matrix.name }}${{ matrix.exe }}"
           "tools-out/onebitdawn-pack-${GITHUB_REF_NAME}-${{ matrix.name }}${{ matrix.exe }}" \
-            -o tools-out/check.bin clips/halftime.xmc mods/Orion-Nero6.3.0.2.xm:name=keygen
+            -o tools-out/check.bin clips/serial_dawn.xmc mods/Orion-Nero6.3.0.2.xm:name=keygen
           rm tools-out/check.bin
       - uses: actions/upload-artifact@v6
         with:
