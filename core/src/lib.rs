@@ -26,6 +26,7 @@ pub mod clock;
 pub mod config;
 pub mod form;
 pub mod http;
+pub mod mdns;
 pub mod melody;
 pub mod mqtt;
 pub mod ota;

@@ -17,6 +17,7 @@ pub mod dnsd;
 pub mod display;
 pub mod heal;
 pub mod http;
+pub mod mdns;
 pub mod mqtt;
 pub mod net;
 pub mod ota;

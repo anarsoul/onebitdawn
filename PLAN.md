@@ -81,6 +81,87 @@ is poor, and a reconnect when a much stronger BSSID of the same
 network is seen, is the obvious shape; nothing is designed. A
 feature, so for `next`, not for master before v0.5.
 
+## An mDNS responder: the clock is `<hostname>.local` — built and tested on the bench board 2026-11-26, on `next`
+
+A network whose router does not put DHCP names in its DNS had no
+name for the clock. Crates looked at: `edge-mdns` 0.8 with
+`edge-nal-embassy` 0.9 would work with embassy-net 0.9 but brings the
+`domain` crate, a second embassy-sync and `rand_core`, and does not
+probe for the name either; `mdns-proto` needs an allocator to build a
+message. The user chose a responder of our own, as the access point's
+DHCP and DNS are.
+
+- `core/src/mdns.rs`, pure and under test: `respond` reads a query
+  (several questions, compressed names, the known answers) and writes
+  the answer, `announce` the unsolicited one. Only the host's records:
+  an A for `<hostname>.local`, and an NSEC saying A is all there is,
+  so a lookup of AAAA is answered "none" instead of timing out. No
+  services (DNS-SD), no IPv6, no reverse lookup.
+- A query from port 5353 is answered to the group, or to the asker
+  alone when it set the unicast bit; one from another port (a plain
+  resolver) to the asker with its id and question, a TTL of 10 s and
+  no cache-flush bit. A known answer with half the TTL left
+  suppresses ours.
+- `src/mdns.rs`, the task, station only: a socket on 5353 with a hop
+  limit of 255, the group joined when the address is up (embassy-net's
+  `multicast` feature, which is IGMP) and left when it goes, two
+  announcements a second apart at each address. The name is read from
+  the settings at each query; a changed hostname renews DHCP, which
+  drops the address, so the new name is announced with no receiver of
+  the settings. A query from outside the subnet is not answered.
+- The parser is what any host on the network reaches: pointers go
+  back only, a name is 255 bytes at most, responses are not read; a
+  test mutates queries by the hundred thousand. Answers to the group
+  are held to one of a kind a second.
+- Not done: a goodbye before a reset (the address comes back the
+  same and is announced with the cache-flush bit; only a renamed
+  clock's old name lingers, 120 s), services for `avahi-browse`, the
+  name on the access point, `cargo-fuzz` on the parser.
+- Not done, by the user's decision (2026-11-26): probing for the
+  name and renaming on a conflict. Two clocks of one name both
+  answer and the name flips between them, the default `clock` on two
+  clocks above all; a suffix would be a name no setting shows, given
+  by boot order, and one any host could force. Looked at and not
+  taken either: detecting a conflict and saying so on the pages, a
+  default hostname with the MAC's tail. The manual says to name each
+  clock.
+
+Tested 2026-11-26 on the bench board (another-bench) and, at first the build
+before the parser's hardening, on white-clock:
+
+- The name resolves from Linux, macOS and Android (the user), and by
+  `ping`, `avahi-resolve -n` and a plain resolver's A and AAAA
+  queries from the session, in about 200 ms; the page opens by it.
+- Two hours of load with `stack-watch`, one before the hardening and
+  one after (each four alarms rung to the time-out, 43 clips
+  previewed, the pages, `/api` and lookups four times a minute, MQTT
+  connected): no panic, no underrun, no watchdog trip, and the stack
+  no deeper than before the responder (`agents/sizes.md`).
+- Against `HEAD`: 2008 bytes of the main stack (32 656 → 30 648),
+  7.8 KB of `.text` and 0.8 KB of `.rodata`, IGMP with them.
+- A hostname changed over `/api` on the bench board: the old name
+  is no longer answered from that moment, the new one is announced
+  when DHCP has renewed 3 s later and resolves from then (a plain
+  resolver and Avahi; the page opens by it), and the same back.
+
+Learned:
+
+- Nothing of the stack may be asked inside `recv_from_with`'s
+  closure, which runs with it borrowed: `config_v4` there panicked at
+  the first datagram. The image had confirmed itself by then, so it
+  did not roll back, and with some five mDNS datagrams a second on
+  the home network no upload could finish between resets: white-clock
+  had to be flashed over USB. The address is taken once at each
+  config-up instead.
+- Avahi does not read the NSEC: `getent hosts`, which asks for AAAA
+  first, still takes its 5 s.
+- One plain resolver's query, the first after a flash, went
+  unanswered and was not seen again; not explained.
+
+Owed: the hardened build looked at on white-clock, which has it
+since the evening of 2026-11-26; the name from Windows, and after
+the network's access point restarts.
+
 ## A line output on the adapter for an amplifier — the setting built and heard 2026-11-18; the shutdown pin built, not checked; the adapters ordered 2026-11-19
 
 The user's idea (2026-11-15): an amplifier in place of Q1, fed the

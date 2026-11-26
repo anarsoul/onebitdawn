@@ -15,7 +15,7 @@ module ends with its `#[cfg(test)] mod tests`.
 `core/src/lib.rs` is `#![cfg_attr(not(test), no_std)]` and the module
 list, nothing else.
 
-Ten modules are split, the pure half in `core/src/` under the same
+Eleven modules are split, the pure half in `core/src/` under the same
 name and the hardware half in `src/`:
 
 | module | pure half | hardware half |
@@ -28,6 +28,7 @@ name and the hardware half in `src/`:
 | `pack` | the clip pack's layout and checks | the partition, its mapping and the upload |
 | `clip` | `Player`, `Stream` and the ring's `Pacer` | I2S0, its DMA ring and the pin |
 | `mqtt` | topics, routes and the discovery payload | the session task |
+| `mdns` | the responder's messages | the socket task |
 | `sensors` | the NTC and LDR tables and the thermometer's hold | the ADC task |
 | `watchdog` | the timeouts, `Party`, `verdict` and the carry word | the RTC watchdog and its feeder task |
 
@@ -699,6 +700,20 @@ broadcast.
 (every A question is the clock, anything else an empty answer), the
 socket task around it.
 
+**`core/src/mdns.rs`**: the station's mDNS responder, pure:
+`respond` reads a query (any number of questions, compressed names,
+the known answers) and writes the answer for `<hostname>.local`, an A
+and an NSEC that says A is all the name has; `To` says whether it
+goes to the group or the asker; `announce` is the same unasked.
+`RESPONSE_MAX` is the longest of them; `Limit` keeps the group to one
+answer of a kind a second. No probing, no services. The tests cut,
+loop and mutate queries (`no_packet_panics`, 200 000 of them).
+
+**`src/mdns.rs`**: its task: the socket on 5353, the group joined
+while the address is up, two announcements at each address, a query
+from outside the subnet passed by. The name and the address are read
+at each query.
+
 ## Start-up
 
 **`src/bin/main.rs`**: pin setup, the display wires with their
@@ -791,5 +806,6 @@ Not under test: `scan.rs`'s `build_cycle` (the M1 lit-time check needs
 it on the host), `ring.rs` (descriptors and registers; its layout is
 `const`-asserted), `src/clip.rs` (the I2S transfer and the pin),
 `dhcpd.rs` and `dnsd.rs` (their pure halves use embassy-net's address
-types), `storage.rs`'s map over the flash, `mqtt.rs`'s session loop.
+types), `storage.rs`'s map over the flash, `mqtt.rs`'s session loop,
+`src/mdns.rs`'s socket loop.
 `HISTORY.md` records the checks of each milestone; new ones are tests.

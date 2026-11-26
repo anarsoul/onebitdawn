@@ -89,6 +89,7 @@ executor** runs the rest cooperatively.
 | thread, station | `net::wifi_task` | the Wi-Fi controller | scan, connect, DHCP on and off, RSSI, the transmit power setting |
 | thread, station | `net::ntp_task`, `hostname_task`, `monitor_task`, `probe_task` | sockets | time sync, DHCP hostname, link log, gateway ping and the self-heal trigger |
 | thread, station | `mqtt::mqtt_task` | a socket | Home Assistant session |
+| thread, station | `mdns::mdns_task` | a socket, the mDNS group | answers for `<hostname>.local` |
 | thread, access point | `net::ap_task`, `dhcpd::dhcpd_task`, `dnsd::dnsd_task` | the controller, sockets | the setup network, its leases, captive DNS |
 
 Tasks talk through a small set of statics, each defined in the module

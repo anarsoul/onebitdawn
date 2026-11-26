@@ -105,6 +105,7 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-23 | 32.7 → 32.8 KB | on `next`: the shaper's division as a multiply and its high-pass's coefficients as `i32`, 60 bytes less of `.rwtext` (33 528 → 33 592) |
 | 2026-11-23 | 32.8 → 32.0 KB | on `next`: the mixer by runs of 16 mixed samples, its loop built once a kind of sample, 852 bytes of `.rwtext` (33 592 → 32 728); with three predicted clips played the deepest use was 17 500 bytes, 17 432 before |
 | 2026-11-23 | 32.0 → 31.7 KB | on `next`: `fill_samples` writes a module's rendered samples a run at a time, 252 bytes of `.rwtext` (32 728 → 32 472) |
+| 2026-11-26 | 31.9 → 30.0 KB | on `next`: the mDNS responder's task, its socket's 1 KB of received datagrams above all, and the stack's multicast groups (32 656 → 30 648) |
 
 How much of it is used, measured 2026-11-23 on the bare bench board
 with the `stack-watch` feature (`src/stack.rs`: the stack painted,
@@ -116,6 +117,12 @@ the lowest word no longer painted found), the stack at 33 648 bytes:
 | running: two clips through, the pages and `/api` round and round, 18 saves, a refused firmware and a refused pack | 17 420 |
 | to the reset after a pack upload, a firmware upload, a `/reload` | 16 224 each |
 | four hours of one boot: eight alarms rung (seven to the time-out), 45 previews of the ten melodies, `/api` every 30 s, the pages every 5 min, 22 saves, MQTT connected | 17 432 |
+
+With the mDNS responder (2026-11-26, the same board, the stack at
+30 648 bytes): the boot 20 532 again, and 17 596 at the deepest in an
+hour of four alarms rung to the time-out, 43 clips previewed, the
+pages, `/api` and an mDNS lookup four times a minute, MQTT connected.
+The responder's cost is its statics; 10.1 KB is never touched.
 
 So 13.1 KB of it is never touched, and the boot is what goes
 deepest; what in the boot does is not looked into. Not seen: the
@@ -156,8 +163,8 @@ What takes it:
 - `settings::RECEIVERS` is the number of `Watch` receivers (display,
   persist, hostname, MQTT). Add one when a new task subscribes, or
   `receiver()` panics at boot.
-- `StackResources<11>` in `main.rs` covers DHCP, DNS, SNTP, the
-  gateway probe, the MQTT connection and the HTTP listeners with
+- `StackResources<12>` in `main.rs` covers DHCP, DNS, SNTP, the
+  gateway probe, the MQTT connection, the mDNS responder and the HTTP listeners with
   headroom (on the access point: the DHCP and DNS servers and the
   listeners). Adding sockets means raising it.
 - `HOSTNAME_MAX` (24) stays under embassy-net's 32-byte DHCP option.

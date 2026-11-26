@@ -43,6 +43,7 @@ embassy-net = { version = "0.9.1", features = [
   "icmp",
   "log",
   "medium-ethernet",
+  "multicast",
   "proto-ipv4",
   "tcp",
   "udp",

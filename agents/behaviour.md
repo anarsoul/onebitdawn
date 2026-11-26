@@ -85,7 +85,7 @@ Saved in the `nvs` partition; editable from the buttons, the pages and
 | alarm, alarm days, alarm melody | the melody is an index into the table, kept in the record by its name, see "Clip packs" |
 | `temp_offset` | tenths of a degree Celsius added to the NTC's reading, ±10.0, for the warm air at the sensor's spot in the case. Default −2.5 (`config::DEFAULT_TEMP_OFFSET_DC`, what the user's clocks typically need) for a clock with no record or one older than version 8; a stored value, 0 included, stays. |
 | `temp_show` | `off`, `c` or `f`, default `c`. With a reading in hand the UI shows ` 23C` with the degree mark for seconds 30 to 34 of every minute in clock mode (`ui::TEMP_SHOW_AT`, `TEMP_SHOW_SECS`). |
-| hostname | the DHCP hostname |
+| hostname | the DHCP hostname, and the clock's mDNS name, `<hostname>.local` |
 | `tx_power` | dBm: `2`, `5`, `7`, `8.5`, `11`, `13`, `14`, `15` or `16`; see "Wi-Fi power" in `agents/hardware.md` |
 | `output` | `buzzer` (the default), `line` or `split`: the pin the tones and the clips go out of, GPIO5 or GPIO20; `split` is the note melodies on GPIO5 and the clips on GPIO20. Read at every tone and every clip, so it changes with no reset. Not an MQTT `set/` key. See "Line output" in `agents/hardware.md` |
 | `beep_volume` | `quietest`, `quiet` (the default), `loud` or `loudest`: how loud a square wave is on the line output, the note melodies' and a beeper clip's (Trantor), which go through the converter there (`clip::Mean`): 12, 20, 32 or 50 hundredths of a module's full scale (`BeepVolume::pct`). The loudest is a PT3 module's three channels at their top level with no limiter (`clip::LINE_PCT_MAX`), and there is no way to set more. Nothing on the buzzer's pin changes with it; the settings page has its select disabled while the output is `buzzer` (a disabled field is not sent, and a form is a partial update), `/api` takes it whatever the output. Not an MQTT `set/` key. |
@@ -518,6 +518,43 @@ The session:
 
 Verify with `mosquitto_sub -v -t 'onebitdawn/#' -t 'homeassistant/#'`
 on the host.
+
+## The name on the network
+
+On the station the clock answers multicast DNS for
+`<hostname>.local` (`core::mdns`, the task in `src/mdns.rs`): an A
+record with its address, and an NSEC for any other type, AAAA above
+all, so a lookup of both ends at once.
+
+- A query from port 5353 is answered to the group, or to the asker
+  alone when every question for the name had the unicast bit; one
+  from another port to the asker, with its id and question, a TTL of
+  `LEGACY_TTL_SECS` and no cache-flush bit. A known answer with half
+  of `TTL_SECS` left is not repeated. A query from outside the
+  subnet is passed by.
+- The group hears the address at most once in `GROUP_GAP_MS`, and
+  the NSEC alone the same (`mdns::Limit`); an answer to the asker is
+  not held.
+- The parser is the one code any host on the network reaches with
+  no `admit`: a response is never read, a name's pointer may only
+  point back, a name is at most 255 bytes, and a message that breaks
+  any of it is dropped whole.
+- The group is joined (IGMP) while the address is up, and each new
+  address is announced twice. A changed hostname renews DHCP, so the
+  new name is announced then; the old one is no longer answered.
+- The name is not probed for nor defended (RFC 6762, sections 8 and
+  9, left out; the user, 2026-11-26): two clocks of one name both
+  answer, each with the cache-flush bit, so the name goes from one to
+  the other; the default `clock` on two clocks is the case. A second
+  name (`clock-2`) was refused because the hostname is one setting,
+  the DHCP name, the MQTT device's name and what `admit` holds `Host`
+  to as well; because which clock gets the suffix would go by the
+  order they boot in, so a bookmark or a script would reach the other
+  clock after a power cut with nothing to show it; and because any
+  host could answer the probes and take the name away. The cure is
+  `MANUAL.md`'s: a hostname a clock.
+- No services are advertised, there is no IPv6.
+- Not on the access point, where `admit` takes the address only.
 
 ## Cross-site requests
 

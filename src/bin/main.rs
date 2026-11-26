@@ -33,7 +33,7 @@ use onebitdawn::buzzer;
 use onebitdawn::clip;
 use onebitdawn::settings::{Settings, SoundPin};
 use onebitdawn::net::Mode;
-use onebitdawn::{buttons, carry, clock, dhcpd, display, dnsd, heal, http, mqtt, net, ota, pack, scan, sensors, settings, storage, watchdog};
+use onebitdawn::{buttons, carry, clock, dhcpd, display, dnsd, heal, http, mdns, mqtt, net, ota, pack, scan, sensors, settings, storage, watchdog};
 
 // The app descriptor the esp-idf bootloader requires, with the git
 // version in it so an image file says what it is before it is flashed.
@@ -231,7 +231,7 @@ async fn main(spawner: Spawner) -> ! {
     // Wi-Fi task starts DHCP once the station is connected and the link
     // has settled. Access point: the fixed address, the DHCP and DNS
     // servers and the listeners.
-    static RESOURCES: StaticCell<StackResources<11>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<12>> = StaticCell::new();
     let stack_config = if mode == Mode::AccessPoint { net::ap_stack_config() } else { embassy_net::Config::default() };
     let (stack, runner) = embassy_net::new(interface, stack_config, RESOURCES.init(StackResources::new()), seed);
 
@@ -285,6 +285,7 @@ async fn main(spawner: Spawner) -> ! {
         spawner.spawn(net::wifi_task(controller, stack).expect("spawn wifi"));
         spawner.spawn(net::ntp_task(stack).expect("spawn ntp"));
         spawner.spawn(net::hostname_task(stack).expect("spawn hostname"));
+        spawner.spawn(mdns::mdns_task(stack).expect("spawn mdns"));
         spawner.spawn(net::monitor_task(stack).expect("spawn monitor"));
         spawner.spawn(net::probe_task(stack).expect("spawn probe"));
         spawner.spawn(mqtt::mqtt_task(stack, mqtt::DeviceId::from_mac(mac)).expect("spawn mqtt"));

@@ -352,6 +352,18 @@ in the browser's light or dark:
   Each action puts a four-digit PIN on the panel when its button is
   pressed, and asks for it.
 
+On your network the clock is `<hostname>.local`, `http://clock.local/`
+for the default name, with nothing to set up on the router: it
+answers multicast DNS, which Linux (with Avahi or systemd-resolved),
+macOS, iOS, Android and Windows 10 and later all ask. Give two clocks
+two hostnames: the clock does not check that its name is free, and
+does not take another when it is not. Two clocks left at the default
+`clock` both answer for `clock.local`, and the name leads to one or
+the other from one lookup to the next; set each one's hostname on
+its settings page (or in the setup form) and the names are apart. On a
+router that keeps DHCP names the name works bare or with the
+router's suffix as well.
+
 The clock answers a browser only under its own address or its
 hostname, alone or with `.lan` or `.local` (`http://clock.lan/`), and
 takes a form only from its own pages, so a web page elsewhere cannot

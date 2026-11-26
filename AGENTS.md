@@ -213,10 +213,10 @@ must keep.
 The pure modules live in `core/src/`. Those with no hardware half
 (`aip33628`, `auth`, `config`, `form`, `melody`, `panel`, `settings`,
 `tz`, `ui`) the firmware re-exports from `src/lib.rs`, so firmware
-code says `crate::settings`. Ten
+code says `crate::settings`. Eleven
 modules are split, the pure half in `core/src/` and the hardware half
 in `src/` under the same name: `buttons`, `clock`, `carry`, `http`,
-`ota`, `pack`, `clip`, `mqtt`, `sensors`, `watchdog`; the hardware
+`ota`, `pack`, `clip`, `mqtt`, `mdns`, `sensors`, `watchdog`; the hardware
 half imports what it needs from `onebitdawn_core` and re-exports the
 types its callers use. The players (`adpcm`, `xm`, `sid`, `ay`,
 `pt3`, `refs`, `shape`) are not re-exported: the firmware reaches
@@ -234,6 +234,7 @@ its `#[cfg(test)] mod tests`. The full account of each file is
 | `core/src/auth.rs` | the API token and the panel PIN |
 | `core/src/http.rs` | the head parser, `admit`, `RESPONSE_BUF`, `PAGE_MAX` |
 | `core/src/mqtt.rs` | topics, routes, `SET_KEYS`, the discovery payload |
+| `core/src/mdns.rs` | the mDNS responder's messages: `respond`, `announce` |
 | `core/src/melody.rs` | the note melodies and the clip table at run time |
 | `core/src/pack.rs` | the clip pack's layout and checks |
 | `core/src/clip.rs` | `Player`, `Beeper`, `Stream`, the ring's `Pacer` |
@@ -250,6 +251,7 @@ its `#[cfg(test)] mod tests`. The full account of each file is
 | `src/http.rs` | the HTTP/1.0 server and every route |
 | `src/net.rs`, `dhcpd.rs`, `dnsd.rs` | station and access point, the probe, SNTP; the access point's servers |
 | `src/mqtt.rs` | the MQTT session task |
+| `src/mdns.rs` | the mDNS responder's task: `<hostname>.local` on the station |
 | `src/storage.rs` | the one flash handle, the settings map, the persist task |
 | `src/heal.rs` | the deliberate resets |
 | `core/src/watchdog.rs`, `src/watchdog.rs` | the deadlines, parties and the carry word; the RTC watchdog and its feeder task |
@@ -408,7 +410,7 @@ Each with its figures in `agents/sizes.md`.
   no item may pass `storage::ITEM_MAX` (see "Compatibility").
 - `settings::RECEIVERS` is the number of `Watch` receivers; add one
   when a new task subscribes, or `receiver()` panics at boot.
-- `StackResources<11>` in `main.rs`: adding a socket means raising it.
+- `StackResources<12>` in `main.rs`: adding a socket means raising it.
 - `HOSTNAME_MAX` stays under embassy-net's 32-byte DHCP option.
 - `config::WIFI_MTU` bounds every frame the clock sends and the probe
   is sized from it; a ping larger than the probe gets no reply.
@@ -435,7 +437,8 @@ tests over real clips run only with `ALARM_CLIP` naming some, which
 the CI does in a second run. Not under test: `scan.rs`'s
 `build_cycle`, `ring.rs` (its layout is `const`-asserted),
 `src/clip.rs`, `dhcpd.rs` and `dnsd.rs`,
-`storage.rs`'s map over the flash, `mqtt.rs`'s session loop. What is
+`storage.rs`'s map over the flash, `mqtt.rs`'s session loop,
+`src/mdns.rs`'s socket loop. What is
 covered, and the dump commands for comparing a player with a
 reference, are in `agents/modules.md`. `HISTORY.md` records the checks of
 each milestone; new ones are tests.

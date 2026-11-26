@@ -130,6 +130,9 @@ from `http://<ip>/update`; its settings survive the update.
 
 ### Added
 
+- The clock answers multicast DNS (on `next`, for the release after
+  v0.5): it is `<hostname>.local` on the network, `clock.local` for
+  the default name, whatever the router does with DHCP names.
 - The web installer asks whether the clock has a buzzer or a speaker
   and writes the default clip pack made for that.
 - Sound of 16 bits in about a byte a sample. The pack maker keeps a
