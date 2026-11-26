@@ -10,7 +10,8 @@ ALARM_CLIP=clips/keygen.xmc cargo build --release      # or built into the firmw
 ```
 
 The first three are other people's music and are **not** covered by
-the project's MIT OR Apache-2.0 licence; each is credited below, and
+the project's MIT OR Apache-2.0 licence; each is credited below with
+its terms (the second is CC BY 3.0), and
 copyright stays with its author. The next three were made here, and
 so was the last. The seventh is the project's author's own tune, and
 is **not** under the project's licence either; so is a ninth that only the speaker's pack
@@ -23,8 +24,17 @@ written as FastTracker 2 modules for the key generators of the group
 ORiON: "halftime" (2002) and "keygentune2003 orn". The modules are
 signed in their instrument names, `dt/cro/analogik` and
 `dualtrax/cro/`; see [Dualtrax on Demozoo](https://demozoo.org/sceners/5763/).
-The music is Dualtrax's; copyright remains with its author, and
-nothing here grants any right to it.
+The music is Dualtrax's, and copyright remains with its author.
+
+- **"keygentune2003 orn"** he has published as
+  ["dualtrax - orion keygentune 2003"](https://soundcloud.com/dualtrax/dualtrax-orion-keygentune-2003)
+  under the Creative Commons Attribution 3.0 Unported licence,
+  [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), and it
+  is here, and in the clip packs, under that licence. `keygen.xmc` is
+  changed from his module only as described below: converted for the
+  clock's player, and labelled "Keygen" on the clock's pages.
+- **"halftime"** has no licence that we know of, and nothing here
+  grants any right to it.
 
 The modules themselves are in `mods/` as they were found, and these
 two files are what the pack maker (`tools/pack`) makes of them for the clock's

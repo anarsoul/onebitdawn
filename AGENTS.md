@@ -61,7 +61,10 @@ host and the browser, over `core`. `CLAUDE.md` is a symlink to this file; edit t
   PT3 module that is here with his permission (the user asked him,
   2026-11-16); the modules' sources are in `mods/`. They
   are other people's music, not under the project's licence;
-  `clips/README.md` credits each and must go on doing so.
+  `clips/README.md` credits each and must go on doing so. Keygen is
+  CC BY 3.0, as Dualtrax published it on SoundCloud: its credit, the
+  licence's link and the note of what was changed are the licence's
+  terms. Halftime has no licence known.
   "Suspended Seconds" and "Starlight & Aurora" (the speaker's pack
   alone has it, from its module: a buzzer cannot say it, and there is
   no clip of it in `clips/`) are the user's own

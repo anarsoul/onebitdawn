@@ -292,7 +292,8 @@ the `onebitdawn-pack` command of a release. The default clips are made for a clo
 well.
 
 The clips are other people's music and not under this project's
-licence; [`clips/README.md`](clips/README.md) credits each. Making
+licence; [`clips/README.md`](clips/README.md) credits each and has
+its terms. Making
 clips and packs is in the manual's
 [Clip packs](MANUAL.md#clip-packs).
 
