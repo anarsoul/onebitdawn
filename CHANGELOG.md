@@ -57,7 +57,7 @@ from `http://<ip>/update`; its settings survive the update.
   partition, `clips`: half a megabyte from each of the two firmware
   slots and the 128 KB at the end of the flash that nothing used. A pack is made with `onebitdawn-pack` or on its web page (up to
   16 clips), checked by a SHA-256 at upload and at every boot, and
-  played in place from the flash. The default pack, the seven clips
+  played in place from the flash. The default pack, the eight clips
   below, is `onebitdawn-clips-<tag>.bin` on a release, and the web
   installer writes it.
 - **A clock flashed before this release has the old partition table,
@@ -138,11 +138,18 @@ from `http://<ip>/update`; its settings survive the update.
   pulse lead over tonic, subdominant and dominant, of waves made by
   its script and nothing recorded. A ringing alarm plays it round
   from after its introduction. It is the project's, under its licence.
-  The pack is seven clips and 669 KB.
-- The speaker's pack has an eighth, "Starlight & Aurora" (on the pages
+- An eighth, "Lera", a chiptune by n1k-o ("lerka", written for
+  TSRh's key generators), played from its tracker module, here with
+  his permission as "Synchronization" is; the music is his and not
+  under the project's licence (`clips/README.md`). It is the pack's
+  third clip. The pack is eight clips and 697 KB.
+- The pack maker writes a module's effect R (retrigger) as E9, which
+  the player has, where it changes no volume; until now such a
+  module's rolls were single hits.
+- The speaker's pack has a ninth, "Starlight & Aurora" (on the pages
   "Starlight and Aurora"), his too and under the same terms: a soft
   piano, a bell, a lead and a bass, which a buzzer cannot say. That
-  pack is 891 KB.
+  pack is 919 KB.
 - The alarm sound is stored by its name and no longer by its place in
   the list: an alarm keeps its clip through a new clip pack that still
   has it, in whatever order, and through a firmware with more note

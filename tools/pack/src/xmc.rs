@@ -7,6 +7,8 @@
 //! instrument's sample is, the patterns as they are, the samples as
 //! plain signed bytes (an XM stores differences), 16-bit ones cut to
 //! 8, ping-pong loops unrolled. One sample an instrument, the first.
+//! One effect is written as another: R, where it changes no volume,
+//! as E9, which the player has.
 //!
 //! The player cuts the bass, which the buzzer does not have, and
 //! limits hard; how is the clip's to say (`Shape`).
@@ -19,6 +21,8 @@ use crate::bytes::{Data, text};
 use crate::shape::{rate_flag, section};
 use crate::{Options, Output};
 
+/// The effect R, by its number in a cell.
+const R: u8 = 0x1B;
 const ENVELOPE_POINTS: usize = 12;
 /// What `xm.rs` plays: effects by number (E's by its first digit too)
 /// and the volume column by its high nibble.
@@ -126,6 +130,39 @@ fn rows(data: &[u8], channels: usize) -> Vec<Vec<[u8; 5]>> {
     out
 }
 
+/// FastTracker's R, the retrigger with a volume change, is E9, which
+/// the player has, where the volume is left alone (x of 8, or of 0 on
+/// a channel no other R gives a volume to remember) and the ticks are
+/// said (y; none is the last R's). Written over the packed cells of a
+/// pattern, which is no longer for it; `plain` is which channels have
+/// no R with a volume.
+fn retriggers(packed: &mut [u8], channels: usize, plain: &[bool]) {
+    let (mut q, mut channel) = (0, 0);
+    while q < packed.len() {
+        let b = packed[q];
+        q += 1;
+        // Where the cell's effect and parameter are, if it has both.
+        let at = if b & 0x80 != 0 {
+            let before = |bit: u8| (b & (bit - 1)).count_ones() as usize;
+            let at = (b & 0x18 == 0x18).then(|| (q + before(8), q + before(16)));
+            q += (b & 0x1F).count_ones() as usize;
+            at
+        } else {
+            q += 4;
+            Some((q - 2, q - 1))
+        };
+        if let Some((effect, param)) = at.filter(|&(_, param)| param < packed.len())
+            && packed[effect] == R
+            && packed[param] & 0xF != 0
+            && (packed[param] >> 4 == 8 || (packed[param] >> 4 == 0 && plain[channel]))
+        {
+            packed[effect] = 0xE;
+            packed[param] = 0x90 | (packed[param] & 0xF);
+        }
+        channel = (channel + 1) % channels;
+    }
+}
+
 fn effect_name(effect: u8, param: u8) -> String {
     let letter = if effect < 16 { format!("{effect:X}") } else { ((b'G' + effect - 16) as char).to_string() };
     if effect == 0xE { format!("{letter}{:X}", param >> 4) } else { letter }
@@ -192,7 +229,18 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
             patterns.push((64, vec![0x80; 64 * channels]));
         }
     }
-    let cells: Vec<Vec<Vec<[u8; 5]>>> = patterns.iter().map(|(_, packed)| rows(packed, channels)).collect();
+    let unpack = |patterns: &[(usize, Vec<u8>)]| -> Vec<Vec<Vec<[u8; 5]>>> { patterns.iter().map(|(_, packed)| rows(packed, channels)).collect() };
+    // An R that leaves the volume alone becomes E9.
+    let mut plain = vec![true; channels];
+    for row in unpack(&patterns).iter().flatten() {
+        for (c, &[.., effect, param]) in row.iter().enumerate() {
+            plain[c] &= effect != R || matches!(param >> 4, 0 | 8);
+        }
+    }
+    for (_, packed) in &mut patterns {
+        retriggers(packed, channels, &plain);
+    }
+    let cells = unpack(&patterns);
 
     for pattern in &cells {
         for row in pattern {
@@ -378,4 +426,33 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         notes.push(format!("not played: {what} ({count} times)"));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_r_that_changes_no_volume_is_e9() {
+        // Two channels, a row a line: packed cells with an effect and
+        // a parameter, a whole cell, a cell with the effect alone.
+        let rows: [&[u8]; 5] = [
+            &[0x98, R, 0x02, 0x98, R, 0x02],
+            &[0x9B, 49, 1, R, 0x83, 0x98, R, 0x83],
+            &[49, 1, 0, R, 0x03, 0x80],
+            &[0x88, R, 0x98, R, 0x00],
+            &[0x98, R, 0x42, 0x98, 0xC, R],
+        ];
+        let mut packed = rows.concat();
+        // The first channel has an R with a volume, in the last row.
+        retriggers(&mut packed, 2, &[false, true]);
+        let after: [&[u8]; 5] = [
+            &[0x98, R, 0x02, 0x98, 0xE, 0x92],
+            &[0x9B, 49, 1, 0xE, 0x93, 0x98, 0xE, 0x93],
+            &[49, 1, 0, R, 0x03, 0x80],
+            &[0x88, R, 0x98, R, 0x00],
+            &[0x98, R, 0x42, 0x98, 0xC, R],
+        ];
+        assert_eq!(packed, after.concat());
+    }
 }

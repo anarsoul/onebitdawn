@@ -58,8 +58,9 @@ host and the browser, over `core`. `CLAUDE.md` is a symlink to this file; edit t
 - `clips/` holds the clips of the default clip pack
   (`scripts/clips.sh`, the CI and the release make it): Dualtrax's "Keygen" (a module written for ORiON's key
   generators, hence the file name) and n1k-o's "synchronization", a
-  PT3 module that is here with his permission (the user asked him,
-  2026-11-16); the modules' sources are in `mods/`. They
+  PT3 module, and "lerka" (the clip is `lera`), an XM module, which
+  are here with his permission (the user asked him, 2026-11-16 and
+  2026-11-26); the modules' sources are in `mods/`. They
   are other people's music, not under the project's licence;
   `clips/README.md` credits each and must go on doing so. Keygen is
   CC BY 3.0, as Dualtrax published it on SoundCloud: its credit, the

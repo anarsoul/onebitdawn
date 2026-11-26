@@ -4,17 +4,17 @@ The clips of the default clip pack, the extra alarm melodies a clock
 has in its `clips` partition (see "Clip packs" in `MANUAL.md`):
 
 ```
-scripts/clips.sh                                       # packs/clips-default.bin, these seven
+scripts/clips.sh                                       # packs/clips-default.bin, these eight
 cargo pack -o packs/one.bin clips/keygen.xmc           # a pack of one of them
 ALARM_CLIP=clips/keygen.xmc cargo build --release      # or built into the firmware, the older way
 ```
 
-The first two are other people's music and are **not** covered by
+The first three are other people's music and are **not** covered by
 the project's MIT OR Apache-2.0 licence; each is credited below with
 its terms (the first is CC BY 3.0), and
 copyright stays with its author. The next three were made here, and
-so was the last. The sixth is the project's author's own tune, and
-is **not** under the project's licence either; so is an eighth that only the speaker's pack
+so was the last. The seventh is the project's author's own tune, and
+is **not** under the project's licence either; so is a ninth that only the speaker's pack
 has, at the end of this file.
 
 ## `keygen.xmc`
@@ -58,6 +58,27 @@ go over 128 ms, and a high-pass at 100 Hz.
 
 ```
 cargo pack --clip clips/synchronization.pt3c mods/nq-synchronization.pt3:restart,name=synchronization
+```
+
+## `lera.xmc`
+
+"lerka" (2012) by **n1k-o** (Oleg Nikitin), a chiptune written as a
+FastTracker 2 module for the key generators of the group TSRh; the
+module is signed `nq/skrju`, which is he, and titled
+`nq/skrju - lerka`. It is here with his permission, given to this
+project (2026-11-26). The music is his; copyright remains with its
+author, and nothing here grants any right to it beyond that.
+
+The module is in `mods/` as it was found, and this file is what the
+pack maker makes of it for the clock's own player, with its defaults:
+the same patterns and samples rearranged, nothing rendered, labelled
+"Lera" on the clock's pages. One thing in the patterns is written
+another way: the module's drum rolls are the effect `R02`, which the
+player has not, and the pack maker writes an `R` that changes no
+volume as `E9`, the same retrigger, which it has.
+
+```
+cargo pack --clip clips/lera.xmc mods/nq-lera.xm:name=lera
 ```
 
 ## `morning_mood.xmc`, `morning_mood_chip.xmc` and `mountain_king.xmc`
@@ -189,7 +210,7 @@ buzzer does not say, so only the pack for a clock with a speaker
 scripts/surgenotes.py "/usr/share/surge-xt/patches_3rdparty/LinnStrument MPE/Keys/Acoustic Grand.fxp" \
     xm/surge/acoustic-grand F3:56 F3:78 G3:56 A3:78 C4:56 C4:78 D4:56 E4:56 E4:78 F4:78
 scripts/mkxm.py mods/src/starlight_aurora.py mods/starlight-aurora.xm
-scripts/speaker-clips.sh        # the module with knee=64,release=13, the pack's eighth clip
+scripts/speaker-clips.sh        # the module with knee=64,release=13, the pack's ninth clip
 ```
 
 The limiter is off, a knee of 64 being over the tune's peak: at the

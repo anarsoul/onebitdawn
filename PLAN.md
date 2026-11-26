@@ -2265,6 +2265,35 @@ Run on the host: `cargo pack-test`, `cargo host-test` with and
 without the seven built in, both default packs made, the buzzer's
 local pack.
 
+## n1k-o's "lerka" the default pack's third clip, "Lera"; the pack maker writes R as E9 — built 2026-11-26, heard on white-clock in the speaker's pack
+
+The user has Oleg Nikitin's permission for `nq-lera.xm` ("nq/skrju -
+lerka", 2012, for TSRh; both names are his). A clip of the default
+pack, as the last three changes to it were, so on master; the
+converter's change with it is what the clip needs to be played whole.
+
+- `mods/nq-lera.xm` as found; `clips/lera.xmc` at the pack maker's
+  defaults, 27 412 bytes, 18 channels, 115 s. Name `lera`, label
+  "Lera", third, after Synchronization (the user's choices).
+- The module has R02 26 times, a roll on one instrument, which the
+  player has not. `xmc.rs` writes an R that changes no volume as E9
+  (x of 8; x of 0 on a channel with no R that has a volume; y not 0),
+  over the packed cells in place, so the roll plays on every firmware
+  that plays a module. No other clip in `clips/` changed by a byte.
+  The player's E9 retriggers on the ticks y divides, as R does.
+- The default pack is eight clips, 697 KB, and the speaker's nine,
+  919 KB (the module again at a speaker's defaults). Scripts, both
+  workflows, the pack maker's tests and the documents say so.
+
+Run on the host: `cargo pack-test`, `cargo host-test` with and
+without the eight built in, the pack maker's clippy, both default
+packs made and parsed.
+
+On white-clock the same day, the speaker's pack over the build of
+`next` it had (the firmware is not in this change): the user heard
+the clip and passed it. Not looked at: the buzzer's pack on a clock,
+and the `clip:` line for underruns at 18 channels.
+
 ## Checks still owed
 
 - "Suspended Seconds" (2026-11-19, in `HISTORY.md`): the processor's

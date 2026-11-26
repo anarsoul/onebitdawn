@@ -29,6 +29,7 @@ fn the_modules_come_out_as_the_clips_in_the_repository() {
     for (arg, clip) in [
         ("mods/Orion-Nero6.3.0.2.xm:name=keygen", "clips/keygen.xmc"),
         ("mods/nq-synchronization.pt3:restart,name=synchronization", "clips/synchronization.pt3c"),
+        ("mods/nq-lera.xm:name=lera", "clips/lera.xmc"),
         ("mods/grieg-morning-bright.xm", "clips/morning_mood.xmc"),
         ("mods/grieg-morning-chip.xm", "clips/morning_mood_chip.xmc"),
         ("mods/grieg-mountain-king-bright.xm", "clips/mountain_king.xmc"),
@@ -49,6 +50,7 @@ fn a_clip_made_already_goes_in_as_it_is() {
     for clip in [
         "clips/keygen.xmc",
         "clips/synchronization.pt3c",
+        "clips/lera.xmc",
         "clips/morning_mood.xmc",
         "clips/morning_mood_chip.xmc",
         "clips/mountain_king.xmc",
@@ -65,6 +67,7 @@ fn the_default_pack_from_its_sources() {
     let clips = [
         made("mods/Orion-Nero6.3.0.2.xm:name=keygen=Keygen", Output::Buzzer),
         made("mods/nq-synchronization.pt3:restart,name=synchronization=Synchronization", Output::Buzzer),
+        made("mods/nq-lera.xm:name=lera=Lera", Output::Buzzer),
         // The modules made here have their names and labels in their titles.
         made("mods/grieg-morning-bright.xm", Output::Buzzer),
         made("mods/grieg-morning-chip.xm", Output::Buzzer),
@@ -75,17 +78,20 @@ fn the_default_pack_from_its_sources() {
     let pack = build(&clips).unwrap();
     let pack = Pack::parse(&pack).unwrap();
     let names: Vec<&str> = (0..pack.count()).map(|k| pack.clip(k).unwrap().name).collect();
-    assert_eq!(names, ["keygen", "synchronization", "morning_mood", "morning_mood_chip", "mountain_king", "suspended_seconds", "serial_dawn"]);
+    assert_eq!(names, ["keygen", "synchronization", "lera", "morning_mood", "morning_mood_chip", "mountain_king", "suspended_seconds", "serial_dawn"]);
     let labels: Vec<&str> = (0..pack.count()).map(|k| pack.clip(k).unwrap().label).collect();
-    assert_eq!(labels, ["Keygen", "Synchronization", "Morning Mood", "Morning Mood Chip", "Mountain King", "Suspended Seconds", "Serial Dawn"]);
+    assert_eq!(labels, ["Keygen", "Synchronization", "Lera", "Morning Mood", "Morning Mood Chip", "Mountain King", "Suspended Seconds", "Serial Dawn"]);
     // A speaker's clips are others, of the same lengths: the shaping
     // is the header's.
-    // And the speaker's pack has an eighth, which the buzzer's has not
+    // And the speaker's pack has a ninth, which the buzzer's has not
     // (scripts/speaker-clips.sh): its name and label are its title's.
-    let eighth = made("mods/starlight-aurora.xm:knee=64,release=13", Output::Speaker);
-    assert_eq!((eighth.name.as_str(), eighth.label.as_str(), eighth.loops), ("starlight_and_aurora", "Starlight and Aurora", true));
+    let ninth = made("mods/starlight-aurora.xm:knee=64,release=13", Output::Speaker);
+    assert_eq!((ninth.name.as_str(), ninth.label.as_str(), ninth.loops), ("starlight_and_aurora", "Starlight and Aurora", true));
     // One note, the module's line: nothing in it that the player lacks.
-    assert_eq!(eighth.notes.len(), 1, "{:?}", eighth.notes);
+    assert_eq!(ninth.notes.len(), 1, "{:?}", ninth.notes);
+    // Lera's rolls are R02, which the converter writes as E92: one
+    // note, the module's line, and nothing the player lacks.
+    assert_eq!(clips[2].notes.len(), 1, "{:?}", clips[2].notes);
     for (arg, k) in [("mods/Orion-Nero6.3.0.2.xm:name=keygen", 0), ("mods/nq-synchronization.pt3:restart,name=synchronization", 1)] {
         let speaker = made(arg, Output::Speaker);
         assert!(speaker.data.len() == clips[k].data.len() && speaker.data != clips[k].data, "{arg}");

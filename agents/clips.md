@@ -75,7 +75,10 @@ has must come out the same.
 
 - A FastTracker 2 module for the clock's own player, of up to twenty
   channels; the notes list what the module uses that the player
-  lacks. A ProTracker module (31 samples, any channel count the tag
+  lacks. An effect R (retrigger with a volume change) that changes
+  no volume is written as E9, which the player has: x of 8, or of 0
+  on a channel with no other R to remember a volume from, and y not
+  0. It is the one place a pattern's bytes are not the module's. A ProTracker module (31 samples, any channel count the tag
   names) becomes an XM first: the pitch a PAL Amiga's, the slides
   (1, 2, 3, 5, E1, E2) converted from periods to the linear table at
   the period each is played at, E0 (the filter) left out and named. A
@@ -200,7 +203,7 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
 - "Starlight & Aurora" (`mods/src/starlight_aurora.py`,
   `mods/starlight-aurora.xm`) is the user's second tune, four parts
   from his MIDI file as they are there. It is the speaker's pack's
-  eighth clip and in no other: on a buzzer it does not sound (the
+  ninth clip and in no other: on a buzzer it does not sound (the
   user, 2026-11-20), so `clips/` has no clip of it and
   `scripts/speaker-clips.sh` makes it from the module. Its label is
   the module's title, "Starlight and Aurora" (a label may not have
@@ -219,13 +222,17 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
 - "Serial Dawn" (`mods/src/serial_dawn.py`, `mods/serial-dawn.xm`)
   is a tune in the key generators' manner, written here, of waves and
   noise made in its script: pulses put about their mean, a swept sine
-  for the kick. It is the default pack's seventh clip
+  for the kick. It is the default pack's eighth clip
   (`clips/serial_dawn.xmc`, the pack maker's defaults; a speaker's
   defaults in the speaker's pack), and the project's, under its
   licence. Played round it starts over after its introduction:
   `Module.loop_from(row)` is the XM's restart position, which the
   alarm follows. Its chords are effect 0 on one channel, written into
   the cells by the script, since `Line` has no call for it.
+- "Lera" (`mods/nq-lera.xm`, `clips/lera.xmc`) is n1k-o's "lerka",
+  an XM of 18 channels as it was found, the default pack's third
+  clip by his permission (`clips/README.md`), at the pack maker's
+  defaults in both packs. Its rolls are R02, written as E92.
 - The other two there are Grieg's Morning (shortened; read off a scan) and
   In the Hall of the Mountain King (Mutopia's MIDI file). Morning in
   both kits and the Mountain King in `bright` are in the default
