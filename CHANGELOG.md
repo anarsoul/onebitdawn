@@ -11,6 +11,16 @@ from `http://<ip>/update`; its settings survive the update.
 
 ## [Unreleased]
 
+### Added
+
+- The module player has FastTracker's effect R, the retrigger with a
+  volume change (on `next`, for the release after v0.5), as OpenMPT
+  plays it: the count of ticks carried from row to row, each of x's
+  fifteen changes, the volume column's say in it. The pack maker
+  keeps a module's R as it is; for a clock
+  at v0.5 (`--firmware 0.5`, or the page's choice) it goes on writing
+  E9 where an R changes no volume and names any other as not played.
+
 ### Changed
 
 - On the line output the note melodies and a beeper clip (Trantor)

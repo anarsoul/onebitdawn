@@ -35,7 +35,7 @@
 //! 4 vibrato, 5 6 with volume slide, 9 offset, A volume slide, B jump,
 //! C volume, D break, E1 E2 fine portamento, E9 retrigger, EA EB fine
 //! volume, EC cut, ED delay, F speed and tempo, G global volume, K key
-//! off; and an instrument's auto-vibrato, as a sine. Panning is nothing on one buzzer. The converter says what a
+//! off, R retrigger with a volume change (`Tune::retrigger`); and an instrument's auto-vibrato, as a sine. Panning is nothing on one buzzer. The converter says what a
 //! module uses beyond that.
 //!
 //! The channels are mixed at four times the output rate with linear
@@ -161,6 +161,8 @@ const SINE: [u8; 32] =
 
 /// The key-off note.
 const KEY_OFF: u8 = 97;
+/// The effect R, by its number in a cell.
+pub const RETRIGGER: u8 = 0x1B;
 /// The fade's full level.
 const FADE_FULL: u32 = 32768;
 
@@ -621,6 +623,13 @@ struct Channel<'a> {
     vibrato_speed: u8,
     vibrato_depth: u8,
     vibrato_pos: u8,
+    /// The period of the note last begun, for R to begin it again, and
+    /// R's own: its parameter as remembered, the ticks counted, and
+    /// the quarters of a volume step its last change left over.
+    struck: i32,
+    retrig_param: u8,
+    retrig_count: u8,
+    retrig_fine: u8,
     /// The instrument's own vibrato: where in its cycle, and its depth
     /// so far in 256ths of a period unit.
     auto_pos: u8,
@@ -954,52 +963,123 @@ impl<'a> Tune<'a> {
             self.channel[c].instrument = cell.instrument;
         }
         let instrument = self.instrument(self.channel[c].instrument);
-        let cut = self.sounding_now(c);
         let ch = &mut self.channel[c];
         if cell.instrument != 0 {
             ch.volume = instrument.map_or(0, |i| i.volume());
             ch.key_on = true;
             ch.envelope_frame = 0;
             ch.fade = FADE_FULL;
+            ch.retrig_fine = 0;
         }
         if cell.note == KEY_OFF {
             Self::key_off(ch, instrument);
         } else if cell.note != 0 {
-            let period = match instrument {
-                Some(i) => PERIOD_MAX - (cell.note as i32 - 1 + i.relative()).clamp(0, 119) * SEMITONE - i.finetune() / 2,
-                None => 0,
-            };
             if cell.slides_to_note() && ch.playing {
-                ch.target = period;
-            } else if let Some(i) = instrument {
-                self.cut += cut;
-                ch.fresh = true;
-                (ch.data, ch.len, ch.loop_start, ch.loop_len) = i.sample();
-                ch.kind = i.kind();
-                let bytes = held(self.d, ch.data as usize, ch.len as usize, ch.kind);
-                (ch.held, ch.words) = if ch.kind == Kind::Wide { (&[][..], words(bytes)) } else { (bytes, &[][..]) };
-                ch.block = NO_BLOCK;
-                ch.seeks = i.seeks();
-                ch.loop_first = word(self.d, ch.data as usize + 6) as i16 as i32;
-                ch.period = period;
-                ch.target = period;
-                ch.frac = 0;
-                // 9xx: start 256 samples in for each of xx.
-                ch.pos = if cell.effect == 9 { cell.param as u32 * 256 } else { 0 };
-                ch.playing = ch.pos < ch.len;
-                ch.vibrato_pos = 0;
-                ch.auto_pos = 0;
-                ch.auto_depth = if i.auto_vibrato().0 == 0 { i.auto_vibrato().1 << 8 } else { 0 };
+                ch.target = instrument.map_or(0, |i| Self::period_of(cell.note, i));
             } else {
-                self.cut += cut;
-                ch.playing = false;
+                // 9xx: start 256 samples in for each of xx.
+                self.strike(c, cell.note, if cell.effect == 9 { cell.param as u32 * 256 } else { 0 });
+                if let Some(i) = instrument {
+                    let ch = &mut self.channel[c];
+                    ch.vibrato_pos = 0;
+                    ch.auto_pos = 0;
+                    ch.auto_depth = if i.auto_vibrato().0 == 0 { i.auto_vibrato().1 << 8 } else { 0 };
+                }
             }
         }
+        let ch = &mut self.channel[c];
         match cell.volume >> 4 {
-            1..=5 => ch.volume = (cell.volume - 0x10).min(64),
+            1..=5 => (ch.volume, ch.retrig_fine) = ((cell.volume - 0x10).min(64), 0),
             8 => ch.volume = ch.volume.saturating_sub(cell.volume & 0xF),
             9 => ch.volume = (ch.volume + (cell.volume & 0xF)).min(64),
             _ => {}
+        }
+    }
+
+    fn period_of(note: u8, i: Instrument) -> i32 {
+        PERIOD_MAX - (note as i32 - 1 + i.relative()).clamp(0, 119) * SEMITONE - i.finetune() / 2
+    }
+
+    /// A note begun: the sample of the channel's instrument from
+    /// `offset`, at the note's period. The volume, the envelope and
+    /// the vibratos are the caller's.
+    fn strike(&mut self, c: usize, note: u8, offset: u32) {
+        let instrument = self.instrument(self.channel[c].instrument);
+        self.cut += self.sounding_now(c);
+        let ch = &mut self.channel[c];
+        let Some(i) = instrument else {
+            ch.playing = false;
+            return;
+        };
+        ch.fresh = true;
+        (ch.data, ch.len, ch.loop_start, ch.loop_len) = i.sample();
+        ch.kind = i.kind();
+        let bytes = held(self.d, ch.data as usize, ch.len as usize, ch.kind);
+        (ch.held, ch.words) = if ch.kind == Kind::Wide { (&[][..], words(bytes)) } else { (bytes, &[][..]) };
+        ch.block = NO_BLOCK;
+        ch.seeks = i.seeks();
+        ch.loop_first = word(self.d, ch.data as usize + 6) as i16 as i32;
+        ch.period = Self::period_of(note, i);
+        ch.target = ch.period;
+        ch.struck = ch.period;
+        ch.frac = 0;
+        ch.pos = offset;
+        ch.playing = ch.pos < ch.len;
+    }
+
+    /// R on a tick of its row, as OpenMPT plays a FastTracker module's
+    /// (`CSoundFile::RetrigNote`, 1.32): FastTracker's own replayer
+    /// differs in corners, and OpenMPT is what a module is heard in
+    /// today. The ticks are counted across rows and looked at before
+    /// they are counted: at y of them the note last begun begins
+    /// again, at its own period, and the volume changes as x says, in
+    /// quarters of a step. On a row's first tick a cell that names an
+    /// instrument sets the count to 1, a volume in the column (not 0)
+    /// ends the tick there, and a note in the cell is not begun
+    /// twice. Under a volume in the column x changes nothing.
+    fn retrigger(&mut self, c: usize, first: bool) {
+        let ch = &mut self.channel[c];
+        let cell = ch.cell;
+        let (x, y) = (ch.retrig_param >> 4, ch.retrig_param & 0xF);
+        let sets = matches!(cell.volume, 0x10..=0x50);
+        let mut count = ch.retrig_count;
+        if first {
+            if cell.instrument != 0 && cell.note != KEY_OFF {
+                count = 1;
+            }
+            if sets && cell.volume != 0x10 {
+                ch.retrig_count = count;
+                return;
+            }
+        }
+        let begins = count >= y && (!first || cell.note == 0 || cell.note == KEY_OFF);
+        ch.retrig_count = if begins { 1 } else { count.wrapping_add(1) };
+        if !begins {
+            return;
+        }
+        if !sets {
+            let v = ch.volume as i32 * 4 + ch.retrig_fine as i32;
+            let v = match x {
+                1..=5 => v - (4 << (x - 1)),
+                6 => v * 10 / 16,
+                7 => v / 2,
+                9..=0xD => v + (4 << (x - 9)),
+                0xE => v * 24 / 16,
+                0xF => 2 * v,
+                _ => v,
+            }
+            .clamp(0, 256);
+            (ch.volume, ch.retrig_fine) = ((v / 4) as u8, (v % 4) as u8);
+        }
+        if ch.struck != 0 {
+            self.cut += self.sounding_now(c);
+            let ch = &mut self.channel[c];
+            ch.fresh = true;
+            ch.pos = 0;
+            ch.frac = 0;
+            ch.playing = ch.len > 0;
+            ch.period = ch.struck;
+            ch.target = ch.struck;
         }
     }
 
@@ -1046,6 +1126,9 @@ impl<'a> Tune<'a> {
         if !cell.has_vibrato() {
             ch.vibrato = 0;
         }
+        if cell.effect != RETRIGGER {
+            ch.retrig_fine = 0;
+        }
         match cell.volume >> 4 {
             0xA => ch.vibrato_speed = cell.volume & 0xF,
             0xB if cell.volume & 0xF != 0 => ch.vibrato_depth = cell.volume & 0xF,
@@ -1069,6 +1152,8 @@ impl<'a> Tune<'a> {
             0xC => ch.volume = cell.param.min(64),
             0xD => self.go = Some((self.go.map_or(order + 1, |g| g.0), (hi * 10 + lo) as u16)),
             0xE => match hi {
+                // E9 counts on R's counter, from the row's start.
+                9 => ch.retrig_count = 0,
                 1 => ch.period = (ch.period - lo as i32 * 4).max(1),
                 2 => ch.period = (ch.period + lo as i32 * 4).min(PERIOD_MAX),
                 0xA => ch.volume = (ch.volume + lo).min(64),
@@ -1081,6 +1166,11 @@ impl<'a> Tune<'a> {
             0x10 => self.global = cell.param.min(64),
             // K.
             0x14 if cell.param == 0 => Self::key_off(ch, instrument),
+            // x and y are remembered each by itself.
+            RETRIGGER => {
+                ch.retrig_param = (if hi != 0 { hi } else { ch.retrig_param >> 4 }) << 4 | if lo != 0 { lo } else { ch.retrig_param & 0xF };
+                self.retrigger(c, true);
+            }
             _ => {}
         }
     }
@@ -1125,11 +1215,14 @@ impl<'a> Tune<'a> {
                     ch.pos = 0;
                     ch.frac = 0;
                     ch.playing = ch.len > 0;
+                    ch.retrig_count = 0;
                 }
+                9 if lo != 0 => ch.retrig_count = tick % lo,
                 0xC if tick == lo => ch.volume = 0,
                 _ => {}
             },
             0x14 if tick == cell.param => Self::key_off(ch, instrument),
+            RETRIGGER => self.retrigger(c, false),
             _ => {}
         }
     }
@@ -1543,6 +1636,57 @@ mod tests {
         }
     }
 
+    /// The same of a channel, with whether its note began on the tick,
+    /// again or for the first time: (period, volume, begun). A sample
+    /// that begins is at its first sample, and nothing here moves it
+    /// on but the mark put after each tick.
+    fn strikes(data: &[u8], channel: usize) -> Vec<(i32, u8, bool)> {
+        let mut t = Tune::new(data);
+        let mut seen = Vec::new();
+        loop {
+            t.step_tick();
+            if t.ended {
+                return seen;
+            }
+            let ch = &mut t.channel[channel];
+            seen.push((ch.sounding, ch.volume, ch.playing && ch.pos == 0));
+            ch.pos = ch.pos.max(1);
+            assert!(seen.len() < 100_000, "a tune that does not end");
+        }
+    }
+
+    /// Not a test: with `CLIP_TICK_DUMP=file`, writes a line a tick of
+    /// channel `CLIP_CHANNEL` of the converted module `CLIP_FILE`, or
+    /// of the clip built in that `CLIP_INDEX` says: the period in
+    /// semitones up from the lowest note, the volume, whether a note
+    /// began, where its sample is in the clip, and the row's volume
+    /// column, effect and parameter; to hold the effects to another
+    /// player's render tick by tick.
+    #[test]
+    #[ignore]
+    fn dump_the_ticks() {
+        let Ok(path) = std::env::var("CLIP_TICK_DUMP") else { return };
+        let number = |name: &str| std::env::var(name).map_or(0, |i| i.parse().unwrap());
+        let file = std::env::var("CLIP_FILE").ok().map(|path| std::fs::read(path).unwrap());
+        let data = file.as_deref().unwrap_or_else(|| crate::melody::CLIP_DATA[number("CLIP_INDEX")]);
+        let channel = number("CLIP_CHANNEL");
+        let mut t = Tune::new(data);
+        let mut out = String::new();
+        loop {
+            t.step_tick();
+            if t.ended {
+                break;
+            }
+            let ch = &mut t.channel[channel];
+            let begun = ch.playing && ch.pos == 0;
+            ch.pos = ch.pos.max(1);
+            let Cell { volume, effect, param, .. } = ch.cell;
+            let semitones = (PERIOD_MAX - ch.sounding) as f64 / SEMITONE as f64;
+            out += &format!("{semitones:.4} {} {} {} {volume:02X} {effect:02X} {param:02X}\n", ch.volume, begun as u8, ch.data);
+        }
+        std::fs::write(path, out).unwrap();
+    }
+
     /// The mix before the shaping, a sample a mixed sample.
     fn mixed(data: &[u8]) -> Vec<i32> {
         let mut t = Tune::new(data);
@@ -1641,6 +1785,145 @@ mod tests {
         };
         assert_eq!(peak(&[(0, (C4, 1, 0x30, 0, 0))]), 127 * 256 / 2);
         assert_eq!(peak(&[(0, (C4, 1, 0x30, 0x10, 32))]), 127 * 256 / 4);
+    }
+
+    #[test]
+    fn r_retriggers_and_changes_the_volume_as_openmpt_does() {
+        // A tick as its volume, with a star where the note begins
+        // (again, or as the row's own); a bar between rows. What is
+        // expected is what openmpt123 0.8.10 renders of the same rows
+        // (2026-11-26, a FastTracker module with its compatible
+        // playback), each read off a sample that is a ramp.
+        const R: u8 = RETRIGGER;
+        let roll = |speed: u8, cells: &[At]| {
+            let rows = cells.iter().map(|c| c.0).max().unwrap() + 1;
+            let seen = strikes(&module(1, speed, 125, &[0], &[pattern(rows, cells)], &[square(32)]), 0);
+            let row = |r: &[(i32, u8, bool)]| r.iter().map(|&(_, v, begun)| format!("{v}{}", if begun { "*" } else { "" })).collect::<Vec<_>>().join(" ");
+            seen.chunks(speed as usize).map(row).collect::<Vec<_>>().join(" | ")
+        };
+        // Once in y ticks, the count carried from row to row; x and y
+        // each remembered.
+        assert_eq!(
+            roll(6, &[(0, (C4, 1, 0, R, 0x12)), (1, (0, 0, 0, R, 0)), (2, (0, 0, 0, R, 0x03)), (3, (0, 0, 0, R, 0x20))]),
+            "64* 63* 63 62* 62 61* | 61 60* 60 59* 59 58* | 58 58 57* 57 57 56* | 56 56 54* 54 54 52*"
+        );
+        // With nothing to remember: every tick, the volume left alone.
+        assert_eq!(roll(6, &[(0, (C4, 1, 0, R, 0))]), "64* 64* 64* 64* 64* 64*");
+        // A cell that names an instrument starts the count at 1, a
+        // note alone leaves it and is not begun twice.
+        assert_eq!(
+            roll(6, &[(0, (C4, 1, 0, R, 0x14)), (1, (0, 1, 0, R, 0x14)), (2, (0, 0, 0, R, 0x14))]),
+            "64* 64 64 63* 63 63 | 64 64 64 63* 63 63 | 63 62* 62 62 62 61*"
+        );
+        assert_eq!(
+            roll(6, &[(0, (C4, 1, 0, R, 0x84)), (1, (C4 + 2, 0, 0, R, 0x84)), (2, (0, 0, 0, R, 0x84))]),
+            "64* 64 64 64* 64 64 | 64* 64* 64 64 64 64* | 64 64 64 64* 64 64"
+        );
+        // Not so on a row with no R, instrument or not: the count is
+        // where the last R left it.
+        assert_eq!(
+            roll(6, &[(0, (C4, 1, 0, R, 0x83)), (1, (C4, 1, 0x20, 0, 0)), (2, (C4, 0, 0, R, 0x93)), (3, (0, 0, 0, 0, 0)), (4, (0, 0, 0, R, 0x93))]),
+            "64* 64 64* 64 64 64* | 16* 16 16 16 16 16 | 16* 16 17* 17 17 18* | 18 18 18 18 18 18 | 18 18 19* 19 19 20*"
+        );
+        // Across rows of another length.
+        let cells: Vec<At> = (0..8).map(|r| (r, (if r == 0 { C4 } else { 0 }, (r == 0) as u8, 0, R, 0x85))).collect();
+        assert_eq!(roll(3, &cells), "64* 64 64 | 64 64* 64 | 64 64 64 | 64* 64 64 | 64 64 64* | 64 64 64 | 64 64* 64 | 64 64 64");
+        // What each x does, a tick at a time and not on the first,
+        // which is only counted: from 64 down, from 3 up. 6 is five
+        // eighths and E three halves, in quarters of a step, of which
+        // the whole steps are seen here.
+        let each = |from: u8, x: u8| roll(6, &[(0, (C4, 1, from, 0, 0)), (1, (0, 0, 0, R, x << 4 | 1))]).split(" | ").nth(1).unwrap().replace('*', "");
+        let down = ["64 63 62 61 60 59", "64 62 60 58 56 54", "64 60 56 52 48 44", "64 56 48 40 32 24", "64 48 32 16 0 0", "64 40 25 15 9 5", "64 32 16 8 4 2"];
+        let up = ["3 3 3 3 3 3", "3 4 5 6 7 8", "3 5 7 9 11 13", "3 7 11 15 19 23", "3 11 19 27 35 43", "3 19 35 51 64 64", "3 4 6 10 15 22", "3 6 12 24 48 64"];
+        for (x, want) in down.iter().enumerate() {
+            assert_eq!(each(0x50, x as u8 + 1), *want, "x {}", x + 1);
+        }
+        for (x, want) in up.iter().enumerate() {
+            assert_eq!(each(0x13, x as u8 + 8), *want, "x {}", x + 8);
+        }
+        // A volume in the row's column: the first tick is not counted,
+        // and x changes nothing.
+        let column = |volume: u8, param: u8| roll(6, &[(0, (C4, 1, 0x28, 0, 0)), (1, (0, 0, volume, R, param)), (2, (0, 0, volume, R, param))]);
+        assert_eq!(column(0x30, 0x32), "24* 24 24 24 24 24 | 32 32 32 32* 32 32* | 32 32 32* 32 32* 32");
+        // Anything else in the column: counted, and x has its say.
+        assert_eq!(column(0xA3, 0x32), "24* 24 24 24 24 24 | 24 24 20* 20 16* 16 | 12* 12 8* 8 4* 4");
+        assert_eq!(column(0x62, 0x32), "24* 24 24 24 24 24 | 24 22 16* 14 8* 6 | 2* 0 0* 0 0* 0");
+        assert_eq!(
+            roll(6, &[(0, (C4, 1, 0x12, 0, 0)), (1, (0, 0, 0x85, R, 0x92)), (2, (0, 0, 0, R, 0x92))]),
+            "2* 2 2 2 2 2 | 0 0 1* 1 2* 2 | 3* 3 4* 4 5* 5"
+        );
+        // E9 counts on the same counter, and leaves it at its last
+        // retrigger.
+        assert_eq!(
+            roll(6, &[(0, (C4, 1, 0, R, 0x84)), (1, (0, 0, 0, 0xE, 0x91)), (2, (0, 0, 0, R, 0x84))]),
+            "64* 64 64 64* 64 64 | 64 64* 64* 64* 64* 64* | 64 64 64 64 64* 64"
+        );
+        // The note begins again at its own period, whatever a
+        // portamento has made of it since.
+        let seen = strikes(&module(1, 6, 125, &[0], &[pattern(3, &[(0, (C4, 1, 0, 0, 0)), (1, (0, 0, 0, 2, 0x20)), (2, (0, 0, 0, R, 0x83))])], &[square(32)]), 0);
+        let slid = PERIOD_C4 + 5 * 0x20 * 4;
+        assert_eq!(seen[12..].iter().map(|t| (t.0, t.2)).collect::<Vec<_>>(), [(slid, false), (slid, false), (slid, false), (PERIOD_C4, true), (PERIOD_C4, false), (PERIOD_C4, false)]);
+    }
+
+    #[test]
+    fn r_in_any_cell_plays_to_the_end_and_the_same_every_way() {
+        // Cells of no meaning, half of them with R: any x and y, with
+        // a note or none before it, a key-off, an instrument with no
+        // sample or one the module has not, anything in the volume
+        // column, E9 and the volume effects between. Each tune ends,
+        // and is the same mixed by runs as a sample at a time, with
+        // its silent channels passed by as with them played, and
+        // with its 16-bit sample predicted as with it plain.
+        let wave = rung(700);
+        let (_, decoded) = pack(&wave, 100, true, false);
+        let instruments = |packed: bool| {
+            let sixteen = if packed { Ins { wide: wave.clone(), packed: true, loop_start: 100, loop_len: 600, ..square(32) } } else { Ins { wide: decoded.clone(), loop_start: 100, loop_len: 600, ..square(32) } };
+            [square(32), sixteen, Ins { sample: vec![], loop_len: 0, ..square(32) }, Ins { sample: (0..40).map(|i| (i * 3) as i8).collect(), loop_len: 0, volume: 40, ..square(32) }]
+        };
+        let mut random = 2026u32;
+        let mut next = |n: u32| {
+            random = random.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (random >> 16) % n
+        };
+        let mut sounding = 0;
+        for tune in 0..150 {
+            let rows: Vec<Row> = (0..24)
+                .map(|_| {
+                    (0..3)
+                        .map(|_| {
+                            let note = [0, 0, C4, C4 + 7, C4 - 12, KEY_OFF][next(6) as usize];
+                            let instrument = [0, 0, 1, 2, 3, 4, 5][next(7) as usize];
+                            let volume = if next(2) == 0 { 0 } else { next(256) as u8 };
+                            let effect = [RETRIGGER, RETRIGGER, RETRIGGER, 0xE, 0xC, 0xA, 3, 0][next(8) as usize];
+                            let param = match effect {
+                                0xE => [0x90, 0xD0, 0xC0][next(3) as usize] | next(4) as u8,
+                                0xC => next(65) as u8,
+                                0 => 0,
+                                _ => next(256) as u8,
+                            };
+                            (note, instrument, volume, effect, param)
+                        })
+                        .collect()
+                })
+                .collect();
+            let speed = 1 + next(7) as u8;
+            let clip = |packed: bool| module(3, speed, 125, &[0], core::slice::from_ref(&rows), &instruments(packed));
+            let (plain, packed) = (clip(false), clip(true));
+            let whole = mixed(&plain);
+            assert_eq!(whole.len(), 24 * speed as usize * (MIX_HZ as usize * 5 / 2 / 125), "tune {tune}");
+            assert!(whole == mixed_one(&plain), "tune {tune}: by runs");
+            assert!(whole == mixed(&packed), "tune {tune}: predicted");
+            let play = |eager: bool| {
+                EAGER.with(|e| e.set(eager));
+                let mut t = Tune::new(&packed);
+                let out: Vec<i16> = core::iter::from_fn(|| t.next_sample()).collect();
+                EAGER.with(|e| e.set(false));
+                out
+            };
+            assert!(play(true) == play(false), "tune {tune}: passed by");
+            sounding += whole.iter().any(|&s| s.abs() > 1000) as usize;
+        }
+        assert!(sounding > 140, "{sounding} of the tunes sound");
     }
 
     #[test]

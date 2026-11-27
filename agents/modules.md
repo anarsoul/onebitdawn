@@ -769,7 +769,8 @@ Covered:
   clip's runs bit for bit, the packed clip's tokens, a packer's round
   trip over random runs and the bad clips that must end.
 - The module player: pitch, volumes, each effect's periods tick by
-  tick, the song's order, the envelope, the shaping.
+  tick, the song's order, the envelope, the shaping; the effect R's
+  volumes and ticks as openmpt123 renders each of the test's rows.
 - The SID: pitch, each waveform's shape, ring modulation, sync, the
   envelope's times and its late note, the filter's modes and its
   stability at every setting, the frames' timing and the loop; a
@@ -801,6 +802,17 @@ Dumps for comparing a player with a reference:
 - `CLIP_REG_DUMP=file CLIP_INDEX=n cargo host-test dump_the_registers
   -- --ignored` writes a built-in module's registers, fourteen a
   frame, for a reference player.
+- `CLIP_TICK_DUMP=file CLIP_FILE=tune.xmc CLIP_CHANNEL=n cargo
+  host-test dump_the_ticks -- --ignored` writes a line a tick of one
+  channel of a converted module: pitch, volume, whether a note
+  began, the row's cell. Against a render of the same module with
+  every sample a ramp (its slope within a tick is volume times pitch,
+  and it starts from nothing where a note begins) it holds an effect
+  to another player tick by tick; the effect R was held so to
+  openmpt123. A module made for such a check must not say
+  "FastTracker v2.00" in its header unless FastTracker wrote it:
+  OpenMPT takes it for an old ModPlug Tracker's and plays it by
+  other rules.
 
 Not under test: `scan.rs`'s `build_cycle` (the M1 lit-time check needs
 it on the host), `ring.rs` (descriptors and registers; its layout is

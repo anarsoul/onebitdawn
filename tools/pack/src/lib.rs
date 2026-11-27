@@ -97,6 +97,12 @@ impl Firmware {
         self != Firmware::V0_5
     }
 
+    /// Whether its module player has the effect R, the retrigger with
+    /// a volume change.
+    pub fn retriggers(self) -> bool {
+        self != Firmware::V0_5
+    }
+
     /// Whether it plays a clip this maker's firmware does.
     pub fn plays(self, clip: &[u8]) -> bool {
         use onebitdawn_core::{adpcm, xm};

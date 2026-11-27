@@ -74,11 +74,13 @@ pack maker makes of it for the clock's own player, with its defaults:
 the same patterns and samples rearranged, nothing rendered, labelled
 "Lera" on the clock's pages. One thing in the patterns is written
 another way: the module's drum rolls are the effect `R02`, which the
-player has not, and the pack maker writes an `R` that changes no
-volume as `E9`, the same retrigger, which it has.
+player of a firmware up to v0.5 has not, and for such a clock the
+pack maker writes an `R` that changes no volume as `E9`, the same
+retrigger, which it has. This is that clip: a later firmware plays
+it to the same samples as it plays the module's own `R02`.
 
 ```
-cargo pack --clip clips/lera.xmc mods/nq-lera.xm:name=lera
+cargo pack --firmware 0.5 --clip clips/lera.xmc mods/nq-lera.xm:name=lera
 ```
 
 ## `morning_mood.xmc`, `morning_mood_chip.xmc` and `mountain_king.xmc`

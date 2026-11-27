@@ -19,8 +19,9 @@
 //! module of 8-bit samples, or cut to them, is the clip there always
 //! was. A sample too short for its table of predictors to pay for
 //! itself is kept at 16 bits, which is then the smaller, and exact.
-//! One effect is written as another: R, where it changes no volume,
-//! as E9, which the player has.
+//! For a firmware up to v0.5, whose player has no effect R, one
+//! effect is written as another: R, where it changes no volume, as
+//! E9, which that player has.
 //!
 //! The player cuts the bass, which the buzzer does not have, and
 //! limits hard; how is the clip's to say (`Shape`).
@@ -29,17 +30,16 @@ use std::collections::BTreeMap;
 
 use onebitdawn_core::adpcm::BLOCK;
 use onebitdawn_core::shape::{STEP, Shaper};
-use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, SEEK, WIDE_MAGIC, seek_points};
+use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, RETRIGGER as R, SEEK, WIDE_MAGIC, seek_points};
 
 use crate::bytes::{Data, text};
 use crate::shape::{rate_flag, section};
 use crate::{Firmware, Limiter, Options, Output};
 
-/// The effect R, by its number in a cell.
-const R: u8 = 0x1B;
 const ENVELOPE_POINTS: usize = 12;
 /// What `xm.rs` plays: effects by number (E's by its first digit too)
-/// and the volume column by its high nibble.
+/// and the volume column by its high nibble; and R, which a firmware
+/// after v0.5 plays (`Shape::retrigger`).
 const EFFECTS: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF, 0x10, 0x14];
 const E_EFFECTS: [u8; 7] = [1, 2, 9, 0xA, 0xB, 0xC, 0xD];
 const VOLUMES: [u8; 13] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xA, 0xB, 0xF];
@@ -97,6 +97,9 @@ pub struct Shape {
     pub samples: Samples,
     /// Instruments played octaves higher, by number from 1.
     pub raised: BTreeMap<usize, i32>,
+    /// Whether the player has the effect R. One that has not gets E9
+    /// where an R changes no volume (`retriggers`).
+    pub retrigger: bool,
 }
 
 impl Shape {
@@ -111,7 +114,7 @@ impl Shape {
             Output::Buzzer => (300.0, 0),
             Output::Speaker => (100.0, 10),
         };
-        Shape { drive: 0, release, knee: 0, fit: None, highpass, passes: 1, rate: 31250, bits: 16, samples: Samples::Packed, raised: BTreeMap::new() }
+        Shape { drive: 0, release, knee: 0, fit: None, highpass, passes: 1, rate: 31250, bits: 16, samples: Samples::Packed, raised: BTreeMap::new(), retrigger: true }
     }
 
     /// A firmware that plays no samples of 16 bits has them cut to 8,
@@ -121,6 +124,7 @@ impl Shape {
     /// give the knee; a buzzer's is the player's own, whatever it says.
     pub fn options(output: Output, firmware: Firmware, limiter: Limiter, options: &mut Options) -> Result<Self, String> {
         let mut shape = Shape::new(output);
+        shape.retrigger = firmware.retriggers();
         shape.drive = options.number("drive", shape.drive)?;
         shape.release = options.number("release", shape.release)?;
         let tops = options.maybe("tops")?;
@@ -194,8 +198,8 @@ fn rows(data: &[u8], channels: usize) -> Vec<Vec<[u8; 5]>> {
     out
 }
 
-/// FastTracker's R, the retrigger with a volume change, is E9, which
-/// the player has, where the volume is left alone (x of 8, or of 0 on
+/// For a player with no R: FastTracker's R, the retrigger with a
+/// volume change, is E9, which it has, where the volume is left alone (x of 8, or of 0 on
 /// a channel no other R gives a volume to remember) and the ticks are
 /// said (y; none is the last R's). Written over the packed cells of a
 /// pattern, which is no longer for it; `plain` is which channels have
@@ -397,22 +401,24 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         }
     }
     let unpack = |patterns: &[(usize, Vec<u8>)]| -> Vec<Vec<Vec<[u8; 5]>>> { patterns.iter().map(|(_, packed)| rows(packed, channels)).collect() };
-    // An R that leaves the volume alone becomes E9.
-    let mut plain = vec![true; channels];
-    for row in unpack(&patterns).iter().flatten() {
-        for (c, &[.., effect, param]) in row.iter().enumerate() {
-            plain[c] &= effect != R || matches!(param >> 4, 0 | 8);
+    // For a player with no R, one that leaves the volume alone becomes E9.
+    if !shape.retrigger {
+        let mut plain = vec![true; channels];
+        for row in unpack(&patterns).iter().flatten() {
+            for (c, &[.., effect, param]) in row.iter().enumerate() {
+                plain[c] &= effect != R || matches!(param >> 4, 0 | 8);
+            }
         }
-    }
-    for (_, packed) in &mut patterns {
-        retriggers(packed, channels, &plain);
+        for (_, packed) in &mut patterns {
+            retriggers(packed, channels, &plain);
+        }
     }
     let cells = unpack(&patterns);
 
     for pattern in &cells {
         for row in pattern {
             for &[_note, _ins, volume, effect, param] in row {
-                if (effect != 0 || param != 0) && !SILENT.contains(&effect) && (!EFFECTS.contains(&effect) || (effect == 0xE && !E_EFFECTS.contains(&(param >> 4)))) {
+                if (effect != 0 || param != 0) && !SILENT.contains(&effect) && !(effect == R && shape.retrigger) && (!EFFECTS.contains(&effect) || (effect == 0xE && !E_EFFECTS.contains(&(param >> 4)))) {
                     warn(format!("effect {}", effect_name(effect, param)));
                 }
                 if !VOLUMES.contains(&(volume >> 4)) && !SILENT_VOLUMES.contains(&(volume >> 4)) {

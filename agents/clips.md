@@ -32,7 +32,9 @@ takes a `Target`): for `V0_5` a module's 16-bit
 samples are cut to 8 and a sound file is IMA ADPCM, an option that
 asks for 16 bits (`samples=16|packed`, `format=packed|pcm16`) is
 refused, and so is a clip made already of a version v0.5 does not
-play (`Firmware::plays`, by the magic). The page starts at Speaker (the user, 2026-11-24: who comes to it
+play (`Firmware::plays`, by the magic); and a module's effect R,
+which that player has not, is E9 where it changes no volume
+(`Firmware::retriggers`). The page starts at Speaker (the user, 2026-11-24: who comes to it
 more likely has one), the command at the buzzer. The page asks which firmware, "v0.5"
 or "v0.6 or later" (the default), and `obd_convert` takes the minor
 version. A new version of a clip is a new `Firmware` and an option of the
@@ -95,10 +97,13 @@ has must come out the same.
 
 - A FastTracker 2 module for the clock's own player, of up to twenty
   channels; the notes list what the module uses that the player
-  lacks. An effect R (retrigger with a volume change) that changes
-  no volume is written as E9, which the player has: x of 8, or of 0
-  on a channel with no other R to remember a volume from, and y not
-  0. It is the one place a pattern's bytes are not the module's. A ProTracker module (31 samples, any channel count the tag
+  lacks. The effect R (retrigger with a volume change) is the
+  player's since 2026-11-26 and a clip keeps it as it is. For a
+  firmware up to v0.5 (`--firmware 0.5`), whose player has none, an
+  R that changes no volume is written as E9, which that player has:
+  x of 8, or of 0 on a channel with no other R to remember a volume
+  from, and y not 0; any other R is named as not played. It is the
+  one place a pattern's bytes are not the module's. A ProTracker module (31 samples, any channel count the tag
   names) becomes an XM first: the pitch a PAL Amiga's, the slides
   (1, 2, 3, 5, E1, E2) converted from periods to the linear table at
   the period each is played at, E0 (the filter) left out and named. A
@@ -310,7 +315,11 @@ scripts/mkxm.py mods/src/mountain_king.py mods/grieg-mountain-king-chip.xm chip
 - "Lera" (`mods/nq-lera.xm`, `clips/lera.xmc`) is n1k-o's "lerka",
   an XM of 18 channels as it was found, the default pack's third
   clip by his permission (`clips/README.md`), at the pack maker's
-  defaults in both packs. Its rolls are R02, written as E92.
+  defaults in both packs. Its rolls are R02; `clips/lera.xmc` is
+  the clip for v0.5, with them as E92, which the player makes the
+  same samples of as of the R02 (the pack maker's test holds it to
+  that), so the buzzer's pack keeps its rolls on a clock at v0.5.
+  The speaker's pack, made from the module, has the R02.
 - The other two there are Grieg's Morning (shortened; read off a scan) and
   In the Hall of the Mountain King (Mutopia's MIDI file). Morning in
   both kits and the Mountain King in `bright` are in the default

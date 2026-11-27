@@ -162,6 +162,66 @@ Owed: the hardened build looked at on white-clock, which has it
 since the evening of 2026-11-26; the name from Windows, and after
 the network's access point restarts.
 
+## The module player's effect R — built 2026-11-26, on `next`; held to openmpt123 on the host, not heard on a clock
+
+FastTracker's R (retrigger every y ticks with a volume change x) was
+the one effect the pack maker rewrote: as E9 where it changed no
+volume, and not played otherwise. Of the 937 XM modules of the
+user's key-generator collection some ninety use it, most with a
+volume in the column or an x that changes one.
+
+- The player has it (`Tune::retrigger`) as OpenMPT plays a
+  FastTracker module's (`CSoundFile::RetrigNote` of 1.32, its
+  compatible playback). It was first built as FastTracker 2.09's own
+  replayer has it, read in 8bitbubsy's ports (ft2play, ft2-clone);
+  the two differ in corners, and the user chose OpenMPT, which is
+  what a module is heard in today. The rules: x and y remembered
+  apart; the ticks counted across rows on a counter E9 shares,
+  looked at before they are counted, and started over only by a
+  retrigger; on a row's first tick a cell with an instrument sets the
+  count to 1, a volume in the column (not 0) ends the tick, and a
+  note in the cell is not begun twice; under a volume in the column
+  x changes nothing; 6 is five eighths and E three halves, in
+  quarters of a volume step, which a run of R rows keeps; the note
+  begins again at its own period, on the sample it had. FastTracker's
+  replayer starts the count over at every instrument, counts a row's
+  first tick only where the column leaves nothing behind, and has a
+  half, an eighth and a sixteenth for 6.
+- The pack maker keeps R as it is. For `--firmware 0.5` it writes E9
+  as before and names any other R. `clips/lera.xmc` stays the clip
+  for v0.5: the player makes the same samples of its E92 as of the
+  module's R02, so the buzzer's pack keeps its rolls on an older
+  clock.
+- Checked on the host, tick by tick, against openmpt123 0.8.10: a
+  module's samples made a ramp, a tick's slope in the render is
+  volume times pitch and a note's start is seen
+  (`dump_the_ticks` is the player's side). A module of 209 rows
+  written for it (every x, the memories, the volume column's sixteen
+  kinds, a portamento before, other speeds, E9 between) is the same
+  on every tick but where the measure fails (a volume slide, which
+  OpenMPT ramps across the tick). Of the 169 channels with an R of
+  89 modules of the collection and n1k-o's, 156 are the same on every
+  tick of R; the six of the other 13 looked at are the measure's
+  (notes too low for the ramp's steps, a pattern delay the player has
+  not, which shifts the rows). The test's rows are each a render of
+  their own.
+- OpenMPT plays a module it takes for an old ModPlug Tracker's by
+  other rules. A module rebuilt for the check with FastTracker's
+  name in its header was taken for one, and 76 channels differed
+  until the name was another; the player has the compatible rules
+  only.
+- Also run on the host: the players' tests with clips built in, the
+  repository's eight and 70 of the collection's with an R (mixed by
+  runs as a sample at a time, silent channels passed by); 150 tunes
+  of random cells, half with R, the same ways and with a 16-bit
+  sample predicted or plain; the player of v0.5-rc7 over a pack with
+  R in it, which it takes and plays as the same module with no R.
+- Cost: 612 bytes of flash, 12 of `.rwtext`, 88 of the main stack.
+
+Owed: a module with an R that changes the volume heard on a clock.
+ScreamTracker's Q, the same effect with another memory, is still not
+converted.
+
 ## A line output on the adapter for an amplifier — the setting built and heard 2026-11-18; the shutdown pin built, not checked; the adapters ordered 2026-11-19
 
 The user's idea (2026-11-15): an amplifier in place of Q1, fed the
@@ -553,3 +613,39 @@ From "Samples of 16 bits in a module" in `HISTORY.md`; both in
 - **`highpass=20` gives a clip stuck at full scale.** The Q14
   coefficients cannot hold a corner that low. Fix: refuse it in the
   pack maker, or wider coefficients.
+
+### Found with the key-generator collection (2026-11-26)
+
+The pack maker and the player over the 937 XM modules of the user's
+collection, for the effect R: 563 convert and play to their ends (17
+hours), none panics or hangs, 387 are refused in words (245 for the
+Amiga frequency table, 59 for more than twenty channels). Not R's,
+and not fixed:
+
+- **245 modules are refused for the Amiga frequency table**, a
+  quarter of the collection and two thirds of what is refused: the
+  player has the linear table only. Not designed. Either the player
+  gets the table (a note's period from FastTracker's table and its
+  finetune, the step from 8363 * 1712 over the period once a tick,
+  slides, vibrato and arpeggio in those units, and a clip that says
+  so, which an older firmware must not take for a linear one), or
+  the pack maker writes such a module on the linear table as
+  `modxm.rs` does a ProTracker one's slides, each converted at the
+  period it is played at, which is no firmware's business and not
+  exact.
+- **A module that fades in is silent.** Three start with G00 and
+  raise the global volume with H, which the player has not (the pack
+  maker names it), so the tune is played at nothing to its end. Fix:
+  H in the player, or the pack maker leaving a G00 out where only an
+  H follows it.
+- **80 modules are refused as cut short that OpenMPT plays.** The
+  header counts more instruments than the file has: 66 end where an
+  instrument would start, the rest inside a header or a sample (two
+  by a few bytes). Fix: an instrument at or past the end is one with
+  no sample, and a sample is what there is of it, as `Data::slice`
+  already takes a run of bytes.
+- **OpenMPT plays 28 of the 99 modules with an R by other rules**,
+  those it takes for an old ModPlug Tracker's (`openmpt123 --info`);
+  the player has the FastTracker-compatible rules for every module,
+  so those sound otherwise on the clock than in OpenMPT. Nothing to
+  fix unless a clip is to say which tracker made it.

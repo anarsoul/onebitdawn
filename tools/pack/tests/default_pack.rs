@@ -3,7 +3,9 @@
 
 //! The default pack's clips made again from the modules in `mods/`:
 //! byte for byte what is in `clips/`, which the Python converters this
-//! crate was ported from made, and which the clocks have. The kinds
+//! crate was ported from made, and which the clocks have. Lera is the
+//! clip for v0.5, its R written as E9: the same sound on a player
+//! with R, and its rolls on one without. The kinds
 //! the default pack has none of are held to `tests/data/`, the same
 //! converters' output for three small files.
 
@@ -50,9 +52,26 @@ fn the_modules_come_out_as_the_clips_in_the_repository() {
         ("tools/pack/tests/data/tiny.sid", "tools/pack/tests/data/tiny.sidc"),
     ] {
         let made = made(arg, Output::Buzzer);
+        if clip == "clips/lera.xmc" {
+            // The module's R02 as it is, for a player that has R: the
+            // same bytes but for the 26 cells, and the same ticks.
+            assert!(made.data != repo(clip) && made.data.len() == repo(clip).len());
+            assert_eq!(play(&made.data), play(&repo(clip)));
+            let spec = Spec::parse(arg);
+            let source = Source { data: repo(&spec.file), file: spec.file, options: spec.options, label: spec.label };
+            let old = convert_for(&source, Target { firmware: Firmware::V0_5, limiter: Limiter::Loudest, ..Default::default() }).unwrap();
+            assert!(old.data == repo(clip), "{arg} for v0.5 is not {clip}");
+            continue;
+        }
         assert!(made.data == repo(clip), "{arg} is not {clip}");
         assert!(made.loops);
     }
+}
+
+/// What the player makes of a module's clip.
+fn play(clip: &[u8]) -> Vec<i16> {
+    let mut tune = onebitdawn_core::xm::Tune::new(clip);
+    core::iter::from_fn(|| tune.next_sample()).collect()
 }
 
 #[test]
@@ -147,13 +166,37 @@ fn the_default_pack_from_its_sources() {
     }
     speaker.push(ninth);
     assert_eq!(Pack::parse(&build(&speaker).unwrap()).unwrap().count(), 9);
-    // Lera's rolls are R02, which the converter writes as E92: one
-    // note, the module's line, and nothing the player lacks.
+    // Lera's rolls are R02, which the player has (and the converter
+    // writes as E92 for one that has not): one note, the module's
+    // line, and nothing the player lacks.
     assert_eq!(clips[2].notes.len(), 1, "{:?}", clips[2].notes);
     for (arg, k) in [("mods/Orion-Nero6.3.0.2.xm:name=keygen", 0), ("mods/nq-synchronization.pt3:restart,name=synchronization", 1)] {
         let speaker = made(arg, Output::Speaker);
         assert!(speaker.data.len() == clips[k].data.len() && speaker.data != clips[k].data, "{arg}");
     }
+}
+
+#[test]
+fn an_r_is_the_modules_for_a_player_that_has_it() {
+    let wave: Vec<i16> = (0..2000).map(|i| ((i % 64) * 256 - 8000) as i16).collect();
+    let made = |cells: &[[u8; 5]], target: Target| {
+        let source = Source { data: module_of_16_bits(&wave, (0, 2000), cells), file: "test.xm".into(), options: vec![("samples".into(), "8".into())], label: None };
+        convert_for(&source, target).unwrap()
+    };
+    let has = |clip: &Clip, cell: [u8; 4]| clip.data.windows(4).any(|w| w == cell);
+    let said = |clip: &Clip| clip.notes.iter().any(|n| n.contains("effect R"));
+    // One that changes no volume: R as it is, or E9 for v0.5; no
+    // note of either.
+    let plain = [[49, 1, 0, 0x1B, 0x83]];
+    let (new, old) = (made(&plain, Target::default()), made(&plain, OLD));
+    assert!(has(&new, [1, 0, 0x1B, 0x83]) && !has(&new, [1, 0, 0xE, 0x93]) && !said(&new));
+    assert!(has(&old, [1, 0, 0xE, 0x93]) && !has(&old, [1, 0, 0x1B, 0x83]) && !said(&old));
+    // One that does: the same cell in both, played by one and named
+    // as not played for the other.
+    let loud = [[49, 1, 0, 0x1B, 0x43]];
+    let (new, old) = (made(&loud, Target::default()), made(&loud, OLD));
+    assert!(has(&new, [1, 0, 0x1B, 0x43]) && has(&old, [1, 0, 0x1B, 0x43]));
+    assert!(!said(&new) && said(&old), "{:?} {:?}", new.notes, old.notes);
 }
 
 /// A module of one channel and one instrument, its sample of 16 bits

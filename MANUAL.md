@@ -197,7 +197,10 @@ they are and `samples=8` cuts them to 8 bits. A clock at v0.5 or
 before plays only ADPCM, 8-bit PCM and 8-bit samples, and refuses a
 pack with anything else in it: for one, choose v0.5 on the page, which
 makes those and refuses the options for the others, or give the
-command `--firmware 0.5`.
+command `--firmware 0.5`. Its module player has no effect R (the
+retrigger with a volume change) either: a pack for v0.5 has E9 in its
+place where the R changes no volume, and the maker names any other
+as not played.
 
 For a speaker the page and the command (`--limiter`) also ask how
 loud the clip of a tracker module or a ZX Spectrum tune is to be: `loudest` pushes the limiter

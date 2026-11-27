@@ -106,6 +106,7 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-23 | 32.8 → 32.0 KB | on `next`: the mixer by runs of 16 mixed samples, its loop built once a kind of sample, 852 bytes of `.rwtext` (33 592 → 32 728); with three predicted clips played the deepest use was 17 500 bytes, 17 432 before |
 | 2026-11-23 | 32.0 → 31.7 KB | on `next`: `fill_samples` writes a module's rendered samples a run at a time, 252 bytes of `.rwtext` (32 728 → 32 472) |
 | 2026-11-26 | 31.9 → 30.0 KB | on `next`: the mDNS responder's task, its socket's 1 KB of received datagrams above all, and the stack's multicast groups (32 656 → 30 648) |
+| 2026-11-26 | 29.9 → 29.8 KB | on `next`: the module player's effect R, four bytes a channel of twenty and 12 of `.rwtext` (30 648 → 30 560); 612 bytes of flash |
 
 How much of it is used, measured 2026-11-23 on the bare bench board
 with the `stack-watch` feature (`src/stack.rs`: the stack painted,
