@@ -505,6 +505,11 @@ release from that one on, with the newer one's data in flash:
   `fetch_add` or `swap`. Counters shared with the heartbeat have one
   writer and are bumped with a load and a store; anything with more than
   one writer goes behind `critical_section`.
+- The chip is a small one of 32 bits: avoid arithmetic of 64 bits
+  where it can be done without cheaply. A division or a remainder
+  of 64 bits is a call into a routine, a multiply several
+  instructions; a factor worked out once, or as a `const`, with a
+  division of 32 bits where it runs is the usual way out.
 - Keep hardware out of `core/`: it has no esp dependency and must
   build for the host. New pure logic goes there with its tests; a
   module that needs a peripheral and has a pure half is split the way

@@ -153,6 +153,16 @@ const AMIGA: [u16; 104] = [
     547, 543, 538, 535, 532, 528, 524, 520, 516, 513, 508, 505, 502, 498, 494, 491, 487, 484, 480, 477, 474, 470, 467, 463, 460, 457, 453, 450, 447, 443, 440, 437, 434, 431,
 ];
 const AMIGA_HZ: u32 = C4_HZ * 1712;
+/// The step of a period of 1 on that table, in 16.16 at a mixing
+/// rate: a period's step is this over it, one division of 32 bits a
+/// channel a tick, which the chip has. It fits at either rate.
+const fn amiga_step(mix_hz: u32) -> u32 {
+    let step = ((AMIGA_HZ as u64) << 16) / mix_hz as u64;
+    assert!(step <= u32::MAX as u64);
+    step as u32
+}
+const AMIGA_STEP: u32 = amiga_step(MIX_HZ);
+const AMIGA_STEP_FAST: u32 = amiga_step(FAST_MIX_HZ);
 /// The longest period on that table, FastTracker's limit.
 const AMIGA_MAX: i32 = 31999;
 /// The note an arpeggio does not go above, C-8.
@@ -730,6 +740,8 @@ pub struct Tune<'a> {
     mix_hz: u32,
     /// On the Amiga frequency table, not the linear one.
     amiga: bool,
+    /// `amiga_step` of the mixing rate.
+    amiga_step: u32,
     /// Whether the tune goes round and round: it follows a jump back,
     /// and from the end of the order list it starts over.
     looping: bool,
@@ -793,6 +805,7 @@ impl<'a> Tune<'a> {
             channel: [Channel::default(); MAX_CHANNELS],
             mix_hz: if flags & FAST != 0 { FAST_MIX_HZ } else { MIX_HZ },
             amiga: flags & AMIGA_TABLE != 0,
+            amiga_step: if flags & FAST != 0 { AMIGA_STEP_FAST } else { AMIGA_STEP },
             shaper: Shaper::new(byte(data, 10), byte(data, 11), octaves, core::array::from_fn(|i| word(data, 18 + 2 * i) as i16), byte(data, 16), flags & WIDE != 0, byte(data, 29)),
             oversample: if flags & (TWICE | FAST) == 0 { 4 } else { 2 },
             ready: [0; RUN / 2],
@@ -1552,7 +1565,7 @@ impl<'a> Tune<'a> {
     fn settle(&mut self, c: usize) {
         let instrument = self.instrument(self.channel[c].instrument);
         let global = self.global as u32;
-        let (mix_hz, amiga) = (self.mix_hz, self.amiga);
+        let (mix_hz, amiga, amiga_step) = (self.mix_hz, self.amiga, self.amiga_step);
         let ch = &mut self.channel[c];
         let level = match instrument {
             Some(i) => Self::envelope(ch, i),
@@ -1602,10 +1615,9 @@ impl<'a> Tune<'a> {
             up => Self::arpeggio_period(amiga, ch.period, instrument.map_or(0, |i| i.finetune()), up as i32 - 1),
         };
         if amiga {
-            // AMIGA_HZ over the period, as a step in 16.16 at the mixing rate.
             let period = (base + ch.vibrato + auto).clamp(1, AMIGA_MAX);
             ch.sounding = period;
-            ch.step = (((AMIGA_HZ as u64) << 16) / (period as u32 * mix_hz) as u64).min(u32::MAX as u64) as u32;
+            ch.step = amiga_step / period as u32;
             return;
         }
         let period = (base + ch.vibrato + auto).clamp(1, PERIOD_MAX);
@@ -1614,8 +1626,9 @@ impl<'a> Tune<'a> {
         let exponent = PERIOD_C4 - period;
         let (octave, rest) = (exponent.div_euclid(OCTAVE), exponent.rem_euclid(OCTAVE));
         // Hz in Q15, then a step in 16.16 at the mixing rate.
-        let hz = C4_HZ as u64 * POW[rest as usize] as u64;
-        let step = (hz << 1) / mix_hz as u64;
+        // (Twice the Hz is under 2^31, so the division is one of 32 bits.)
+        let hz = C4_HZ * POW[rest as usize] as u32;
+        let step = ((hz << 1) / mix_hz) as u64;
         ch.step = (if octave >= 0 { step << octave.min(16) } else { step >> (-octave).min(16) }).min(u32::MAX as u64) as u32;
     }
 

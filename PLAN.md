@@ -373,7 +373,7 @@ the player had the linear table only.
   FastTracker's table of 104 periods, eight to a semitone, between
   two entries by the finetune in steps of eight, halved an octave;
   the frequency is 8363 * 1712 over the period, a division a channel
-  a tick. Slides, vibratos and the tone portamento move the period
+  a tick (of 32 bits since the section after this). Slides, vibratos and the tone portamento move the period
   by the same figures as on the linear table, so their code is
   shared, with the period held to 1..31999.
 - An arpeggio's tick plays the note so many semitones above the one
@@ -463,7 +463,13 @@ named as not played that a module of the collection uses.
   the tremor's 1382 ticks and all of L's are the same; X and E5
   differ only on notes too low for the measure, and a tremolo
   cannot be held so.
-- Cost: 754 bytes of flash and 272 of the main stack, some fourteen
+- A channel's step was a division of 64 bits a tick on either
+  table, a call into the ROM's routine. It is one of 32 bits now,
+  which the chip has: on the Amiga table the step of a period of 1,
+  a constant a mixing rate, over the period, and on the linear one
+  twice the Hz, which is under 2^31, over the rate. The same steps
+  to the bit.
+- Cost: 712 bytes of flash and 272 of the main stack, some fourteen
   bytes a channel; `.rwtext` four bytes less.
 
 Owed: modules with these heard on a clock; an instrument's number
