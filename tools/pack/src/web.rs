@@ -32,7 +32,107 @@ enum Voice {
 struct Preview {
     // Before `data`, which it borrows: dropped first.
     voice: Voice,
-    _data: Box<[u8]>,
+    data: Box<[u8]>,
+    /// Samples a second, and how many have been given or skipped.
+    rate: u32,
+    at: u32,
+}
+
+/// What a seek plays into nothing before the place asked for, in
+/// samples a second of it: a skip leaves a player's filters and its
+/// limiter where they were (`xm::Tune::skip`), and this is for them
+/// to be where the tune has them.
+const LEAD: u32 = 2;
+
+impl Voice {
+    /// The player of a clip, and the samples a second it gives.
+    fn of(bytes: &'static [u8]) -> (Self, u32) {
+        if clip::is_beeper(bytes) {
+            (Voice::Bits(Box::new(Stream::new(bytes, false))), BEEPER_HZ)
+        } else if adpcm::is_clip(bytes) {
+            (Voice::Adpcm(adpcm::Decoder::new(bytes)), adpcm::rate(bytes))
+        } else if xm::is_tune(bytes) {
+            let tune = Box::new(xm::Tune::new(bytes));
+            let rate = tune.rate();
+            (Voice::Module(tune), rate)
+        } else if sid::is_tune(bytes) {
+            let tune = Box::new(sid::Tune::new(bytes));
+            let rate = tune.rate();
+            (Voice::Sid(tune), rate)
+        } else if pt3::is_tune(bytes) {
+            let tune = Box::new(pt3::Tune::new(bytes));
+            let rate = tune.rate();
+            (Voice::Ay(tune), rate)
+        } else {
+            (Voice::Pcm(clip::pcm_samples(bytes), 0), clip::pcm_rate(bytes))
+        }
+    }
+
+    /// The next samples, between -1 and 1: how many, fewer than asked
+    /// for at the clip's end and 0 after.
+    fn fill(&mut self, out: &mut [f32]) -> usize {
+        // A player's sample is in `xm::STEP`ths of PCM's 8-bit step.
+        let scale = |s: Option<i16>| s.map(|s| s as f32 / (128 * xm::STEP) as f32);
+        if let Voice::Bits(stream) = self {
+            if stream.done() {
+                return 0;
+            }
+            let mut raw = vec![0u8; out.len() * 2];
+            stream.fill(&mut raw);
+            for (o, pair) in out.iter_mut().zip(raw.as_chunks::<2>().0) {
+                // The share of the bits that are ones, about nought.
+                *o = (pair[0].count_ones() + pair[1].count_ones()) as f32 / 16.0 - 0.5;
+            }
+            return out.len();
+        }
+        let mut given = 0;
+        for o in out.iter_mut() {
+            let sample = match self {
+                Voice::Module(tune) => scale(tune.next_sample()),
+                Voice::Sid(tune) => scale(tune.next_sample()),
+                Voice::Ay(tune) => scale(tune.next_sample()),
+                Voice::Adpcm(decoder) => scale(decoder.next_sample()),
+                Voice::Pcm(samples, next) => samples.get(*next).map(|&s| {
+                    *next += 1;
+                    (s as f32 - 128.0) / 128.0
+                }),
+                Voice::Bits(_) => None,
+            };
+            let Some(sample) = sample else { break };
+            *o = sample.clamp(-1.0, 1.0);
+            given += 1;
+        }
+        given
+    }
+
+    /// On by `samples` with none of them made, where a player can
+    /// (`core`'s `seek` feature: the tunes, whose samples are what
+    /// costs); sampled sound is an index, or decoded through, which is
+    /// little. How many it was, fewer at the clip's end.
+    fn skip(&mut self, samples: u32) -> u32 {
+        match self {
+            Voice::Module(tune) => tune.skip(samples),
+            Voice::Sid(tune) => tune.skip(samples),
+            Voice::Ay(tune) => tune.skip(samples),
+            Voice::Adpcm(decoder) => (0..samples).take_while(|_| decoder.next_sample().is_some()).count() as u32,
+            Voice::Pcm(all, next) => {
+                let on = (samples as usize).min(all.len() - *next);
+                *next += on;
+                on as u32
+            }
+            Voice::Bits(_) => {
+                let (mut on, mut buf) = (0, [0f32; 512]);
+                while on < samples {
+                    let got = self.fill(&mut buf[..(samples - on).min(512) as usize]);
+                    if got == 0 {
+                        break;
+                    }
+                    on += got as u32;
+                }
+                on
+            }
+        }
+    }
 }
 
 /// A page's clips.
@@ -158,71 +258,49 @@ impl Session {
         // when the box does and is freed only after the stream, the
         // field before it in `Preview`; neither leaves the struct.
         let bytes: &'static [u8] = unsafe { core::slice::from_raw_parts(data.as_ptr(), data.len()) };
-        let (voice, rate) = if clip::is_beeper(bytes) {
-            (Voice::Bits(Box::new(Stream::new(bytes, false))), BEEPER_HZ)
-        } else if adpcm::is_clip(bytes) {
-            (Voice::Adpcm(adpcm::Decoder::new(bytes)), adpcm::rate(bytes))
-        } else if xm::is_tune(bytes) {
-            let tune = Box::new(xm::Tune::new(bytes));
-            let rate = tune.rate();
-            (Voice::Module(tune), rate)
-        } else if sid::is_tune(bytes) {
-            let tune = Box::new(sid::Tune::new(bytes));
-            let rate = tune.rate();
-            (Voice::Sid(tune), rate)
-        } else if pt3::is_tune(bytes) {
-            let tune = Box::new(pt3::Tune::new(bytes));
-            let rate = tune.rate();
-            (Voice::Ay(tune), rate)
-        } else {
-            (Voice::Pcm(clip::pcm_samples(bytes), 0), clip::pcm_rate(bytes))
-        };
-        self.preview = Some(Preview { voice, _data: data });
+        let (voice, rate) = Voice::of(bytes);
+        self.preview = Some(Preview { voice, data, rate, at: 0 });
         rate
     }
 
     /// The next samples of the clip being heard, between -1 and 1; how
     /// many, fewer than asked for at its end and 0 after. Ask for a
-    /// multiple of 64.
+    /// multiple of 64. The clip stays, for a `seek` back into it.
     pub fn samples(&mut self, out: &mut [f32]) -> usize {
         let Some(preview) = &mut self.preview else {
             return 0;
         };
-        // A player's sample is in `xm::STEP`ths of PCM's 8-bit step.
-        let scale = |s: Option<i16>| s.map(|s| s as f32 / (128 * xm::STEP) as f32);
-        let mut given = 0;
-        if let Voice::Bits(stream) = &mut preview.voice {
-            if !stream.done() {
-                let mut raw = vec![0u8; out.len() * 2];
-                stream.fill(&mut raw);
-                for (o, pair) in out.iter_mut().zip(raw.as_chunks::<2>().0) {
-                    // The share of the bits that are ones, about nought.
-                    *o = (pair[0].count_ones() + pair[1].count_ones()) as f32 / 16.0 - 0.5;
-                }
-                given = out.len();
-            }
-        } else {
-            for o in out.iter_mut() {
-                let sample = match &mut preview.voice {
-                    Voice::Module(tune) => scale(tune.next_sample()),
-                    Voice::Sid(tune) => scale(tune.next_sample()),
-                    Voice::Ay(tune) => scale(tune.next_sample()),
-                    Voice::Adpcm(decoder) => scale(decoder.next_sample()),
-                    Voice::Pcm(samples, next) => samples.get(*next).map(|&s| {
-                        *next += 1;
-                        (s as f32 - 128.0) / 128.0
-                    }),
-                    Voice::Bits(_) => None,
-                };
-                let Some(sample) = sample else { break };
-                *o = sample.clamp(-1.0, 1.0);
-                given += 1;
-            }
-        }
-        if given == 0 {
-            self.preview = None;
-        }
+        let given = preview.voice.fill(out);
+        preview.at += given as u32;
         given
+    }
+
+    /// The clip being heard goes on from its sample `to`, or from its
+    /// end if that is sooner: where it is then. Back is the clip from
+    /// its start; then the player skips (`Voice::skip`) to a moment
+    /// short of the place and plays that into nothing (`LEAD`).
+    pub fn seek(&mut self, to: u32) -> u32 {
+        let Some(preview) = &mut self.preview else {
+            return 0;
+        };
+        if to < preview.at {
+            // SAFETY: as in `preview`; the old voice is dropped by the
+            // assignment and `data` is the same heap.
+            let bytes: &'static [u8] = unsafe { core::slice::from_raw_parts(preview.data.as_ptr(), preview.data.len()) };
+            preview.voice = Voice::of(bytes).0;
+            preview.at = 0;
+        }
+        let lead = (preview.rate / LEAD).min(to - preview.at);
+        preview.at += preview.voice.skip(to - preview.at - lead);
+        let mut nothing = [0f32; 512];
+        while preview.at < to {
+            let got = preview.voice.fill(&mut nothing[..(to - preview.at).min(512) as usize]);
+            if got == 0 {
+                break;
+            }
+            preview.at += got as u32;
+        }
+        preview.at
     }
 }
 

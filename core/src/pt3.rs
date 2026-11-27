@@ -799,6 +799,48 @@ impl<'a> Tune<'a> {
     }
 }
 
+/// Going on in a tune with no samples made (the `seek` feature, as
+/// `xm::Tune::skip`). After the rest, as it is in each player: a line
+/// the firmware's code is on does not move, and its image is the same.
+#[cfg(any(test, feature = "seek"))]
+impl Tune<'_> {
+    /// The tune `samples` samples on with none of them made, as
+    /// `xm::Tune::skip`: how many it was, fewer if the tune ended.
+    /// The frames are run as ever, the chip's counters moved a frame
+    /// at a time (`Chip::pass`). What the chip gives after it is what
+    /// it gives played to there; the noise's low-pass, the mean and
+    /// the shaper are where they were.
+    pub fn skip(&mut self, samples: u32) -> u32 {
+        // The ticks of all of them, as `next_mix` counts a sample's.
+        let per = (TICK * self.rate) as u64;
+        let total = self.sample_part as u64 + self.clock as u64 * samples as u64;
+        let all = total / per;
+        let (mut left, mut noise) = (all, 0u64);
+        while left > 0 {
+            if self.frame_left == 0 {
+                self.next_frame(true);
+                if self.ended {
+                    break;
+                }
+                self.frame_part += self.frame;
+                self.frame_left = self.frame_part / TICK;
+                self.frame_part %= TICK;
+            }
+            let n = left.min(self.frame_left as u64) as u32;
+            noise += self.chip.pass(n) as u64;
+            left -= n as u64;
+            self.frame_left -= n;
+        }
+        self.chip.noise_steps(noise);
+        if left != 0 {
+            // The samples whose ticks were all there before the end.
+            return (((all - left + 1) * per - 1 - self.sample_part as u64) / self.clock as u64) as u32;
+        }
+        self.sample_part = (total % per) as u32;
+        samples
+    }
+}
+
 /// The whole tune's mix before the shaping, scaled to fit `i16` with
 /// the three channels at full level: for comparing the player with
 /// another, from a test.
@@ -943,6 +985,54 @@ mod tests {
     /// Note `n` as a pattern's byte.
     const fn note(n: u8) -> u8 {
         0x50 + n
+    }
+
+    /// `skip` to places all over the tune against the tune played:
+    /// the chip gives the same from there on.
+    fn skips_as_played(data: &[u8], places: u32) {
+        let mut t = Tune::new(data);
+        let want: Vec<i32> = core::iter::from_fn(|| t.next_mix()).collect();
+        assert!(want.len() > 1000 && want.iter().any(|&s| s > 1000));
+        let len = want.len() as u32;
+        for k in 0..places {
+            let from = (len as u64 * k as u64 / places as u64) as u32 + k % 5;
+            let mut t = Tune::new(data);
+            // In two goes, some of it played between them.
+            let first = t.skip(from / 3);
+            let between = if k % 2 == 0 { (0..3.min(from - from / 3)).filter(|_| t.next_mix().is_some()).count() as u32 } else { 0 };
+            assert_eq!(first + between + t.skip(from - from / 3 - between), from);
+            // (A tune whose noise is low-passed has that to settle.)
+            let exact = byte(data, 39) == 0;
+            for (i, &s) in want[from as usize..].iter().enumerate().take(if exact { 4000 } else { 0 }) {
+                assert_eq!(t.next_mix(), Some(s), "after a skip to {from} of {len}, sample {i}");
+            }
+        }
+        let mut t = Tune::new(data);
+        assert_eq!(t.skip(u32::MAX), len);
+        assert!(t.next_sample().is_none());
+    }
+
+    #[test]
+    fn a_skip_is_where_playing_would_be() {
+        // Notes on three channels, a sample with the noise in it and
+        // one that goes by lines, an ornament, the envelope set and
+        // sounding, over two patterns.
+        let drum = [[0, 0x0F, 0, 0], [2, 0x0C, 0, 0], [4, 0x08, 0, 0], plain(0)];
+        let module = Module::new()
+            .sample(2, &drum, 3)
+            .sample(3, &[plain(15), plain(12), plain(9), plain(6)], 2)
+            .ornament(1, &[0, 4, 7], 0)
+            .pattern(&[0xB1, 2, note(45), 0xD3, note(40), 0xD1, 0x41, note(33)], &[0xB1, 3, 0xD2, note(20), note(24)], &[0xB1, 6, 0x1E, 0x01, 0x40, note(30)])
+            .pattern(&[0xB1, 1, note(50), note(52), 0xC0, note(57), 0xD3, note(45), note(47)], &[0xB1, 2, 0xD2, note(20), 0xC0, note(20)], &[0xB1, 6, 0x18, 0x00, 0x30, note(18)]);
+        skips_as_played(&module.clip(), 41);
+    }
+
+    /// The same of every tune built in (`ALARM_CLIP`).
+    #[test]
+    fn a_skip_in_a_tune_built_in_is_where_playing_would_be() {
+        for data in crate::melody::CLIP_DATA.iter().filter(|d| is_tune(d)) {
+            skips_as_played(data, 7);
+        }
     }
 
     #[test]

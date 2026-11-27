@@ -137,6 +137,13 @@ pub extern "C" fn obd_preview(id: usize) -> u32 {
     with(|session, _| session.preview(id))
 }
 
+/// The clip being heard goes on from its sample `to`: where it is
+/// then, which is its end if that is sooner.
+#[unsafe(no_mangle)]
+pub extern "C" fn obd_seek(to: u32) -> u32 {
+    with(|session, _| session.seek(to))
+}
+
 /// The next `count` samples as `f32`s at `out`: how many, 0 at the end.
 ///
 /// # Safety

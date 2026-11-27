@@ -14,6 +14,9 @@ path = "src/lib.rs"
 # The module player's code that runs for every sample in RAM (the
 # section esp-hal's `#[ram]` uses): the firmware turns it on.
 ram = []
+# Each player's `skip`, which goes on in a tune without making its
+# samples: the pack maker's page seeks with it. Not the firmware's.
+seek = []
 
 [dependencies]
 embassy-sync     = "0.7"

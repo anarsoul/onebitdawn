@@ -609,6 +609,73 @@ impl<'a> Tune<'a> {
     }
 }
 
+/// The chip with nobody listening, for `Tune::skip` (the `seek` feature).
+#[cfg(any(test, feature = "seek"))]
+impl Chip {
+    /// The chip `steps` steps on with no output made. The envelopes
+    /// are run, being what is heard afterwards of the time passed: a
+    /// step at a time while one attacks, as `clock` does, since the
+    /// attack's end changes its rate, and otherwise all at once. An
+    /// oscillator is moved by its steps; a synced one is not started
+    /// over, the noise registers are not shifted and the filter is
+    /// where it was, none of which is heard a moment later.
+    fn pass(&mut self, steps: u32) {
+        // The steps of these that are the envelopes' (`envelope_in`).
+        let mut moves = 0;
+        if steps > self.envelope_in {
+            moves = 1 + (steps - self.envelope_in - 1) / self.oversample;
+            self.envelope_in += moves * self.oversample;
+        }
+        self.envelope_in -= steps;
+        for v in &mut self.voice {
+            v.acc = if v.control & TEST != 0 { 0 } else { v.acc.wrapping_add(v.step.wrapping_mul(steps)) };
+            let mut left = moves;
+            while left > 0 && v.phase == Phase::Attack {
+                v.envelope(self.cycles);
+                left -= 1;
+            }
+            // A frame's worth is far from filling the counter.
+            while left > 0 {
+                let n = left.min(1024);
+                v.envelope(self.cycles * n);
+                left -= n;
+            }
+        }
+    }
+}
+
+/// Going on in a tune with no samples made (the `seek` feature, as
+/// `xm::Tune::skip`), after the rest so that no line of the firmware's
+/// code moves.
+#[cfg(any(test, feature = "seek"))]
+impl Tune<'_> {
+    /// The tune `samples` samples on with none of them made, as
+    /// `xm::Tune::skip`: how many it was, fewer if the tune ended.
+    /// The record's frames are read and written to the chip as ever,
+    /// and the chip moved between them (`Chip::pass`): the envelopes
+    /// are where they would be, the rest near enough for the caller
+    /// to play a moment into nothing.
+    pub fn skip(&mut self, samples: u32) -> u32 {
+        let all = samples as u64 * self.chip.oversample as u64;
+        let mut left = all;
+        'frames: while left > 0 {
+            while self.pool <= 0 {
+                self.next_frame();
+                if self.ended {
+                    break 'frames;
+                }
+                self.pool += self.frame;
+            }
+            // To the frame's end, or to where the skip ends in it.
+            let n = ((self.pool + self.clock - 1) / self.clock).min(left.min(1 << 20) as i64) as u32;
+            self.pool -= self.clock * n as i64;
+            self.chip.pass(n);
+            left -= n as u64;
+        }
+        ((all - left) / self.chip.oversample as u64) as u32
+    }
+}
+
 /// The whole tune's mix before the shaping, scaled to fit `i16` with
 /// the three voices at full level: for comparing the player with
 /// another, from a test.
@@ -1171,6 +1238,72 @@ mod tests {
             n += 1;
         }
         assert!(n > 3000);
+    }
+
+    /// What of a voice a skip must leave as playing does.
+    fn state(t: &Tune) -> [(u8, Phase, u32, u8, u8, u32); 3] {
+        core::array::from_fn(|i| {
+            let v = &t.chip.voice[i];
+            (v.env, v.phase, v.rate_counter, v.exp_counter, v.exp_period, v.acc)
+        })
+    }
+
+    /// `skip` to places all over the tune against the tune played: the
+    /// envelopes and the oscillators are where they would be, and so
+    /// is the record.
+    fn skips_as_played(data: &[u8], places: u32, synced: bool) {
+        let mut played = Tune::new(data);
+        let len = core::iter::from_fn(|| played.next_sample()).count() as u32;
+        assert!(len > 1000);
+        let mut played = Tune::new(data);
+        let mut at = 0;
+        for k in 1..places {
+            let to = (len as u64 * k as u64 / places as u64) as u32 + k % 5;
+            while at < to {
+                played.next_sample();
+                at += 1;
+            }
+            let mut t = Tune::new(data);
+            assert_eq!(t.skip(to / 3) + t.skip(to - to / 3), to);
+            let (mut got, mut want) = (state(&t), state(&played));
+            if synced {
+                // A synced oscillator is started over by playing alone.
+                got.iter_mut().chain(&mut want).for_each(|v| v.5 = 0);
+            }
+            assert_eq!(got, want, "after a skip to {to} of {len}");
+            assert_eq!((t.cursor, t.wait, t.pool), (played.cursor, played.wait, played.pool), "after a skip to {to} of {len}");
+        }
+        let mut t = Tune::new(data);
+        assert_eq!(t.skip(u32::MAX), len);
+        assert!(t.next_sample().is_none());
+    }
+
+    #[test]
+    fn a_skip_is_where_playing_would_be() {
+        // Three voices with fast and slow envelopes: gated, let go in
+        // the attack and in the decay, gated again before the release
+        // is over, and a rate made faster under a counter past it.
+        let tune = clip(
+            &[
+                (&[(24, 15), (0, 0xD6), (1, 0x1C), (5, 0x00), (6, 0xA0), (4, TRIANGLE | GATE), (7, 0x50), (8, 0x04), (12, 0xA9), (13, 0x4A), (11, SAWTOOTH | GATE), (14, 0x00), (15, 0x70), (17, 0x08), (19, 0x22), (20, 0xF8), (18, PULSE | GATE)], 10),
+                (&[(4, TRIANGLE)], 7),
+                (&[(11, SAWTOOTH), (5, 0x5F), (4, TRIANGLE | GATE)], 30),
+                (&[(20, 0xF1), (18, PULSE)], 20),
+                (&[(5, 0x0F), (13, 0x40), (11, SAWTOOTH | GATE)], 15),
+                (&[(4, TRIANGLE), (11, SAWTOOTH), (18, PULSE | GATE), (19, 0xF0)], 40),
+                (&[(6, 0xA0), (4, TRIANGLE | GATE), (18, PULSE)], 25),
+            ],
+            0,
+        );
+        skips_as_played(&tune, 67, false);
+    }
+
+    /// The same of every tune built in (`ALARM_CLIP`).
+    #[test]
+    fn a_skip_in_a_tune_built_in_is_where_playing_would_be() {
+        for data in crate::melody::CLIP_DATA.iter().filter(|d| is_tune(d)) {
+            skips_as_played(data, 9, true);
+        }
     }
 
     #[test]

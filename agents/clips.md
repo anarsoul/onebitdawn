@@ -29,7 +29,13 @@ keeps the clips in its own instance: a worker's clip crosses as its
 bytes (`obd_clip`, then `obd_adopt`, whose number is the page's). So
 the page's thread only draws, previews and makes the pack; keep a
 conversion off it. The page previews a clip through
-`core`'s players (`web::Session::preview`) and gives the pack as a
+`core`'s players (`web::Session::preview`), with a bar to seek in it
+(`Session::seek`, `obd_seek`: the players' `skip` of `core`'s `seek`
+feature to half a second short of the place, that much played into
+nothing, and back is the clip started over; sampled sound is an index
+or decoded through; `tests/seek.rs` holds what is heard after a seek
+to the clip played, and prints what a seek costs, for the files of
+`SEEK_CLIPS` too), and gives the pack as a
 download; it does not post to a clock, which `http::admit` would
 refuse from a foreign `Origin`.
 

@@ -115,6 +115,9 @@
     .fields .wide { grid-column: 1 / -1; }
     .row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; margin-top: 0.6rem; }
     .row .loop { display: inline-flex; align-items: center; gap: 0.35rem; margin-right: auto; }
+    .seek { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; }
+    .seek input { flex: 1; min-width: 0; accent-color: var(--accent); }
+    .seek span { white-space: nowrap; font-variant-numeric: tabular-nums; }
     .notes { margin: 0.4rem 0 0; padding-left: 1.2rem; font-size: 0.9rem; color: var(--muted); }
     /* What only the Advanced box shows. */
     body:not(.advanced) .advanced { display: none; }
@@ -318,7 +321,7 @@ const text = new TextDecoder();
 const rows = [];
 let x = null;       // the wasm's exports: the clips, the sound, the pack
 let limits = null;  // the pack's limits, from the wasm
-let playing = null; // { row, context, timer }
+let playing = null; // the clip being heard: see `start`
 
 // Bytes into the wasm's memory: [pointer, length], to be given back.
 function put(bytes) {
@@ -534,6 +537,18 @@ function render() {
     line.append(move('↑', k - 1, 'Move up'), move('↓', k + 1, 'Move down'), remove);
     item.append(line);
 
+    if (playing && playing.row === row) {
+      // Where it is in the clip, and a way to anywhere else in it.
+      const bar = el('input', { type: 'range', min: 0, max: row.clip.ms, step: 100, ariaLabel: 'Seek in ' + row.label });
+      bar.dataset.at = k + 'seek';
+      const time = el('span', { className: 'small' });
+      bar.addEventListener('input', () => { playing.held = true; show(); });
+      bar.addEventListener('change', () => { playing.held = false; seek(Number(bar.value)); });
+      Object.assign(playing, { bar, time, held: false });
+      item.append(el('div', { className: 'seek' }, bar, time));
+      show();
+    }
+
     if (row.clip && row.clip.notes.length) {
       // What the clock will not play is for everyone; the rest is detail.
       item.append(el('ul', { className: 'notes' }, ...row.clip.notes.map((n) => el('li', { textContent: n, className: n.startsWith('not ') ? '' : 'advanced' }))));
@@ -546,7 +561,7 @@ function render() {
   const again = held && list.querySelector(`[data-at="${held.at}"]`);
   if (again) {
     again.focus();
-    again.setSelectionRange(held.from, held.to);
+    if (typeof held.from === 'number') again.setSelectionRange(held.from, held.to);
   }
   tally();
 }
@@ -561,11 +576,17 @@ async function add(files) {
 }
 
 // The clip through the player the clock has for it, a few buffers
-// ahead of what is heard.
+// ahead of what is heard. `playing` is the row, the context and the
+// clip's samples a second; the buffers scheduled (`sources`) and when
+// the next begins (`next`); the sample the player was at (`origin`)
+// when the context's clock was at `from`, which is where it is heard
+// from; the seek bar and the time beside it, and whether the bar is
+// held, which is when it is the user's and not the clip's.
 function stop() {
   if (!playing) return;
   clearInterval(playing.timer);
   playing.context.close();
+  x.obd_free(playing.at, playing.count * 4);
   playing = null;
   render();
 }
@@ -575,26 +596,52 @@ function start(row) {
   if (!rate) return;
   const context = new AudioContext();
   const count = 8192;
-  const at = x.obd_alloc(count * 4);
-  let next = context.currentTime + 0.1;
-  let ended = false;
-  const feed = () => {
-    while (!ended && next < context.currentTime + 1) {
-      const got = x.obd_samples(at, count);
-      if (!got) { ended = true; break; }
-      const buffer = context.createBuffer(1, got, rate);
-      buffer.copyToChannel(new Float32Array(x.memory.buffer, at, got), 0);
-      const source = context.createBufferSource();
-      source.buffer = buffer;
-      source.connect(context.destination);
-      source.start(next);
-      next += got / rate;
-    }
-    if (ended && context.currentTime > next) { x.obd_free(at, count * 4); stop(); }
-  };
-  playing = { row, context, timer: setInterval(feed, 100) };
+  const from = context.currentTime + 0.1;
+  playing = { row, context, rate, count, at: x.obd_alloc(count * 4), sources: new Set(), origin: 0, from, next: from, ended: false, timer: setInterval(feed, 100) };
   feed();
   render();
+}
+function feed() {
+  const p = playing;
+  while (!p.ended && p.next < p.context.currentTime + 1) {
+    const got = x.obd_samples(p.at, p.count);
+    if (!got) { p.ended = true; break; }
+    const buffer = p.context.createBuffer(1, got, p.rate);
+    buffer.copyToChannel(new Float32Array(x.memory.buffer, p.at, got), 0);
+    const source = p.context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(p.context.destination);
+    source.onended = () => p.sources.delete(source);
+    p.sources.add(source);
+    source.start(p.next);
+    p.next += got / p.rate;
+  }
+  if (p.ended && p.context.currentTime > p.next) stop();
+  else show();
+}
+// The bar and the time, by what is being heard now.
+function show() {
+  const p = playing;
+  if (!p || !p.bar) return;
+  if (!p.held) {
+    const heard = Math.min(Math.max(p.context.currentTime, p.from), p.next) - p.from;
+    p.bar.value = (p.origin / p.rate + heard) * 1000;
+  }
+  p.time.textContent = `${length(Number(p.bar.value))} / ${length(p.row.clip.ms)}`;
+}
+// Go on from `ms` into the clip: what is scheduled is dropped, and the
+// player, which does not make the samples between, says where it is.
+function seek(ms) {
+  const p = playing;
+  for (const source of p.sources) {
+    source.onended = null;
+    source.stop();
+  }
+  p.sources.clear();
+  p.origin = x.obd_seek(Math.round(ms * p.rate / 1000));
+  p.from = p.next = p.context.currentTime + 0.05;
+  p.ended = false;
+  feed();
 }
 
 $('make').addEventListener('click', () => {

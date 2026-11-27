@@ -735,6 +735,21 @@ for a beeper clip). Its modules, its two faces and its tests are in
 `agents/clips.md`. Nothing in `core` may come to need the chip, or the
 page stops building: `cargo pack-wasm` is the check.
 
+`core`'s `seek` feature is the pack maker's alone (and the tests'):
+each tune's `skip(samples)`, which goes on in it with no samples made,
+for the page's seek bar. `xm::Tune::skip` runs the ticks and moves
+every channel between them as `pass` moves a quiet one, the level's
+ramp with it; `pt3::Tune::skip` runs the frames and `ay::Chip::pass`
+moves the chip's counters, the noise register's steps counted and
+taken at the end (`noise_steps`); `sid::Tune::skip` reads the record
+and `Chip::pass` runs the envelopes and moves the oscillators, with
+no sync, noise or filter. None changes a function the firmware runs,
+and each is after the rest of its file, so that no line a panic names
+moves: the firmware's image is byte for byte the same with or without
+this code in the tree, which is how to check a change to it. A skip
+leaves the shaper, and a PT3's low-pass and a SID's filter, where
+they were; the caller plays a moment into nothing (`web::LEAD`).
+
 ## What the host tests cover
 
 `cargo host-test` runs the tests of `core/` on the host: 183 on

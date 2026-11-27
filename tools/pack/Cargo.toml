@@ -20,7 +20,7 @@ path = "src/main.rs"
 [dependencies]
 # The pack's layout and its parser, the clips' magics and the players,
 # which are what a pack is checked with before it is given out.
-onebitdawn-core = { path = "../../core" }
+onebitdawn-core = { path = "../../core", features = ["seek"] }
 sha2 = { version = "0.10", default-features = false }
 
 # `core` leaves the critical section and the time driver to whoever

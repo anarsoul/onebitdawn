@@ -337,6 +337,53 @@ impl Chip {
     }
 }
 
+/// The chip with nobody listening, for a player that goes on in a tune
+/// without its samples (`pt3::Tune::skip`, the `seek` feature).
+#[cfg(any(test, feature = "seek"))]
+impl Chip {
+    /// The noise register is one of 17 bits and goes through every
+    /// state but nought.
+    const NOISE_ROUND: u64 = (1 << 17) - 1;
+
+    /// The chip `ticks` ticks on with no output made: the counters in
+    /// one step each, as `run_parts` moves what cannot be heard. The
+    /// noise register's steps are not taken but counted, since they
+    /// are the many: the answer, for `noise_steps` when the skip is
+    /// over, the register being the same whenever they are taken.
+    pub fn pass(&mut self, ticks: u32) -> u32 {
+        if ticks == 0 {
+            return 0;
+        }
+        for c in 0..3 {
+            let t = self.count[c].min(self.period[c] - 1) + ticks;
+            self.high[c] ^= (t / self.period[c]) & 1 != 0;
+            self.count[c] = t % self.period[c];
+        }
+        let t = self.noise_count.min(self.noise_period - 1) + ticks;
+        self.noise_count = t % self.noise_period;
+        let e = self.env_count.min(self.env_period - 1) + ticks;
+        self.env_count = e % self.env_period;
+        // An envelope that has not stopped after two ramps never
+        // will, and is where it was every two.
+        let mut steps = e / self.env_period;
+        if steps > 4 * RAMP as u32 {
+            steps = 2 * RAMP as u32 + steps % (2 * RAMP as u32);
+        }
+        while steps > 0 && self.held.is_none() {
+            self.env_step();
+            steps -= 1;
+        }
+        t / self.noise_period
+    }
+
+    /// The noise register the steps on that `pass` counted.
+    pub fn noise_steps(&mut self, steps: u64) {
+        for _ in 0..steps % Self::NOISE_ROUND {
+            self.noise_step();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -475,6 +522,51 @@ mod tests {
                 let expect: u32 = (0..ticks).map(|_| model.tick()).sum();
                 assert_eq!(chip.run(ticks), expect, "seed {seed} round {round}: {ticks} ticks, registers {:?}", model.regs);
                 heard += expect as u64;
+            }
+            assert!(heard > 1_000_000, "seed {seed}: silence proves nothing");
+        }
+    }
+
+    #[test]
+    fn a_chip_passed_is_the_chip_run() {
+        // One chip run and one passed over the same ticks between the
+        // same writes: whenever the second is listened to again, the
+        // two give the same, tick for tick.
+        for seed in 0..40u64 {
+            let fine = seed % 2 == 1;
+            let (mut run, mut passed) = (Chip::new(fine), Chip::new(fine));
+            let mut random = Random(seed + 100);
+            let (mut owed, mut heard) = (0u64, 0u64);
+            for round in 0..600 {
+                for _ in 0..random.next(6) {
+                    let r = random.next(14) as u8;
+                    let short = random.next(4) == 0;
+                    let v = match r {
+                        1 | 3 | 5 => random.next(if short { 16 } else { 2 }),
+                        12 => random.next(if short { 256 } else { 2 }),
+                        0 | 2 | 4 | 11 if short => random.next(4),
+                        _ => random.next(256),
+                    } as u8;
+                    run.write(r, v);
+                    passed.write(r, v);
+                }
+                let ticks = match random.next(4) {
+                    0 => random.next(3),
+                    1 => 4000 + random.next(1000),
+                    _ => 1 + random.next(40),
+                };
+                if random.next(3) != 0 {
+                    run.run(ticks);
+                    owed += passed.pass(ticks) as u64;
+                    continue;
+                }
+                passed.noise_steps(owed);
+                owed = 0;
+                for tick in 0..ticks.min(300) {
+                    let (a, b) = (run.run_parts(1), passed.run_parts(1));
+                    assert_eq!(a, b, "seed {seed} round {round} tick {tick}");
+                    heard += (a.plain + a.noisy) as u64;
+                }
             }
             assert!(heard > 1_000_000, "seed {seed}: silence proves nothing");
         }

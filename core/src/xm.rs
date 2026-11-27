@@ -1784,6 +1784,61 @@ impl<'a> Tune<'a> {
     }
 }
 
+/// Going on in a tune with no samples made, for a player a listener
+/// seeks in: the pack maker's page. The firmware has no use for it and
+/// does not build it (the `seek` feature).
+#[cfg(any(test, feature = "seek"))]
+impl Tune<'_> {
+    /// The tune `samples` output samples on, as if `next_sample` had
+    /// given them: how many it was, fewer if the tune ended. The ticks
+    /// are run as ever, since they are what decides what sounds; the
+    /// mixed samples between them are not made, and every channel is
+    /// moved over them at once, as a quiet one always is (`pass`). The
+    /// mix after it is the mix played to there, sample for sample; the
+    /// high-pass and the limiter are where they were, for the caller
+    /// to play a moment into nothing.
+    pub fn skip(&mut self, samples: u32) -> u32 {
+        // What is rendered already goes first.
+        let ready = ((self.have - self.given) as u32).min(samples);
+        self.given += ready as u8;
+        let all = (samples - ready) as u64 * self.oversample as u64;
+        let mut left = all;
+        while left > 0 {
+            if self.pool <= 0 {
+                self.step_tick();
+                self.wind();
+            }
+            if self.ended {
+                break;
+            }
+            // To the tick's end, or to where the skip ends in it.
+            let tempo = self.tempo as i32;
+            let n = (((self.pool + tempo - 1) / tempo) as u64).min(left) as u32;
+            self.pool -= tempo * n as i32;
+            for _ in 0..n {
+                if self.cut == 0 {
+                    break;
+                }
+                self.cut -= self.cut / CUT_DECAY + self.cut.signum();
+            }
+            let d = self.d;
+            for ch in self.channel[..self.channels].iter_mut().filter(|ch| ch.mixing) {
+                // The level's ramp, as `run` takes it a sample at a time.
+                if ch.ramp > n {
+                    ch.ramp -= n;
+                    ch.gain += ch.gain_step * n as i32;
+                } else if ch.ramp != 0 {
+                    (ch.ramp, ch.gain) = (0, ch.amp << 8);
+                }
+                pass(d, ch, n);
+                ch.mixing = ch.playing;
+            }
+            left -= n as u64;
+        }
+        ready + ((all - left) / self.oversample as u64) as u32
+    }
+}
+
 /// The whole tune's mix before the shaping, a sample an output sample,
 /// scaled to fit `i16` with four channels at full level: for comparing
 /// the player with another, from a test.
@@ -3150,6 +3205,89 @@ mod tests {
                     assert!(fills <= eager, "tune {n}, {kind}: {fills} blocks, {eager} played through");
                 }
             }
+        }
+    }
+
+    /// The mix after `skip(from)`, and what the skip answered.
+    fn mixed_after(data: &[u8], from: u32, given: usize) -> (u32, Vec<i32>) {
+        let mut t = Tune::new(data);
+        // Some of it played first, so the skip finds samples rendered.
+        for _ in 0..given {
+            t.next_sample();
+        }
+        let got = t.skip(from - given as u32);
+        let mut out = Vec::new();
+        loop {
+            let mut acc = [0; RUN];
+            let filled = t.runs(&mut acc);
+            out.extend_from_slice(&acc[..filled]);
+            if filled < RUN {
+                return (got + given as u32, out);
+            }
+        }
+    }
+
+    /// `skip` to places all over the tune against the tune played:
+    /// the same mix from there on, to the mixed sample.
+    fn skips_as_played(data: &[u8], places: u32, what: &str) {
+        let want = mixed(data);
+        let over = Tune::new(data).oversample;
+        let len = want.len() as u32 / over;
+        for k in 0..places {
+            let from = (len as u64 * k as u64 / places as u64) as u32 + k % 7;
+            let given = if k % 3 == 1 { (from as usize).min(5) } else { 0 };
+            let (got, rest) = mixed_after(data, from, given);
+            assert_eq!(got, from, "{what}: skip to {from} of {len}");
+            let straight = &want[(from * over) as usize..];
+            if let Some(i) = (0..straight.len().max(rest.len())).find(|&i| rest.get(i) != straight.get(i)) {
+                panic!("{what}: after a skip to {from} of {len}, mixed sample {i}: {:?} and {:?}", rest.get(i), straight.get(i));
+            }
+        }
+        // Past the end is the end, and every sample counted.
+        let mut t = Tune::new(data);
+        assert_eq!(t.skip(u32::MAX), len, "{what}");
+        assert!(t.next_sample().is_none());
+        // In two goes as in one.
+        let (mut a, mut b) = (Tune::new(data), Tune::new(data));
+        assert_eq!(a.skip(len / 3) + a.skip(len / 4), b.skip(len / 3 + len / 4));
+        assert!((0..500).all(|_| a.next_sample() == b.next_sample()), "{what}");
+    }
+
+    #[test]
+    fn a_skip_is_where_playing_would_be() {
+        // What a skip must carry over the samples it does not make: a
+        // sample's place through its loop and to its end, a predicted
+        // sample's blocks, a level on its ramp (the volume slides, a
+        // note cut and what it leaves dying away), a pitch that
+        // slides, and channels silent for a while.
+        let wave = rung(9000);
+        let tunes: [(u32, u32, Vec<At>); 4] = [
+            (0, 8000, vec![(0, (C4, 1, 0, 0xA, 0x04)), (4, (0, 0, 0, 0xC, 0)), (6, (0, 0, 0x50, 1, 0x10)), (9, (C4 + 7, 1, 0x30, 0xA, 0x20)), (13, (0, 0, 0, 0xE, 0xC2))]),
+            (4100, 4700, vec![(0, (C4 + 12, 1, 0, 0, 0)), (3, (C4 + 5, 1, 0x20, 0, 0)), (4, (0, 0, 0, 0xC, 0)), (11, (0, 0, 0x40, 2, 0x08))]),
+            (37, 5, vec![(0, (C4, 1, 0, 0, 0)), (2, (0, 0, 0, 0xE, 0x93)), (7, (C4 + 3, 1, 0, 0xA, 0x40))]),
+            (0, 0, vec![(0, (C4, 1, 0, 0, 0)), (5, (C4 - 12, 1, 0x18, 0, 0)), (6, (0, 0, 0, 0xA, 0x10)), (12, (C4 + 24, 1, 0, 0, 0))]),
+        ];
+        for (n, (loop_start, loop_len, cells)) in tunes.iter().enumerate() {
+            let len = if *loop_len == 0 { 6000 } else { (loop_start + loop_len) as usize };
+            let (_, decoded) = pack(&wave[..len], *loop_start as usize, *loop_len != 0, false);
+            let wide = Ins { wide: decoded.clone(), loop_start: *loop_start, loop_len: *loop_len, ..square(32) };
+            let narrow = Ins { sample: decoded.iter().map(|&s| (s >> 8) as i8).collect(), wide: vec![], ..wide.clone() };
+            let packed = |seeks| Ins { wide: wave[..len].to_vec(), packed: true, seeks, ..wide.clone() };
+            for (kind, ins) in [("narrow", narrow), ("wide", wide.clone()), ("packed", packed(false)), ("packed with seek points", packed(true))] {
+                for (speed, tempo) in [(6, 125), (3, 133)] {
+                    let clip = module(1, speed, tempo, &[0, 0], &[pattern(16, cells)], core::slice::from_ref(&ins));
+                    assert!(mixed(&clip).iter().any(|&s| s.abs() > 1000));
+                    skips_as_played(&clip, 61, &std::format!("tune {n}, {kind}, tempo {tempo}"));
+                }
+            }
+        }
+    }
+
+    /// The same of every module built in (`ALARM_CLIP`).
+    #[test]
+    fn a_skip_in_a_clip_built_in_is_where_playing_would_be() {
+        for (k, data) in crate::melody::CLIP_DATA.iter().enumerate().filter(|(_, d)| is_tune(d)) {
+            skips_as_played(data, 9, crate::melody::CLIP_NAMES[k].0);
         }
     }
 

@@ -4017,3 +4017,49 @@ converted in 4.1 s with the main thread never held longer than
 38 ms. The user tried the page and found it working.
 
 Owed: nothing.
+
+## A seek bar in the pack maker's page, by the players' sequencers — 2026-11-27, on `next`; verified
+
+The page's player has a bar to seek with. Playing a clip to the
+place and throwing the samples away was turned down as what may cost
+(a SID's synthesis, a module of 32 channels), so a seek runs only the
+part of a player that decides what sounds, as libopenmpt's does.
+
+- `core`'s `seek` feature (and its tests) has each tune's
+  `skip(samples)`; the pack maker turns it on, the firmware does not.
+  The code is after the rest of each file, so no line a panic names
+  moves: the firmware's image is byte for byte what it was.
+- A module: the ticks as ever, and between them every sounding
+  channel moved as a quiet one already was (`pass`), its level's ramp
+  with it. Exact: the mix after a skip is the mix played to there.
+- A PT3: the frames as ever, the chip's counters moved a frame at a
+  time (`ay::Chip::pass`), the noise register's steps counted and
+  taken once. Exact before the noise's low-pass.
+- A SID: the record's writes as ever; the envelopes run, exactly (a
+  step at a time in an attack, whose end changes the rate), the
+  oscillators' phase moved; sync, the noise registers and the filter
+  left alone.
+- Sampled sound: an index for PCM; the coded kinds and a beeper clip
+  are decoded through.
+- `web::Session::seek(sample)`, `obd_seek`: back is the clip started
+  over; it skips to half a second short and plays that into nothing,
+  for the filters and the limiter. The page has a range under the
+  clip being heard, with the time; a seek stops the buffers scheduled.
+
+On the host what is heard after a seek is the clip played to there to
+the sample for the modules and Synchronization, within 0.3 % for two
+other PT3s (their noise's low-pass) and 1.2 % of the level for a SID.
+A seek to the end and back, in the page's wasm: 64 ms at worst
+(Starlight & Aurora, the first), 3 to 45 ms otherwise, an 8.5 minute
+PT3 26 ms; playing that PT3 through is 1.8 s on the host.
+
+The user tried the bar on every kind and found it working.
+
+A SID tune that sounds wrong for its first notes is the tune: Donkey
+Kong's routine gates all three voices in its first call, with what
+its tables were left holding, and lets them go in the second, the
+first voice with a release of 750 ms. The record's writes are
+libsidplayfp's register for register and its render has the same
+burst; `mute=9` takes it out, by the user's ear.
+
+Owed: nothing.
