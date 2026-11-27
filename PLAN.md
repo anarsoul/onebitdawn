@@ -507,14 +507,16 @@ tune's.
   player is OpenMPT's render tick for tick. Over the 28 modules the
   loudness's correlation with openmpt123's went from 0.82 to 0.87
   in the median, those under 0.5 from five to three; all 28 play
-  to their ends. Heard in the page's player, five modules were
-  close to openmpt123 and one was not ("USB Lockdown Tool Kit",
-  0.09 to 0.39), for a reason not yet looked for.
+  to their ends. Heard in the page's player, the six modules tried
+  are close to openmpt123. One's figure stays low ("USB Lockdown
+  Tool Kit", 0.09 to 0.39) and is no fault: a tune of even
+  loudness, its channels the same as OpenMPT's tick by tick, and
+  heard as different only until the two were set as loud. The
+  whole collection is as it was: 1130 of 1196 play to their ends.
 - Cost: 214 bytes of flash, nothing of the stack or `.rwtext`; the
   28 modules' clips are a quarter larger, having the samples.
 
-Owed: the whole collection run again; the module that still
-differs; one of these heard on a clock.
+Owed: one of these heard on a clock.
 
 ## A line output on the adapter for an amplifier — the setting built and heard 2026-11-18; the shutdown pin built, not checked; the adapters ordered 2026-11-19
 
