@@ -96,7 +96,10 @@ The order that worked for R, H, EE and E6 (their sections are in
    page where they say what a firmware lacks, `agents/clips.md`.
 
 A module with the effect heard on a clock is still owed after all of
-it, and is the user's.
+it, and is the user's. `packs/effects.sh` (not in git: the modules are
+not ours) makes a pack of ten of the collection's modules, one for
+each effect built in 2026-11, to hear on a clock and to run on the
+bench again; add a module to it with an effect.
 
 ## What the measures cannot say
 
@@ -121,7 +124,7 @@ it, and is the user's.
   samples whatever came before, so a pitch is held to OpenMPT by
   adding up where a model's periods put the ramp, tick by tick, and
   a finetune by the place after a second of one note (the Amiga
-  table's section in `PLAN.md` was measured so).
+  table's section in `HISTORY.md` was measured so).
 - A level that changes every tick (an envelope, a tremolo) is not
   read from a ramp's slope, which has the level's own slope in it:
   give every instrument a sample of one value and read the render at
