@@ -204,6 +204,8 @@ as not played, and the effects H (the global volume slide), E6 (the
 pattern loop), EE (the pattern delay), 7 (the tremolo), T (the
 tremor), X (the extra fine portamento), L (the envelope's position)
 and E5 (the finetune), which it has not either.
+Of an instrument of several samples it plays the first for every
+note, and the maker says so.
 Nor has it FastTracker's Amiga frequency table: a module on it is
 played on the linear one, its notes where they should be and its
 slides and vibratos wider or narrower than the module's, and the

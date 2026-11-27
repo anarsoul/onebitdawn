@@ -475,6 +475,47 @@ named as not played that a module of the collection uses.
 Owed: modules with these heard on a clock; an instrument's number
 alone above all, which is in many.
 
+## An instrument of several samples — built 2026-11-26, on `next`; held to openmpt123 on the host and heard in the page's player, not on a clock
+
+An XM instrument has up to sixteen samples and a table of which a
+note plays; the clip had the first alone. Of the collection's
+modules that convert 61 have such an instrument, and in 28 notes
+play a sample past the first, in most of those the greater part of
+the instrument's notes: another sound, volume and octave than the
+tune's.
+
+- **OpenMPT's rules, each a render**: a note that begins takes the
+  sample the table gives its own number (not the relative note's),
+  of the instrument named; with no number beside it the volume
+  stays and only the sample changes. A number alone gives back the
+  volume of the sample sounding. A note slid to keeps the sample,
+  an arpeggio too. A table entry past the instrument's samples is
+  the first.
+- **The clip**: each further sample a note may play is one more
+  entry of the instrument table after the module's own, a copy of
+  its instrument's envelope, fade and auto-vibrato with that
+  sample; an instrument with such has bit 3 of its sample's flags
+  set and, in the 96 bytes before its sample, the entry each note
+  plays. The player's sounding instrument is then the entry, and
+  everything it took from an instrument it takes from that. A
+  sample no note cell can play (one with the instrument's number or
+  with none) is left out, the first kept empty.
+- **For v0.5** the clip is as it was, the first sample and the
+  note about it: it reads none of this.
+
+- **Measured**: the script's module through the converter and the
+  player is OpenMPT's render tick for tick. Over the 28 modules the
+  loudness's correlation with openmpt123's went from 0.82 to 0.87
+  in the median, those under 0.5 from five to three; all 28 play
+  to their ends. Heard in the page's player, five modules were
+  close to openmpt123 and one was not ("USB Lockdown Tool Kit",
+  0.09 to 0.39), for a reason not yet looked for.
+- Cost: 214 bytes of flash, nothing of the stack or `.rwtext`; the
+  28 modules' clips are a quarter larger, having the samples.
+
+Owed: the whole collection run again; the module that still
+differs; one of these heard on a clock.
+
 ## A line output on the adapter for an amplifier — the setting built and heard 2026-11-18; the shutdown pin built, not checked; the adapters ordered 2026-11-19
 
 The user's idea (2026-11-15): an amplifier in place of Q1, fed the

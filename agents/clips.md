@@ -115,7 +115,18 @@ has must come out the same.
   that names a pattern the file has not is left out of the clip's
   order list, with the jumps (B) and the restart counted in the
   list that is left, as openmpt123 passes such an order by;
-  FastTracker plays 64 empty rows for it. The effect R (retrigger with a volume change) is the
+  FastTracker plays 64 empty rows for it. An instrument of several
+  samples (2026-11-26) is an entry a sample: the first in the
+  instrument's own, the others after the module's instruments, each
+  with the instrument's envelope, fade and auto-vibrato; the
+  instrument's entry has bit 3 of its sample's flags and, in the 96
+  bytes before its sample, the entry each note plays
+  (`xm::Instrument::keyed`). Only the samples a note cell may play
+  are kept, one with the instrument's number or with none, and the
+  first is empty if none is its; a table entry past the
+  instrument's samples is the first, as in openmpt123. For a
+  firmware up to v0.5 the clip has the first sample alone and a
+  note says so. The effect R (retrigger with a volume change) is the
   player's since 2026-11-26 and a clip keeps it as it is. For a
   firmware up to v0.5 (`--firmware 0.5`), whose player has none, an
   R that changes no volume is written as E9, which that player has:

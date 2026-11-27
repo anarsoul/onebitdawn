@@ -16,8 +16,8 @@
 //! of one (`MAGIC`): the same patterns, still packed, behind tables of
 //! where each pattern and each instrument's sample is, with the samples
 //! as plain signed bytes (an XM stores them as differences, which
-//! cannot be read from the middle) and ping-pong loops unrolled. One
-//! sample an instrument. A module that keeps samples of 16 bits is
+//! cannot be read from the middle) and ping-pong loops unrolled. An
+//! instrument of several samples is an entry a sample (`Instrument::keyed`). A module that keeps samples of 16 bits is
 //! `WIDE_MAGIC`: the same layout, with an instrument's entry saying
 //! which of them are, and a firmware from before it refuses the clip
 //! and does not play their bytes as 8-bit ones; each such sample is at
@@ -106,6 +106,8 @@ pub const fn is_old_tune(data: &[u8]) -> bool {
 const PATTERN_ENTRY: usize = 6;
 /// An instrument's entry; see `Instrument`.
 const INSTRUMENT_ENTRY: usize = 80;
+/// The notes of an instrument's table of samples (`Instrument::keyed`).
+pub const KEYS: usize = 96;
 /// Points of a volume envelope.
 const ENVELOPE_POINTS: usize = 12;
 /// A level the tick changed is reached over a 512th of a second, about
@@ -495,7 +497,8 @@ fn refill(d: &[u8], ch: &mut Channel<'_>, block: u32) {
 /// the sample's flags (1 for samples of 16 bits, little-endian, two
 /// bytes each; `WIDE_MAGIC`; 2 for a predicted sample, `PACKED_HEAD`
 /// and then its blocks; `PACKED_MAGIC`; with 4 as well, its seek
-/// points between the two, `SEEK`), two spare bytes, then twelve
+/// points between the two, `SEEK`; 8 for an instrument of several
+/// samples, `Instrument::keyed`), two spare bytes, then twelve
 /// points of frame and level as `u16` each.
 #[derive(Clone, Copy)]
 struct Instrument<'a> {
@@ -559,6 +562,15 @@ impl Instrument<'_> {
     /// say so.
     fn seeks(&self) -> u32 {
         if byte(self.d, self.at + 29) & 6 == 6 { seek_points(long(self.d, self.at + 4) as usize) as u32 } else { 0 }
+    }
+
+    /// Whether the instrument has several samples: the `KEYS` bytes
+    /// before its sample are then, for each note, the number of the
+    /// entry whose sample the note plays, this one or one of those
+    /// after the module's own, which have the instrument's envelope
+    /// and a sample each.
+    fn keyed(&self) -> bool {
+        byte(self.d, self.at + 29) & 8 != 0
     }
 
     /// Point `i` of the envelope: its frame and its level, 0 to 64.
@@ -930,6 +942,18 @@ impl<'a> Tune<'a> {
         Some(Instrument { d: self.d, at: self.instruments_at + INSTRUMENT_ENTRY * index })
     }
 
+    /// The entry whose sample a note of instrument `number` plays: its
+    /// own, or for an instrument of several samples what its table
+    /// says (`Instrument::keyed`).
+    fn keyed(&self, number: u8, note: u8) -> u8 {
+        match self.instrument(number) {
+            Some(i) if i.keyed() => (i.sample().0 as usize)
+                .checked_sub(KEYS)
+                .map_or(number, |keys| byte(self.d, keys + (note as usize).clamp(1, KEYS) - 1)),
+            _ => number,
+        }
+    }
+
     /// Go to `row` of the pattern at `order`; the end of the list is
     /// the end of the tune, once the tick being played is over.
     fn enter(&mut self, order: usize, row: u16) {
@@ -1069,7 +1093,9 @@ impl<'a> Tune<'a> {
             ch.named = cell.instrument;
         }
         if cell.note != 0 && cell.note != KEY_OFF && !slides {
-            ch.instrument = ch.named;
+            // Of the samples of the one named, the note's.
+            let named = ch.named;
+            self.channel[c].instrument = self.keyed(named, cell.note);
         }
         let instrument = self.instrument(self.channel[c].instrument);
         let amiga = self.amiga;
@@ -2502,6 +2528,42 @@ mod tests {
         assert_eq!((none[2], none[4]), ((0, 32, false), on));
         let silent = module(1, 1, 125, &[0], &[pattern(2, &[(0, (C4, 1, 0, 0, 0)), (1, (C4, 9, 0, 0, 0))])], &[square(32)]);
         assert_eq!(ticks(&silent).iter().map(|t| t.2).collect::<Vec<_>>(), [true, false]);
+    }
+
+    /// An instrument of several samples, as openmpt123 0.8.10 renders
+    /// each of these (2026-11-26): the second instrument's first
+    /// sample at volume 64 for the notes below C-4 and from C-5, its
+    /// second at 16 between (an octave up here, to tell it by).
+    #[test]
+    fn an_instrument_of_several_samples_plays_the_notes_own() {
+        let play = |cells: &[Cell5]| {
+            let rows: Vec<At> = cells.iter().copied().enumerate().collect();
+            // The first instrument's sample is the second's table:
+            // the bytes before its sample.
+            let keys = Ins { sample: (0..KEYS).map(|n| if (48..60).contains(&n) { 3 } else { 2 }).collect(), ..square(32) };
+            let mut data = module(1, 1, 125, &[0], &[pattern(cells.len(), &rows)], &[keys, square(32), Ins { volume: 16, relative: 12, ..square(32) }]);
+            data[HEADER + 1 + PATTERN_ENTRY + INSTRUMENT_ENTRY + 29] |= 8;
+            let seen = strikes(&data, 0);
+            seen.iter().map(|&(period, volume, begun)| ((PERIOD_C4 - period) / SEMITONE, volume, begun)).collect::<Vec<_>>()
+        };
+        // The note's own number chooses, not the relative note's.
+        assert_eq!(
+            play(&[(C4 - 12, 2, 0, 0, 0), (C4, 2, 0, 0, 0), (C4 + 11, 2, 0, 0, 0), (C4 - 1, 2, 0, 0, 0), (C4 + 12, 2, 0, 0, 0)]),
+            [(-12, 64, true), (12, 16, true), (23, 16, true), (-1, 64, true), (12, 64, true)]
+        );
+        // With no number the volume stays and the sample is the
+        // note's; a number alone is the volume of the one sounding.
+        assert_eq!(
+            play(&[(C4 - 12, 2, 0, 0, 0), (C4, 0, 0, 0, 0), (C4 - 12, 0, 0, 0, 0), (0, 2, 0, 0, 0), (C4, 2, 0, 0, 0), (0, 2, 0, 0, 0), (C4 - 12, 0, 0x30, 0, 0)]),
+            [(-12, 64, true), (12, 64, true), (-12, 64, true), (-12, 64, false), (12, 16, true), (12, 16, false), (-12, 32, true)]
+        );
+        // A note slid to keeps the sample, and its number is that
+        // sample's volume.
+        assert_eq!(play(&[(C4 - 12, 2, 0, 0, 0), (C4, 2, 0, 3, 0xFF)]), [(-12, 64, true), (-12, 64, false)]);
+        assert_eq!(play(&[(C4, 2, 0, 0, 0), (C4 - 12, 2, 0, 3, 0xFF)]), [(12, 16, true), (12, 16, false)]);
+        // An instrument of one sample has no table, whatever is
+        // before its sample.
+        assert_eq!(play(&[(C4, 3, 0, 0, 0), (C4 - 12, 1, 0, 0, 0)]), [(12, 16, true), (-12, 64, true)]);
     }
 
     /// The first channel's volume as it is heard on each tick, in

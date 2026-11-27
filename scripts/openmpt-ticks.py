@@ -17,7 +17,9 @@ first's effect. `gap(n)` is n empty rows, `pattern()` ends the pattern
 a ramp at volume 64, 2 the same at 32 and 3 the same at 48 and an
 octave up (its relative note), to tell whose sample a note plays, and
 4 is 1 with a volume envelope that falls from 64 to nought a tick at
-a time, so its figure tells where its envelope is; they run for 14
+a time, so its figure tells where its envelope is; 5 has two samples,
+1's below C-4 and the same at volume 16 from C-4 to B-4, and from C-5
+names a third it has not; they run for 14
 seconds at C-4 and then are silent, so a long case begins
 its note again.
 
@@ -88,7 +90,7 @@ def module(spec, speed, amiga=False):
         return bytes(c) if any(c) else b'\x80'
 
     out = bytearray(b'Extended Module: ' + b'ticks'.ljust(20) + b'\x1a' + b'openmpt-ticks.py'.ljust(20) + struct.pack('<H', 0x0104))
-    out += struct.pack('<IHHHHHHHH', 276, len(patterns), 0, 2, len(patterns), 4, 0 if amiga else 1, speed, 125)
+    out += struct.pack('<IHHHHHHHH', 276, len(patterns), 0, 2, len(patterns), 5, 0 if amiga else 1, speed, 125)
     out += bytes(range(len(patterns))).ljust(256, b'\0')
     listing, now = [], speed
     for rows in patterns:
@@ -111,6 +113,13 @@ def module(spec, speed, amiga=False):
             head[225], head[233] = 2, 1
         out += head
         out += struct.pack('<IIIBbBBbB', len(deltas), 0, 0, volume, 0, 0x10, 128, relative, 0) + b'ramp'.ljust(22) + deltas
+    # Instrument 5: two samples by the note, and a third it has not.
+    head = bytearray((struct.pack('<I', 263) + b'keys'.ljust(22) + b'\0' + struct.pack('<H', 2) + struct.pack('<I', 40)).ljust(263, b'\0'))
+    head[33:129] = bytes(0 if n < 48 else 1 if n < 60 else 2 for n in range(96))
+    out += head
+    for volume in (64, 16):
+        out += struct.pack('<IIIBbBBbB', len(deltas), 0, 0, volume, 0, 0x10, 128, 0, 0) + b'ramp'.ljust(22)
+    out += deltas + deltas
     return bytes(out), listing
 
 

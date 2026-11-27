@@ -307,6 +307,69 @@ fn a_module_on_the_amiga_table_is_for_a_player_that_has_it() {
     assert_eq!(old.data, made(false, OLD).data);
 }
 
+/// An instrument of several samples: for a player that has them, an
+/// entry for each sample a note may play and the instrument's table
+/// of which; for v0.5 the first sample, and a word about it.
+#[test]
+fn an_instrument_of_several_samples_has_an_entry_a_sample() {
+    let made = |cells: &[[u8; 5]], target: Target| {
+        let mut data = module_of_16_bits(&[0; 4], (0, 0), cells);
+        // In the one instrument's place, one of three samples: the
+        // first below C-4, the third from C-4 to B-4, and above that
+        // a sample it has not, which is the first. No note plays
+        // the second.
+        data.truncate(data.len() - 263 - 40 - 8);
+        let mut ins = vec![0u8; 263];
+        ins[..4].copy_from_slice(&263u32.to_le_bytes());
+        ins[27] = 3;
+        ins[29..33].copy_from_slice(&40u32.to_le_bytes());
+        for note in 0..96 {
+            ins[33 + note] = [0, 2, 9][(note >= 48) as usize + (note >= 60) as usize];
+        }
+        // An envelope of two points, which is every sample's.
+        ins[129..137].copy_from_slice(&[0, 0, 64, 0, 10, 0, 32, 0]);
+        (ins[225], ins[233]) = (2, 1);
+        data.extend(ins);
+        for (length, volume, relative, kind) in [(1000u32, 64, 0, 0), (500, 20, 0, 0), (1200, 16, 12u8, 0x10)] {
+            let mut head = vec![0u8; 40];
+            head[..4].copy_from_slice(&length.to_le_bytes());
+            (head[12], head[14], head[16]) = (volume, kind, relative);
+            data.extend(head);
+        }
+        data.extend((0..1000 + 500 + 1200).map(|i| (i % 7) as u8));
+        let samples = if matches!(target.firmware, Firmware::V0_5) { "8" } else { "16" };
+        convert_for(&Source { data, file: "test.xm".into(), options: vec![("samples".into(), samples.into())], label: None }, target).unwrap()
+    };
+    let said = |clip: &Clip| clip.notes.iter().any(|n| n.contains("3 samples, the first is used"));
+    let entry = |clip: &Clip, n: usize| 32 + clip.data[7] as usize + 6 * clip.data[8] as usize + 80 * n;
+    let long = |clip: &Clip, at: usize| u32::from_le_bytes(clip.data[at..at + 4].try_into().unwrap()) as usize;
+    let all = [[37, 1, 0, 0, 0], [49, 1, 0, 0, 0], [61, 0, 0, 0, 0]];
+    let clip = made(&all, Target::default());
+    assert!(!said(&clip), "{:?}", clip.notes);
+    let (first, third) = (entry(&clip, 0), entry(&clip, 1));
+    assert_eq!(clip.data[9], 2);
+    // The first: its sample, and the table before it.
+    assert_eq!((long(&clip, first + 4), clip.data[first + 16], clip.data[first + 18], clip.data[first + 29]), (1000, 64, 0, 8));
+    let keys = long(&clip, first) - 96;
+    assert!(clip.data[keys..keys + 96].iter().enumerate().all(|(note, &e)| e == if (48..60).contains(&note) { 2 } else { 1 }));
+    // The third: of 16 bits, at an even offset, with the envelope.
+    assert_eq!((long(&clip, third + 4), clip.data[third + 16], clip.data[third + 18], clip.data[third + 29]), (600, 16, 12, 1));
+    assert_eq!((long(&clip, third) % 2, clip.data[third + 19..third + 21] == clip.data[first + 19..first + 21]), (0, true));
+    assert_eq!(clip.data[third + 32..third + 40], clip.data[first + 32..first + 40]);
+    assert_eq!(&clip.data[..4], b"XMC3");
+    // With no note of the first sample's, its entry is empty.
+    let one = made(&[[49, 1, 0, 0, 0]], Target::default());
+    assert_eq!((one.data[9], long(&one, entry(&one, 0) + 4), one.data[entry(&one, 0) + 29]), (2, 0, 8));
+    // And with none of another's there is no table.
+    let plain = made(&[[37, 1, 0, 0, 0], [61, 1, 0, 0, 0]], Target::default());
+    assert_eq!((plain.data[9], plain.data[entry(&plain, 0) + 29]), (1, 0));
+    // v0.5 has the first sample alone.
+    let old = made(&all, OLD);
+    assert!(said(&old), "{:?}", old.notes);
+    assert_eq!((old.data[9], old.data[entry(&old, 0) + 29], long(&old, entry(&old, 0) + 4)), (1, 0, 1000));
+    assert_eq!(&old.data[..4], b"XMC2");
+}
+
 /// A module of one channel and one instrument, its sample of 16 bits
 /// with a loop, and a pattern of `cells` (note, instrument, volume,
 /// effect, parameter), a row each.

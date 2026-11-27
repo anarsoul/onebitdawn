@@ -30,7 +30,7 @@ use std::collections::BTreeMap;
 
 use onebitdawn_core::adpcm::BLOCK;
 use onebitdawn_core::shape::{STEP, Shaper};
-use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, ENVELOPE_AT as L, EXTRA_FINE as X, GLOBAL_SLIDE as H, RETRIGGER as R, TREMOR as T, SEEK, WIDE_MAGIC, seek_points};
+use onebitdawn_core::xm::{KEYS, MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, ENVELOPE_AT as L, EXTRA_FINE as X, GLOBAL_SLIDE as H, RETRIGGER as R, TREMOR as T, SEEK, WIDE_MAGIC, seek_points};
 
 use crate::bytes::{Data, Padded, text};
 use crate::shape::{rate_flag, section};
@@ -291,7 +291,7 @@ pub fn predicted(sample: &[i16], looped: (usize, usize)) -> Vec<u8> {
     out
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Instrument {
     /// The sample at 16 bits, and how it is kept: one cut to 8 bits is
     /// written as its high bytes.
@@ -309,6 +309,9 @@ struct Instrument {
     env_loop: (u8, u8),
     fade: u16,
     auto: [u8; 3],
+    /// For an instrument of several samples, the entry each note
+    /// plays (`xm`'s `Instrument::keyed`); empty for one of one.
+    keys: Vec<u8>,
 }
 
 /// Where a clip's header has the limiter's drive, its flags and the
@@ -485,6 +488,16 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     // the end has no sample and a sample is as long as its bytes.
     let d = Padded(module);
     let mut instruments = Vec::new();
+    // The samples past an instrument's first, each an entry after the
+    // module's own; and the notes there are cells of, by the
+    // instrument's number beside them, 0 for none.
+    let mut extras: Vec<Instrument> = Vec::new();
+    let mut noted = vec![[false; KEYS]; 256];
+    for &[note, ins, ..] in cells.iter().flatten().flatten() {
+        if (1..=KEYS).contains(&(note as usize)) {
+            noted[ins as usize][note as usize - 1] = true;
+        }
+    }
     for number in 1..=instruments_n {
         if at >= module.len() {
             notes.push(format!("the file ends before instrument {number} of {instruments_n}: it and those after have no sample"));
@@ -517,83 +530,115 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
             if entry.auto[1] != 0 && waveform != 0 {
                 warn(format!("instrument {number}: auto-vibrato waveform {waveform}, played as a sine"));
             }
-            if samples > 1 {
+            // Of several samples a note plays the one the
+            // instrument's table gives it, a table entry past the
+            // samples being the first (openmpt123). The clip has those
+            // a note cell may play, one with the instrument's number
+            // or with none: the first in the instrument's entry,
+            // empty if no note is its, the others in entries after
+            // the module's own (`xm`'s `Instrument::keyed`). A player
+            // from before that has the first alone.
+            let key = |note: usize| Some(d.u8(at + 33 + note) as usize).filter(|&k| k < samples).unwrap_or(0);
+            let mut wanted = vec![samples == 1; samples];
+            if samples > 1 && shape.retrigger {
+                for note in (0..KEYS).filter(|&n| noted[number.min(255)][n] || noted[0][n]) {
+                    wanted[key(note)] = true;
+                }
+            } else if samples > 1 {
+                wanted[0] = true;
                 warn(format!("instrument {number}: {samples} samples, the first is used"));
             }
+            // The entry of each sample: the instrument's own, or one
+            // of those after.
+            let mut entries = vec![number; samples];
             let head = d.at(at.saturating_add(size));
-            let body = d.at(sample_header.saturating_mul(samples).saturating_add(head));
-            let length = d.size(head);
-            let (mut loop_start, mut loop_len) = (d.size(head + 4), d.size(head + 8));
-            let volume = d.u8(head + 12);
-            let finetune = d.i8(head + 13);
-            let kind = d.u8(head + 14);
-            let relative = d.i8(head + 16);
-            let raw = d.slice(body, body.saturating_add(length));
-            let mut values: Vec<i16> = Vec::with_capacity(raw.len());
-            if kind & 0x10 != 0 {
-                let mut acc = 0u16;
-                let wide: Vec<i16> = raw
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|pair| {
-                        acc = acc.wrapping_add(u16::from_le_bytes(*pair));
-                        acc as i16
-                    })
-                    .collect();
-                // A sample of 16 bits whose low bytes are all the same
-                // is one of 8 in a 16-bit one's place, with an offset
-                // of under a step if they are not nought: it is
-                // written as 8 with that byte dropped, the same sound
-                // in a clip every firmware plays.
-                let low = wide.first().map_or(0, |s| s & 0xFF);
-                let narrow = wide.iter().all(|s| s & 0xFF == low);
-                entry.kept = if narrow { Samples::Cut } else { shape.samples };
-                // Cut to 8 bits it is rounded, not its low byte
-                // dropped; one that is of 8 bits has nothing to round.
-                let cut = |s: i16| if narrow { s & !0xFF } else { (((s as i32 + 128) >> 8).min(127) << 8) as i16 };
-                values.extend(wide.iter().map(|&s| if entry.kept == Samples::Cut { cut(s) } else { s }));
-                loop_start /= 2;
-                loop_len /= 2;
-            } else {
-                let mut acc = 0u8;
-                for &delta in raw {
-                    acc = acc.wrapping_add(delta);
-                    values.push(((acc as u16) << 8) as i16);
+            let mut body = d.at(sample_header.saturating_mul(samples).saturating_add(head));
+            for k in 0..samples {
+                let head = d.at(head.saturating_add(sample_header.saturating_mul(k)));
+                let length = d.size(head);
+                if wanted[k] {
+                    let mut one = Instrument { sample: Vec::new(), kept: Samples::default(), ..entry.clone() };
+                    let (mut loop_start, mut loop_len) = (d.size(head + 4), d.size(head + 8));
+                    let volume = d.u8(head + 12);
+                    let finetune = d.i8(head + 13);
+                    let kind = d.u8(head + 14);
+                    let relative = d.i8(head + 16);
+                    let raw = d.slice(body, body.saturating_add(length));
+                    let mut values: Vec<i16> = Vec::with_capacity(raw.len());
+                    if kind & 0x10 != 0 {
+                        let mut acc = 0u16;
+                        let wide: Vec<i16> = raw
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|pair| {
+                                acc = acc.wrapping_add(u16::from_le_bytes(*pair));
+                                acc as i16
+                            })
+                            .collect();
+                        // A sample of 16 bits whose low bytes are all the same
+                        // is one of 8 in a 16-bit one's place, with an offset
+                        // of under a step if they are not nought: it is
+                        // written as 8 with that byte dropped, the same sound
+                        // in a clip every firmware plays.
+                        let low = wide.first().map_or(0, |s| s & 0xFF);
+                        let narrow = wide.iter().all(|s| s & 0xFF == low);
+                        one.kept = if narrow { Samples::Cut } else { shape.samples };
+                        // Cut to 8 bits it is rounded, not its low byte
+                        // dropped; one that is of 8 bits has nothing to round.
+                        let cut = |s: i16| if narrow { s & !0xFF } else { (((s as i32 + 128) >> 8).min(127) << 8) as i16 };
+                        values.extend(wide.iter().map(|&s| if one.kept == Samples::Cut { cut(s) } else { s }));
+                        loop_start /= 2;
+                        loop_len /= 2;
+                    } else {
+                        let mut acc = 0u8;
+                        for &delta in raw {
+                            acc = acc.wrapping_add(delta);
+                            values.push(((acc as u16) << 8) as i16);
+                        }
+                    }
+                    let looping = kind & 3;
+                    if looping == 0 || loop_len == 0 {
+                        loop_start = 0;
+                        loop_len = 0;
+                    } else {
+                        let start = loop_start.min(values.len());
+                        let end = loop_start.saturating_add(loop_len).min(values.len());
+                        if looping == 2 {
+                            // Ping-pong: there and back is one forward loop.
+                            let back: Vec<i16> = values[start..end].iter().rev().copied().collect();
+                            values.truncate(end);
+                            values.extend(back);
+                            loop_len = loop_len.saturating_mul(2);
+                        } else {
+                            values.truncate(end);
+                        }
+                    }
+                    let up = 12 * shape.raised.get(&number).copied().unwrap_or(0);
+                    one.relative = (relative as i32 + up).clamp(-128, 127) as i8;
+                    one.sample = values;
+                    one.looped = (loop_start, loop_len);
+                    one.volume = volume;
+                    one.finetune = finetune;
+                    if k == 0 {
+                        entry = one;
+                    } else {
+                        entries[k] = instruments_n + extras.len() + 1;
+                        extras.push(one);
+                    }
                 }
+                body = d.at(body.saturating_add(length));
             }
-            let looping = kind & 3;
-            if looping == 0 || loop_len == 0 {
-                loop_start = 0;
-                loop_len = 0;
-            } else {
-                let start = loop_start.min(values.len());
-                let end = loop_start.saturating_add(loop_len).min(values.len());
-                if looping == 2 {
-                    // Ping-pong: there and back is one forward loop.
-                    let back: Vec<i16> = values[start..end].iter().rev().copied().collect();
-                    values.truncate(end);
-                    values.extend(back);
-                    loop_len = loop_len.saturating_mul(2);
-                } else {
-                    values.truncate(end);
-                }
+            if entries.iter().any(|&e| e != number) {
+                entry.keys = (0..KEYS).map(|note| entries[key(note)] as u8).collect();
             }
-            let up = 12 * shape.raised.get(&number).copied().unwrap_or(0);
-            entry.relative = (relative as i32 + up).clamp(-128, 127) as i8;
-            entry.sample = values;
-            entry.looped = (loop_start, loop_len);
-            entry.volume = volume;
-            entry.finetune = finetune;
             at = body;
-            for i in 0..samples {
-                at = d.at(at.saturating_add(d.size(head.saturating_add(sample_header.saturating_mul(i)))));
-            }
         } else {
             at = d.at(at.saturating_add(size));
         }
         instruments.push(entry);
     }
+    instruments.extend(extras);
 
     // The length, played once as the player does (`Tune::step_tick`):
     // to the end of the order list or to a jump back, a row at a time
@@ -692,6 +737,8 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         if !i.sample.is_empty() && i.kept == Samples::Wide && !(tables + body.len()).is_multiple_of(2) {
             body.push(0);
         }
+        // The table of an instrument of several samples is before its sample.
+        body.extend(&i.keys);
         for n in [tables + body.len(), i.sample.len(), i.looped.0, i.looped.1] {
             out.extend(u32::try_from(n).map_err(|_| "a sample's loop is past what a clip can say")?.to_le_bytes());
         }
@@ -699,9 +746,9 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         out.extend(i.fade.to_le_bytes());
         out.extend(i.auto);
         let kept = if i.sample.is_empty() { Samples::Cut } else { i.kept };
-        // The sample's flags: how it is kept, and bit 2 for a
-        // predicted one's seek points.
-        out.extend([kept as u8 | ((kept == Samples::Packed) as u8) << 2, 0, 0]);
+        // The sample's flags: how it is kept, bit 2 for a predicted
+        // one's seek points, bit 3 for the table of several samples.
+        out.extend([kept as u8 | ((kept == Samples::Packed) as u8) << 2 | if i.keys.is_empty() { 0 } else { 8 }, 0, 0]);
         for p in 0..ENVELOPE_POINTS {
             let (x, y) = i.points.get(p).copied().unwrap_or((0, 0));
             out.extend(x.to_le_bytes());

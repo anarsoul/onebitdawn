@@ -142,5 +142,7 @@ it and fixed: files that end before their instruments do and
 instruments that give a wrong size for a sample's header (80
 modules), the effects R, H, EE and E6, the Amiga frequency table
 (245 modules), an instrument named with no note, the effects 7, T,
-X, L and E5, orders with no pattern. Found and not fixed: `PLAN.md`'s
+X, L and E5, orders with no pattern, instruments of several
+samples (61 modules have one, in 28 a note plays a sample past the
+first). Found and not fixed: `PLAN.md`'s
 backlog.

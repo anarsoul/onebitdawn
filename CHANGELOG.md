@@ -47,6 +47,12 @@ from `http://<ip>/update`; its settings survive the update.
   named is the next note's, as in FastTracker: it took the named
   one's volume at once, and whole channels were too loud or too
   quiet for it.
+- An instrument of several samples plays each note with the sample
+  the instrument gives that note, as FastTracker does (on `next`,
+  for the release after v0.5): every note had the first, another
+  sound, octave and volume in a module with a drum kit or a sampled
+  instrument in one. A pack for a clock at v0.5 has the first
+  sample as before, and the maker says so.
 - The module player has FastTracker's tremolo (7), tremor (T),
   extra fine portamento (X1, X2), envelope position (L) and
   finetune (E5), as OpenMPT plays them, and E1 and E2 remember what
