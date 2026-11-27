@@ -247,6 +247,38 @@ fn module_of_16_bits(sample: &[i16], looped: (u32, u32), cells: &[[u8; 5]]) -> V
 }
 
 #[test]
+fn a_module_that_ends_before_its_instruments_do_is_converted() {
+    let wave: Vec<i16> = (0..3000).map(|i| (20000.0 * (i as f64 * 0.11).sin()) as i16).collect();
+    let whole = module_of_16_bits(&wave, (2000, 1000), &[[49, 1, 0, 0, 0], [0, 0, 0, 0, 0], [61, 1, 0, 0, 0]]);
+    let convert = |data: &[u8]| convert(&Source { data: data.to_vec(), file: "test.xm".into(), options: vec![("samples".into(), "16".into())], label: None }, Output::Speaker);
+    let clip = convert(&whole).unwrap();
+    let sound = play(&clip.data);
+    // The header counts instruments the file has not: they have no
+    // sample, the tune is the same, and it is said.
+    let mut counted = whole.clone();
+    counted[72] = 4;
+    let more = convert(&counted).unwrap();
+    assert_eq!(play(&more.data), sound);
+    assert!(more.notes.iter().any(|n| n == "the file ends before instrument 2 of 4: it and those after have no sample"), "{:?}", more.notes);
+    assert!(!clip.notes.iter().any(|n| n.contains("the file ends")), "{:?}", clip.notes);
+    let instrument = whole.len() - 2 * wave.len() - 40 - 263;
+    // What the instrument says of a sample's header is not asked.
+    let mut says = whole.clone();
+    says[instrument + 29] = 18;
+    assert_eq!(convert(&says).unwrap().data, clip.data);
+    // Cut anywhere from its first instrument on, it is a module with
+    // less in it. The loop's end gone, the sample is as long as its
+    // bytes.
+    for cut in (instrument..whole.len()).step_by(7) {
+        let less = convert(&whole[..cut]).unwrap_or_else(|why| panic!("cut at {cut}: {why}"));
+        play(&less.data);
+    }
+    assert_ne!(play(&convert(&whole[..whole.len() - 300]).unwrap().data), sound);
+    // Cut in a pattern's header it is refused, as before.
+    assert_eq!(convert(&whole[..340]).unwrap_err(), "test.xm: the file is cut short");
+}
+
+#[test]
 fn a_16_bit_sample_is_predicted_with_seek_points() {
     use onebitdawn_core::adpcm::{BLOCK, BLOCK_BYTES};
     use onebitdawn_core::xm::{PACKED_HEAD, Tune};

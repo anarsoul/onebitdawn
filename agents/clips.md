@@ -103,7 +103,12 @@ has must come out the same.
   R that changes no volume is written as E9, which that player has:
   x of 8, or of 0 on a channel with no other R to remember a volume
   from, and y not 0; any other R is named as not played. It is the
-  one place a pattern's bytes are not the module's. A ProTracker module (31 samples, any channel count the tag
+  one place a pattern's bytes are not the module's. From its first
+  instrument on a module is read as OpenMPT reads it (`bytes::Padded`):
+  what is past the file's end is nought, so an instrument there has no
+  sample (a note says where the file ended) and a sample is as long
+  as its bytes; a sample's header is 40 bytes whatever the instrument
+  says, and an instrument's header with no size is 263. A ProTracker module (31 samples, any channel count the tag
   names) becomes an XM first: the pitch a PAL Amiga's, the slides
   (1, 2, 3, 5, E1, E2) converted from periods to the linear table at
   the period each is played at, E0 (the filter) left out and named. A

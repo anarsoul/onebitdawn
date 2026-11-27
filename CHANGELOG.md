@@ -96,6 +96,12 @@ from `http://<ip>/update`; its settings survive the update.
 
 ### Fixed
 
+- The pack maker converts an XM module whose file ends before its
+  instruments do (the header counts more than there are, or the last
+  sample is cut) and one whose instruments give a wrong size for
+  their samples' headers, as FastTracker and OpenMPT play them; it
+  refused both as cut short (on `next`, for the release after v0.5).
+
 - A timezone typed as `UTC+3` or `GMT+3` is three hours east, as it
   is written everywhere but in POSIX, and is stored as the rule
   `<+03>-3`. It was taken as a POSIX rule, where the sign counts west,

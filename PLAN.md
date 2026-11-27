@@ -222,6 +222,34 @@ Owed: a module with an R that changes the volume heard on a clock.
 ScreamTracker's Q, the same effect with another memory, is still not
 converted.
 
+## A module that ends before its instruments do is converted — built 2026-11-26, on `next`; the pack maker's alone
+
+80 XM modules of the user's collection were refused as cut short that
+OpenMPT plays. Two causes: the header counts more instruments than
+the file has, or the last sample is cut; and in some 25 an instrument
+gives a wrong size for its samples' headers (18 mostly), which sent
+the reading astray after the first instrument.
+
+- Design: from the first instrument on, the pack maker reads a field
+  past the file's end as nought, as OpenMPT's partial reads do: an
+  instrument at the end is one with no sample, a header cut is what
+  there is of it, a sample is as long as its bytes. The headers
+  before stay strict: a module cut in a pattern's header is refused
+  as before. A note says
+  which instrument the file ended at. Nothing of the firmware's.
+- A sample's header is 40 bytes whatever the instrument says, and an
+  instrument's header that gives no size is 263, both as OpenMPT's
+  loader has them (FastTracker reads the 40 too).
+- Checked on the host: the 80 convert and play to their ends, 643 of
+  the collection's 937 now. Rendered with no limiter beside
+  openmpt123, their loudness over time follows it as closely as 40
+  modules that always converted do (median correlation 0.87 and
+  0.90). With the reading past the end alone, before the 40 bytes,
+  two were silent for half their length where OpenMPT played, which
+  is how the wrong header sizes were found.
+
+Owed: nothing of a clock's.
+
 ## A line output on the adapter for an amplifier — the setting built and heard 2026-11-18; the shutdown pin built, not checked; the adapters ordered 2026-11-19
 
 The user's idea (2026-11-15): an amplifier in place of Q1, fed the
@@ -619,8 +647,8 @@ From "Samples of 16 bits in a module" in `HISTORY.md`; both in
 The pack maker and the player over the 937 XM modules of the user's
 collection, for the effect R: 563 convert and play to their ends (17
 hours), none panics or hangs, 387 are refused in words (245 for the
-Amiga frequency table, 59 for more than twenty channels). Not R's,
-and not fixed:
+Amiga frequency table, 59 for more than twenty channels, 80 as cut
+short, since converted: the section above). Not R's, and not fixed:
 
 - **245 modules are refused for the Amiga frequency table**, a
   quarter of the collection and two thirds of what is refused: the
@@ -638,12 +666,6 @@ and not fixed:
   maker names it), so the tune is played at nothing to its end. Fix:
   H in the player, or the pack maker leaving a G00 out where only an
   H follows it.
-- **80 modules are refused as cut short that OpenMPT plays.** The
-  header counts more instruments than the file has: 66 end where an
-  instrument would start, the rest inside a header or a sample (two
-  by a few bytes). Fix: an instrument at or past the end is one with
-  no sample, and a sample is what there is of it, as `Data::slice`
-  already takes a run of bytes.
 - **OpenMPT plays 28 of the 99 modules with an R by other rules**,
   those it takes for an old ModPlug Tracker's (`openmpt123 --info`);
   the player has the FastTracker-compatible rules for every module,

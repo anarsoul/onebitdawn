@@ -32,7 +32,7 @@ use onebitdawn_core::adpcm::BLOCK;
 use onebitdawn_core::shape::{STEP, Shaper};
 use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, RETRIGGER as R, SEEK, WIDE_MAGIC, seek_points};
 
-use crate::bytes::{Data, text};
+use crate::bytes::{Data, Padded, text};
 use crate::shape::{rate_flag, section};
 use crate::{Firmware, Limiter, Options, Output};
 
@@ -428,38 +428,55 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         }
     }
 
+    // A file may end before its instruments do, where the header
+    // counts more than there are or the last is cut: what is not there
+    // is read as nought, as OpenMPT reads it, so an instrument past
+    // the end has no sample and a sample is as long as its bytes.
+    let d = Padded(module);
     let mut instruments = Vec::new();
     for number in 1..=instruments_n {
-        let size = d.size(at)?;
-        let samples = d.u16(at + 27)? as usize;
+        if at >= module.len() {
+            notes.push(format!("the file ends before instrument {number} of {instruments_n}: it and those after have no sample"));
+            instruments.resize_with(instruments_n, Instrument::default);
+            break;
+        }
+        // A header that gives itself no size has FastTracker's.
+        let size = match d.size(at) {
+            0 => 263,
+            size => size,
+        };
+        let samples = d.u16(at + 27) as usize;
         let mut entry = Instrument::default();
         if samples > 0 {
-            let sample_header = d.size(at + 29)?;
-            let points = (d.u8(at + 225)? as usize).min(ENVELOPE_POINTS);
+            // A sample's header is 40 bytes whatever the instrument
+            // says of it (some say 18, or nonsense): FastTracker and
+            // OpenMPT read it so.
+            let sample_header = 40usize;
+            let points = (d.u8(at + 225) as usize).min(ENVELOPE_POINTS);
             for i in 0..points {
-                entry.points.push((d.u16(at + 129 + 4 * i)?, d.u16(at + 131 + 4 * i)?));
+                entry.points.push((d.u16(at + 129 + 4 * i), d.u16(at + 131 + 4 * i)));
             }
-            entry.sustain = d.u8(at + 227)?;
-            entry.env_loop = (d.u8(at + 228)?, d.u8(at + 229)?);
-            entry.flags = if points > 0 { d.u8(at + 233)? & 7 } else { 0 };
-            entry.fade = d.u16(at + 239)?;
+            entry.sustain = d.u8(at + 227);
+            entry.env_loop = (d.u8(at + 228), d.u8(at + 229));
+            entry.flags = if points > 0 { d.u8(at + 233) & 7 } else { 0 };
+            entry.fade = d.u16(at + 239);
             // Auto-vibrato: sweep, depth, rate. The player's is a sine.
-            entry.auto = [d.u8(at + 236)?, d.u8(at + 237)?, d.u8(at + 238)?];
-            let waveform = d.u8(at + 235)?;
+            entry.auto = [d.u8(at + 236), d.u8(at + 237), d.u8(at + 238)];
+            let waveform = d.u8(at + 235);
             if entry.auto[1] != 0 && waveform != 0 {
                 warn(format!("instrument {number}: auto-vibrato waveform {waveform}, played as a sine"));
             }
             if samples > 1 {
                 warn(format!("instrument {number}: {samples} samples, the first is used"));
             }
-            let head = at.saturating_add(size);
-            let body = sample_header.checked_mul(samples).and_then(|n| n.checked_add(head)).ok_or(crate::bytes::SHORT)?;
-            let length = d.size(head)?;
-            let (mut loop_start, mut loop_len) = (d.size(head + 4)?, d.size(head + 8)?);
-            let volume = d.u8(head + 12)?;
-            let finetune = d.i8(head + 13)?;
-            let kind = d.u8(head + 14)?;
-            let relative = d.i8(head + 16)?;
+            let head = d.at(at.saturating_add(size));
+            let body = d.at(sample_header.saturating_mul(samples).saturating_add(head));
+            let length = d.size(head);
+            let (mut loop_start, mut loop_len) = (d.size(head + 4), d.size(head + 8));
+            let volume = d.u8(head + 12);
+            let finetune = d.i8(head + 13);
+            let kind = d.u8(head + 14);
+            let relative = d.i8(head + 16);
             let raw = d.slice(body, body.saturating_add(length));
             let mut values: Vec<i16> = Vec::with_capacity(raw.len());
             if kind & 0x10 != 0 {
@@ -519,10 +536,10 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
             entry.finetune = finetune;
             at = body;
             for i in 0..samples {
-                at = at.saturating_add(d.size(head + sample_header * i)?);
+                at = d.at(at.saturating_add(d.size(head.saturating_add(sample_header.saturating_mul(i)))));
             }
         } else {
-            at = at.saturating_add(size);
+            at = d.at(at.saturating_add(size));
         }
         instruments.push(entry);
     }
