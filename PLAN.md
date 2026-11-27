@@ -418,6 +418,57 @@ v0.5 and openmpt123's as one for the player that has the table.
 Owed: a module on the Amiga table, with slides and an arpeggio,
 heard on a clock.
 
+## What else the collection showed of the module player — built 2026-11-26, on `next`; held to openmpt123 on the host, not heard on a clock
+
+What the Amiga table's checks found beside it, and the effects still
+named as not played that a module of the collection uses.
+
+- **An instrument's number is for the next note that begins.** The
+  instrument sounding stays the channel's until then, and a number
+  alone gives back its volume and envelope, not the named one's,
+  which is what the player did: whole channels came out at the
+  ratio of two instruments' volumes. A note slid to (3xx, 5xx) does
+  not remember the number beside it; a key-off beside a number
+  leaves the volume; a number no instrument has still gives the
+  volume back, and a note of it is silence. Each a render.
+- **7, the tremolo**: a sine of FastTracker's table on the volume,
+  on a row's first tick from where the last left it and moved on
+  after each other tick, begun anew by a note; nothing on a volume
+  of nought. **T, the tremor**: OpenMPT's count of FastTracker's,
+  x + 1 ticks of sound and y + 1 of silence across rows, a row with
+  no T staying as the last left it, silent too, until an instrument
+  is named. **X1, X2**: E1 and E2 by a quarter, with their own
+  memory, and E1 and E2 have a memory each, which the player had
+  not. **L**: the volume envelope goes on from that tick. **E5**:
+  the finetune of its row's note and of no other. The levels were
+  read from renders of samples of one value, a tick's slope being
+  no measure of a level that moves.
+- Not built, no module of the collection asking: a vibrato's or a
+  tremolo's waveform other than the sine (E4, E7), the glissando
+  (E3). They are named as not played; E40 and E70, the sine, and
+  what does nothing in FastTracker or on one speaker (E0, EF, E8)
+  are named no longer. The tremor was not named at all, being in
+  the converter's list beside the panning by mistake.
+- **An order that names a pattern the file has not** is passed by,
+  as openmpt123 passes it, the jumps and the restart counted in the
+  list that is left. FastTracker plays 64 empty rows, and such an
+  order is as a rule its empty last pattern, which it does not
+  save: silence at a tune's end, or 7.7 s of it at the start of one
+  of the collection's. Seven modules.
+- The linear table's finetune stays as it is and not in
+  FastTracker's steps of eight: six cents at most, not to be heard
+  (the user), and it would move the knees `knee=auto` fits.
+- On real modules, tick by tick: the channel that differed on 1407
+  ticks for an instrument's volume differs on none; all but one of
+  the tremor's 1382 ticks and all of L's are the same; X and E5
+  differ only on notes too low for the measure, and a tremolo
+  cannot be held so.
+- Cost: 754 bytes of flash and 272 of the main stack, some fourteen
+  bytes a channel; `.rwtext` four bytes less.
+
+Owed: modules with these heard on a clock; an instrument's number
+alone above all, which is in many.
+
 ## A line output on the adapter for an amplifier — the setting built and heard 2026-11-18; the shutdown pin built, not checked; the adapters ordered 2026-11-19
 
 The user's idea (2026-11-15): an amplifier in place of Q1, fed the
@@ -823,25 +874,13 @@ for more than twenty channels). Not fixed:
   the player has the FastTracker-compatible rules for every module,
   so those sound otherwise on the clock than in OpenMPT. Nothing to
   fix unless a clip is to say which tracker made it.
-- **An instrument named with no note takes that instrument's
-  volume**, and its envelope and fade from then on. FastTracker and
-  OpenMPT give the channel back the volume of the instrument that is
-  sounding, the named one being for the next note (a render:
-  `row(C4, 1); row(ins=2)` stays at 64 with the second at 32). Seen
-  as the levels of whole channels off by the two volumes' ratio in
-  a module of the collection; on either table.
-- **An order that names a pattern the file has not is 64 empty rows**
-  for the converter; openmpt123 is 7.6 s shorter for each, in three
-  of the collection's modules, so it passes such an order by.
-  FastTracker's own was not looked at.
-- **The linear table's finetune is as it is, FastTracker's in steps
-  of eight** (a render: 7 is no finetune, -1 is -8): up to four
-  period units, six cents. One line in `Tune::period_at`; left
-  because it moves the mix a hair and with it the knee `knee=auto`
-  fits to tunes the pack maker's tests hold, chosen by ear.
-- **Effects still named as not played**, by the modules that convert
-  and use them: X, the extra fine portamento (20), L, the envelope's
-  position (13), E5 (7), 7, the tremolo (5), E4 and E7. T, the
-  tremor (3 modules), is not played and not named: it is in
-  `xmc.rs`'s `SILENT` beside the panning. E0 (41) and EF do nothing
-  in FastTracker and are named all the same.
+- **More than twenty channels**: 59 modules, 21 to 32 channels but
+  one of 64, FastTracker's limit being 32; six of them use twenty or
+  fewer. A channel is the main stack's and a voice the mixer's
+  time: both to be measured before the limit is raised.
+- **ED with no note** begins the channel's note again at its tick
+  in OpenMPT, with the instrument named beside it; the player does
+  nothing there. Seen in a render, in no module looked at.
+- **Not played and named**: E3, the glissando, and a vibrato's or
+  tremolo's waveform other than the sine (E4, E7); no module of the
+  collection that converts uses either.

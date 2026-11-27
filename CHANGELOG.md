@@ -42,6 +42,11 @@ from `http://<ip>/update`; its settings survive the update.
   table: the notes are right there, the slides and vibratos not.
 - An arpeggio over a note that has slid plays the notes nearest to
   where it slid to, as FastTracker's does.
+- An instrument's number with no note gives a channel back the
+  volume of the instrument that is sounding, and the instrument
+  named is the next note's, as in FastTracker: it took the named
+  one's volume at once, and whole channels were too loud or too
+  quiet for it.
 
 ### Changed
 

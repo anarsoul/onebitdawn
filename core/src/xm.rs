@@ -579,8 +579,10 @@ impl Cell {
 #[derive(Clone, Copy, Default)]
 struct Channel<'a> {
     cell: Cell,
-    /// The instrument last named, from 1; 0 for none yet.
+    /// The instrument that is sounding, from 1; 0 for none yet.
     instrument: u8,
+    /// The instrument last named, which the next note to begin takes.
+    named: u8,
     /// The sample being played: where, how long, and its loop.
     data: u32,
     len: u32,
@@ -1015,8 +1017,18 @@ impl<'a> Tune<'a> {
     /// The note, instrument and volume of the channel's cell.
     fn trigger(&mut self, c: usize) {
         let cell = self.channel[c].cell;
-        if cell.instrument != 0 {
-            self.channel[c].instrument = cell.instrument;
+        // An instrument's number is for the next note that begins: the
+        // one sounding stays the channel's until then, and it is its
+        // volume and envelope a number alone gives back. A note slid
+        // to does not even remember the number (openmpt123,
+        // 2026-11-26).
+        let ch = &mut self.channel[c];
+        let slides = cell.note != 0 && cell.note != KEY_OFF && cell.slides_to_note() && ch.playing;
+        if cell.instrument != 0 && !slides {
+            ch.named = cell.instrument;
+        }
+        if cell.note != 0 && cell.note != KEY_OFF && !slides {
+            ch.instrument = ch.named;
         }
         let instrument = self.instrument(self.channel[c].instrument);
         let amiga = self.amiga;
@@ -1029,9 +1041,14 @@ impl<'a> Tune<'a> {
             ch.retrig_fine = 0;
         }
         if cell.note == KEY_OFF {
+            // A key-off beside a number leaves the volume the number gave.
+            let volume = ch.volume;
             Self::key_off(ch, instrument);
+            if cell.instrument != 0 {
+                ch.volume = volume;
+            }
         } else if cell.note != 0 {
-            if cell.slides_to_note() && ch.playing {
+            if slides {
                 ch.target = instrument.map_or(0, |i| Self::period_of(amiga, cell.note, i));
             } else {
                 // 9xx: start 256 samples in for each of xx.
@@ -2318,6 +2335,42 @@ mod tests {
         // A vibrato swings the period as on the other table.
         let vib = play(6, &[(0, (C4, 1, 0, 4, 0x48))], square(32));
         assert_eq!(vib[..6], [1712, 1712, 1736, 1757, 1770, 1775]);
+    }
+
+    /// An instrument's number, as openmpt123 0.8.10 renders each of
+    /// these (2026-11-26): the first instrument at volume 64, the
+    /// second at 32, the third at 48 and an octave up.
+    #[test]
+    fn an_instrument_named_is_for_the_next_note_as_openmpt_has_it() {
+        let play = |cells: &[Cell5]| {
+            let rows: Vec<At> = cells.iter().copied().enumerate().collect();
+            let ins = [square(32), Ins { volume: 32, ..square(32) }, Ins { volume: 48, relative: 12, ..square(32) }];
+            let seen = strikes(&module(1, 1, 125, &[0], &[pattern(cells.len(), &rows)], &ins), 0);
+            seen.iter().map(|&(period, volume, begun)| ((PERIOD_C4 - period) / SEMITONE, volume, begun)).collect::<Vec<_>>()
+        };
+        let (on, at, top) = ((0, 64, true), (0, 64, false), (12, 64, true));
+        // A number alone gives the volume of the instrument sounding
+        // back, and the next note with none is the named one's, at
+        // the volume there is.
+        assert_eq!(play(&[(C4, 1, 0, 0, 0), (0, 3, 0, 0, 0), (C4, 0, 0, 0, 0), (0, 1, 0, 0, 0), (C4, 0, 0, 0, 0)]), [on, at, top, (12, 48, false), (0, 48, true)]);
+        assert_eq!(play(&[(C4, 2, 0, 0, 0), (0, 0, 0x18, 0, 0), (0, 3, 0, 0, 0), (0, 2, 0, 0, 0)])[1..], [(0, 8, false), (0, 32, false), (0, 32, false)]);
+        // A volume in the column beside it is the volume.
+        assert_eq!(play(&[(C4, 1, 0, 0, 0), (0, 3, 0x20, 0, 0)])[1], (0, 16, false));
+        // A note slid to keeps its instrument and does not remember
+        // the number; a number with the slide and no note is
+        // remembered.
+        assert_eq!(play(&[(C4, 1, 0, 0, 0), (C4 + 12, 3, 0, 3, 0xFF), (C4, 0, 0, 0, 0)]), [on, at, on]);
+        assert_eq!(play(&[(C4, 1, 0, 0, 0), (0, 0, 0x18, 0, 0), (C4, 3, 0, 5, 0), (C4, 0, 0, 0, 0)])[2..], [at, on]);
+        assert_eq!(play(&[(C4, 1, 0, 0, 0), (0, 3, 0, 3, 1), (C4, 0, 0, 0, 0)]), [on, at, top]);
+        // A key-off is silence with no envelope; beside a number it
+        // leaves the volume, and the number is remembered.
+        assert_eq!(play(&[(C4, 1, 0, 0, 0), (KEY_OFF, 0, 0, 0, 0), (C4, 1, 0, 0, 0), (KEY_OFF, 1, 0, 0, 0), (C4, 1, 0, 0, 0), (KEY_OFF, 3, 0, 0, 0), (C4, 0, 0, 0, 0)]), [on, (0, 0, false), on, at, on, at, top]);
+        // A number no instrument has: the volume back all the same,
+        // and a note of it is silence.
+        let none = play(&[(C4, 2, 0, 0, 0), (0, 0, 0x18, 0, 0), (0, 9, 0, 0, 0), (C4, 0, 0, 0, 0), (C4, 1, 0, 0, 0)]);
+        assert_eq!((none[2], none[4]), ((0, 32, false), on));
+        let silent = module(1, 1, 125, &[0], &[pattern(2, &[(0, (C4, 1, 0, 0, 0)), (1, (C4, 9, 0, 0, 0))])], &[square(32)]);
+        assert_eq!(ticks(&silent).iter().map(|t| t.2).collect::<Vec<_>>(), [true, false]);
     }
 
     #[test]
