@@ -226,6 +226,33 @@ fn an_r_is_the_modules_for_a_player_that_has_it() {
     assert!(convert_for(&source, OLD).is_ok());
 }
 
+/// A module on the Amiga frequency table: a clip that says so for a
+/// player that has the table, and for v0.5, which plays any clip on
+/// the linear one, the clip that player would make of it and a word
+/// about the slides.
+#[test]
+fn a_module_on_the_amiga_table_is_for_a_player_that_has_it() {
+    let wave: Vec<i16> = (0..2000).map(|i| ((i % 64) * 256 - 8000) as i16).collect();
+    let cells = [[49, 1, 0, 1, 0x10], [0, 0, 0, 1, 0]];
+    let made = |amiga: bool, target: Target| {
+        let mut data = module_of_16_bits(&wave, (0, 2000), &cells);
+        data[74] = !amiga as u8;
+        convert_for(&Source { data, file: "test.xm".into(), options: vec![("samples".into(), "8".into())], label: None }, target).unwrap()
+    };
+    let said = |clip: &Clip| clip.notes.iter().any(|n| n.contains("the slides follow the linear table"));
+    let (linear, new, old) = (made(false, Target::default()), made(true, Target::default()), made(true, OLD));
+    assert_eq!((linear.data[17] & 8, new.data[17] & 8, old.data[17] & 8), (0, 8, 0));
+    assert!(!said(&linear) && !said(&new) && said(&old), "{:?} {:?}", new.notes, old.notes);
+    // The bit is all there is between the two tables' clips, and the
+    // slide sounds otherwise for it.
+    let mut same = new.data.clone();
+    same[17] &= !8;
+    assert_eq!(same, linear.data);
+    assert_ne!(play(&new.data), play(&linear.data));
+    // v0.5's is its clip of the same module on the linear table.
+    assert_eq!(old.data, made(false, OLD).data);
+}
+
 /// A module of one channel and one instrument, its sample of 16 bits
 /// with a loop, and a pattern of `cells` (note, instrument, volume,
 /// effect, parameter), a row each.

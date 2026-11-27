@@ -28,7 +28,7 @@
 //! `PACKED_MAGIC`, refused the same way.
 //!
 //! What plays: notes with the instrument's relative note and finetune
-//! on the linear frequency table, forward loops, the volume envelope
+//! on the linear frequency table or the Amiga one (`AMIGA`), forward loops, the volume envelope
 //! with its sustain and loop points and the fade after a key-off, the
 //! volume column's set, slides, vibrato and tone portamento, and the
 //! effects 0 arpeggio (in FastTracker's tick order), 1 2 3 portamento,
@@ -130,6 +130,10 @@ const FAST_MIX_HZ: u32 = FAST_HZ * 2;
 const TWICE: u8 = 1;
 const WIDE: u8 = 2;
 const FAST: u8 = 4;
+/// And bit 3: the module is on the Amiga frequency table (`AMIGA`).
+/// A firmware up to v0.5 does not look and plays it on the linear
+/// one: the notes where they are, the slides and vibratos not.
+const AMIGA_TABLE: u8 = 8;
 
 /// Period units a semitone, and the period of the lowest note.
 const SEMITONE: i32 = 64;
@@ -137,6 +141,22 @@ const PERIOD_MAX: i32 = 10 * 12 * SEMITONE;
 /// The period at which a sample plays at `C4_HZ`.
 const PERIOD_C4: i32 = PERIOD_MAX - 4 * 12 * SEMITONE;
 const C4_HZ: u32 = 8363;
+/// FastTracker's other table, the Amiga's, as OpenMPT has it
+/// (`XMPeriodTable`): the periods of an octave and a third of a tone
+/// either side of it, eight to a semitone, C at `AMIGA[8]`. A note's
+/// period is between two of them by its finetune, twice that for the
+/// lowest octave and halved for each above; C-4 is 1712 and plays at
+/// `C4_HZ`, and a period is as many Hz as `AMIGA_HZ` over it.
+const AMIGA: [u16; 104] = [
+    907, 900, 894, 887, 881, 875, 868, 862, 856, 850, 844, 838, 832, 826, 820, 814, 808, 802, 796, 791, 785, 779, 774, 768, 762, 757, 752, 746, 741, 736, 730, 725, 720, 715, 709,
+    704, 699, 694, 689, 684, 678, 675, 670, 665, 660, 655, 651, 646, 640, 636, 632, 628, 623, 619, 614, 610, 604, 601, 597, 592, 588, 584, 580, 575, 570, 567, 563, 559, 555, 551,
+    547, 543, 538, 535, 532, 528, 524, 520, 516, 513, 508, 505, 502, 498, 494, 491, 487, 484, 480, 477, 474, 470, 467, 463, 460, 457, 453, 450, 447, 443, 440, 437, 434, 431,
+];
+const AMIGA_HZ: u32 = C4_HZ * 1712;
+/// The longest period on that table, FastTracker's limit.
+const AMIGA_MAX: i32 = 31999;
+/// The note an arpeggio does not go above, C-8.
+const ARPEGGIO_TOP: i32 = 96;
 /// Steps of the pitch table an octave.
 const OCTAVE: i32 = 12 * SEMITONE;
 
@@ -595,11 +615,13 @@ struct Channel<'a> {
     frac: u32,
     step: u32,
     /// The note's period, where a tone portamento is going, and what
-    /// vibrato and arpeggio add for now.
+    /// vibrato adds for now.
     period: i32,
     target: i32,
     vibrato: i32,
-    arpeggio: i32,
+    /// One more than the semitones an arpeggio's tick is above the
+    /// note; 0 on a tick with none.
+    arpeggio: u8,
     /// The period being sounded, all of those together.
     sounding: i32,
     /// 0 to 64.
@@ -676,6 +698,8 @@ pub struct Tune<'a> {
     /// Mixed samples a second. A tick is 2.5 / tempo seconds: each
     /// mixed sample takes `tempo` out of a pool of 2.5 times this.
     mix_hz: u32,
+    /// On the Amiga frequency table, not the linear one.
+    amiga: bool,
     /// Whether the tune goes round and round: it follows a jump back,
     /// and from the end of the order list it starts over.
     looping: bool,
@@ -738,6 +762,7 @@ impl<'a> Tune<'a> {
             wound: 0,
             channel: [Channel::default(); MAX_CHANNELS],
             mix_hz: if flags & FAST != 0 { FAST_MIX_HZ } else { MIX_HZ },
+            amiga: flags & AMIGA_TABLE != 0,
             shaper: Shaper::new(byte(data, 10), byte(data, 11), octaves, core::array::from_fn(|i| word(data, 18 + 2 * i) as i16), byte(data, 16), flags & WIDE != 0, byte(data, 29)),
             oversample: if flags & (TWICE | FAST) == 0 { 4 } else { 2 },
             ready: [0; RUN / 2],
@@ -994,6 +1019,7 @@ impl<'a> Tune<'a> {
             self.channel[c].instrument = cell.instrument;
         }
         let instrument = self.instrument(self.channel[c].instrument);
+        let amiga = self.amiga;
         let ch = &mut self.channel[c];
         if cell.instrument != 0 {
             ch.volume = instrument.map_or(0, |i| i.volume());
@@ -1006,7 +1032,7 @@ impl<'a> Tune<'a> {
             Self::key_off(ch, instrument);
         } else if cell.note != 0 {
             if cell.slides_to_note() && ch.playing {
-                ch.target = instrument.map_or(0, |i| Self::period_of(cell.note, i));
+                ch.target = instrument.map_or(0, |i| Self::period_of(amiga, cell.note, i));
             } else {
                 // 9xx: start 256 samples in for each of xx.
                 self.strike(c, cell.note, if cell.effect == 9 { cell.param as u32 * 256 } else { 0 });
@@ -1027,8 +1053,49 @@ impl<'a> Tune<'a> {
         }
     }
 
-    fn period_of(note: u8, i: Instrument) -> i32 {
-        PERIOD_MAX - (note as i32 - 1 + i.relative()).clamp(0, 119) * SEMITONE - i.finetune() / 2
+    fn period_of(amiga: bool, note: u8, i: Instrument) -> i32 {
+        Self::period_at(amiga, note as i32 - 1 + i.relative(), i.finetune())
+    }
+
+    /// The period of a note, C-0 being 0, at a finetune of -128 to
+    /// 127 (and beyond, for `arpeggio_period`). On the Amiga table as
+    /// OpenMPT's `GetPeriodFromNote` has FastTracker's: the finetune
+    /// in steps of eight, between two entries of the table. (On the
+    /// linear table FastTracker has those steps too, and this has the
+    /// finetune as it is: `PLAN.md`'s backlog.)
+    #[inline(never)]
+    fn period_at(amiga: bool, note: i32, finetune: i32) -> i32 {
+        let note = note.clamp(0, 119);
+        if !amiga {
+            return PERIOD_MAX - note * SEMITONE - finetune / 2;
+        }
+        let finetune = finetune & !7;
+        let at = (note % 12) * 8 + 8 + finetune / 16;
+        let entry = |i: i32| AMIGA[i.clamp(0, 103) as usize] as i32;
+        let (next, part) = if finetune < 0 { (at - 1, -finetune & 15) } else { (at + 1, finetune & 15) };
+        ((entry(at) * (16 - part) + entry(next) * part) << 1) >> (note / 12)
+    }
+
+    /// The period an arpeggio's tick plays: FastTracker looks for the
+    /// note the period is nearest to, slid or not, and plays the one
+    /// `up` semitones above it, C-8 at most (OpenMPT's reading of it,
+    /// `kFT2Arpeggio`). On both tables.
+    #[inline(never)]
+    fn arpeggio_period(amiga: bool, period: i32, finetune: i32, up: i32) -> i32 {
+        // The first note whose period, half a semitone down, is not over this one.
+        let (mut low, mut count) = (0, 120);
+        while count > 0 {
+            let half = count / 2;
+            if Self::period_at(amiga, low + half, finetune + 64) > period {
+                low += half + 1;
+                count -= half + 1;
+            } else {
+                count = half;
+            }
+        }
+        let note = low + up;
+        let period = Self::period_at(amiga, note, finetune);
+        if note >= ARPEGGIO_TOP { period.max(Self::period_at(amiga, ARPEGGIO_TOP, 0)) } else { period }
     }
 
     /// A note begun: the sample of the channel's instrument from
@@ -1037,6 +1104,7 @@ impl<'a> Tune<'a> {
     fn strike(&mut self, c: usize, note: u8, offset: u32) {
         let instrument = self.instrument(self.channel[c].instrument);
         self.cut += self.sounding_now(c);
+        let amiga = self.amiga;
         let ch = &mut self.channel[c];
         let Some(i) = instrument else {
             ch.playing = false;
@@ -1050,7 +1118,7 @@ impl<'a> Tune<'a> {
         ch.block = NO_BLOCK;
         ch.seeks = i.seeks();
         ch.loop_first = word(self.d, ch.data as usize + 6) as i16 as i32;
-        ch.period = Self::period_of(note, i);
+        ch.period = Self::period_of(amiga, note, i);
         ch.target = ch.period;
         ch.struck = ch.period;
         ch.frac = 0;
@@ -1152,6 +1220,7 @@ impl<'a> Tune<'a> {
         let (hi, lo) = (cell.param >> 4, cell.param & 0xF);
         let order = self.order;
         let instrument = self.instrument(self.channel[c].instrument);
+        let longest = if self.amiga { AMIGA_MAX } else { PERIOD_MAX };
         let ch = &mut self.channel[c];
         ch.arpeggio = 0;
         if !cell.has_vibrato() {
@@ -1192,7 +1261,7 @@ impl<'a> Tune<'a> {
                 // E9 counts on R's counter, from the row's start.
                 9 => ch.retrig_count = 0,
                 1 => ch.period = (ch.period - lo as i32 * 4).max(1),
-                2 => ch.period = (ch.period + lo as i32 * 4).min(PERIOD_MAX),
+                2 => ch.period = (ch.period + lo as i32 * 4).min(longest),
                 0xA => ch.volume = (ch.volume + lo).min(64),
                 0xB => ch.volume = ch.volume.saturating_sub(lo),
                 // E60 marks the row, E6x goes back to the mark x times:
@@ -1241,6 +1310,7 @@ impl<'a> Tune<'a> {
         }
         let instrument = self.instrument(self.channel[c].instrument);
         let cut = self.sounding_now(c);
+        let longest = if self.amiga { AMIGA_MAX } else { PERIOD_MAX };
         let ch = &mut self.channel[c];
         let lo = cell.param & 0xF;
         match cell.volume >> 4 {
@@ -1251,9 +1321,9 @@ impl<'a> Tune<'a> {
             _ => {}
         }
         match cell.effect {
-            0 if cell.param != 0 => ch.arpeggio = Self::arpeggio(cell.param, speed, tick) * SEMITONE,
+            0 if cell.param != 0 => ch.arpeggio = Self::arpeggio(cell.param, speed, tick),
             1 => ch.period = (ch.period - ch.porta as i32 * 4).max(1),
-            2 => ch.period = (ch.period + ch.porta_down as i32 * 4).min(PERIOD_MAX),
+            2 => ch.period = (ch.period + ch.porta_down as i32 * 4).min(longest),
             3 => Self::tone_portamento(ch),
             4 => Self::vibrato(ch),
             5 => {
@@ -1293,13 +1363,15 @@ impl<'a> Tune<'a> {
     /// is from the ticks left of the speed, the last of them being
     /// base, y, x. A row held by EE counts each repeat's ticks anew,
     /// and a repeat's first is no first tick: it has a step as well.
-    fn arpeggio(param: u8, speed: u8, tick: u16) -> i32 {
-        let (x, y) = ((param >> 4) as i32, (param & 0xF) as i32);
+    /// One more than the step's semitones, 0 for the base's tick: a
+    /// step of no semitones is still the nearest note's
+    /// (`arpeggio_period`).
+    fn arpeggio(param: u8, speed: u8, tick: u16) -> u8 {
         let speed = speed.max(1) as u16;
         match (speed - tick % speed) % 3 {
             0 => 0,
-            1 => x,
-            _ => y,
+            1 => 1 + (param >> 4),
+            _ => 1 + (param & 0xF),
         }
     }
 
@@ -1359,7 +1431,7 @@ impl<'a> Tune<'a> {
     fn settle(&mut self, c: usize) {
         let instrument = self.instrument(self.channel[c].instrument);
         let global = self.global as u32;
-        let mix_hz = self.mix_hz;
+        let (mix_hz, amiga) = (self.mix_hz, self.amiga);
         let ch = &mut self.channel[c];
         let level = match instrument {
             Some(i) => Self::envelope(ch, i),
@@ -1390,7 +1462,18 @@ impl<'a> Tune<'a> {
             ch.auto_pos = ch.auto_pos.wrapping_add(rate);
             ch.auto_depth = (ch.auto_depth + (depth << 8) / sweep.max(1)).min(depth << 8);
         }
-        let period = (ch.period + ch.vibrato + auto - ch.arpeggio).clamp(1, PERIOD_MAX);
+        let base = match ch.arpeggio {
+            0 => ch.period,
+            up => Self::arpeggio_period(amiga, ch.period, instrument.map_or(0, |i| i.finetune()), up as i32 - 1),
+        };
+        if amiga {
+            // AMIGA_HZ over the period, as a step in 16.16 at the mixing rate.
+            let period = (base + ch.vibrato + auto).clamp(1, AMIGA_MAX);
+            ch.sounding = period;
+            ch.step = (((AMIGA_HZ as u64) << 16) / (period as u32 * mix_hz) as u64).min(u32::MAX as u64) as u32;
+            return;
+        }
+        let period = (base + ch.vibrato + auto).clamp(1, PERIOD_MAX);
         ch.sounding = period;
         // The frequency is C4_HZ * 2^((PERIOD_C4 - period) / 768).
         let exponent = PERIOD_C4 - period;
@@ -1740,7 +1823,8 @@ mod tests {
             let begun = ch.playing && ch.pos == 0;
             ch.pos = ch.pos.max(1);
             let Cell { volume, effect, param, .. } = ch.cell;
-            let semitones = (PERIOD_MAX - ch.sounding) as f64 / SEMITONE as f64;
+            // From C-0 on either table.
+            let semitones = if t.amiga { 12.0 * (27392.0 / ch.sounding as f64).log2() } else { (PERIOD_MAX - ch.sounding) as f64 / SEMITONE as f64 };
             let (level, at) = (ch.volume, ch.data);
             out += &format!("{semitones:.4} {level} {} {at} {volume:02X} {effect:02X} {param:02X} {}\n", begun as u8, t.global);
         }
@@ -2149,6 +2233,11 @@ mod tests {
         assert_eq!(play(5, &[(0, (C4, 1, 0, 0, 0x47))])[..5], [base, base - 4 * s, base, base - 7 * s, base - 4 * s]);
         // And the row after it is the plain note again.
         assert_eq!(play(4, &[(0, (C4, 1, 0, 0, 0x47))])[4], base);
+        // A note that has slid is first taken to the nearest note:
+        // 220 units up is 28 from the note 3 semitones up (openmpt123,
+        // 2026-11-26).
+        let near = base - 3 * s;
+        assert_eq!(play(6, &[(0, (C4, 1, 0, 1, 0x0B)), (1, (0, 0, 0, 0, 0x37))])[5..12], [base - 220, base - 220, near - 7 * s, near - 3 * s, base - 220, near - 7 * s, near - 3 * s]);
         // Portamento: four units a tick for each of the parameter, not
         // on the first tick, remembered, each direction by itself: a
         // 200 after only a 1xx has nothing to remember (openmpt123,
@@ -2175,6 +2264,60 @@ mod tests {
         assert_eq!(vib[0], base);
         assert!(vib[1..6].iter().all(|&p| (p - base).abs() <= 4 * 255 / 32) && vib[2] > base && vib[3..6].iter().any(|&p| p < base), "{:?}", &vib[..6]);
         assert_eq!(vib[6], base);
+    }
+
+    /// A module on the Amiga frequency table, as OpenMPT plays a
+    /// FastTracker one (openmpt123 0.8.10, 2026-11-26: where a ramp
+    /// was at each tick's end is where these periods put it, to the
+    /// ramp's step).
+    #[test]
+    fn the_amiga_table_is_played_as_openmpt_does() {
+        let amiga = |mut d: Vec<u8>| {
+            d[17] |= AMIGA_TABLE;
+            d
+        };
+        let play = |speed, cells: &[At], ins: Ins| ticks(&amiga(module(1, speed, 125, &[0], &[pattern(4, cells)], &[ins]))).iter().map(|t| t.0).collect::<Vec<_>>();
+        let note = |note: u8, finetune: i8, relative: i8| play(1, &[(0, (note, 1, 0, 0, 0))], Ins { finetune, relative, ..square(32) })[0];
+        // A note's period is the table's, halved an octave.
+        for (n, period) in [(C4, 1712), (C4 + 1, 1616), (C4 + 7, 1140), (C4 + 31, 285), (C4 + 40, 169), (C4 - 12, 3424), (C4 - 30, 9664), (1, 27392)] {
+            assert_eq!(note(n, 0, 0), period, "note {n}");
+        }
+        // The finetune in steps of eight, between two entries; the
+        // relative note is the note's.
+        for (finetune, period) in [(127, 1622), (120, 1622), (9, 1706), (8, 1706), (7, 1712), (-1, 1718), (-8, 1718), (-9, 1724), (-128, 1814), (64, 1664), (-64, 1762)] {
+            assert_eq!(note(C4, finetune, 0), period, "finetune {finetune}");
+        }
+        assert_eq!(note(C4, 0, 7), 1140);
+        // C-4 is the linear table's C-4, and half the period an octave.
+        let step = |d: Vec<u8>| {
+            let mut t = Tune::new(&d);
+            t.step_tick();
+            t.channel[0].step
+        };
+        let tune = |note| module(1, 6, 125, &[0], &[pattern(1, &[(0, (note, 1, 0, 0, 0))])], &[square(32)]);
+        // (To a part in sixty thousand: the linear table's is rounded down.)
+        let same = |a: u32, b: u32| a.abs_diff(b) <= 4;
+        assert!(same(step(amiga(tune(C4))), step(tune(C4))));
+        assert!(same(step(amiga(tune(C4 + 24))), 4 * step(tune(C4))));
+        assert!(same(step(amiga(tune(C4 - 12))), step(tune(C4)) / 2));
+        // The slides move the period by what they do on the other table.
+        let slides = play(4, &[(0, (C4, 1, 0, 1, 0x10)), (1, (0, 0, 0, 2, 0x08)), (2, (0, 0, 0, 0xE, 0x13)), (3, (0, 0, 0, 0xE, 0x25))], square(32));
+        assert_eq!(slides[..16], [1712, 1648, 1584, 1520, 1520, 1552, 1584, 1616, 1604, 1604, 1604, 1604, 1624, 1624, 1624, 1624]);
+        let to = play(4, &[(0, (C4, 1, 0, 0, 0)), (1, (C4 + 1, 0, 0, 3, 0x10)), (2, (0, 0, 0, 3, 0))], square(32));
+        assert_eq!(to[4..9], [1712, 1648, 1616, 1616, 1616]);
+        // Down to the longest period and no further.
+        let low = play(6, &[(0, (1, 1, 0, 2, 0xFF)), (1, (0, 0, 0, 2, 0))], square(32));
+        assert_eq!(low[..7], [27392, 28412, 29432, 30452, 31472, AMIGA_MAX, AMIGA_MAX]);
+        // An arpeggio's notes are the table's: D#4 and G-4 over C-4.
+        assert_eq!(play(6, &[(0, (C4, 1, 0, 0, 0x37))], square(32))[..6], [1712, 1140, 1440, 1712, 1140, 1440]);
+        // Over a note that has slid, the nearest note's: 1332 is E-4's
+        // 1356, and G-4 and B-4 are 3 and 7 above it.
+        assert_eq!(play(6, &[(0, (C4, 1, 0, 1, 0x13)), (1, (0, 0, 0, 0, 0x37))], square(32))[5..12], [1332, 1332, 906, 1140, 1332, 906, 1140]);
+        // And none goes above C-8.
+        assert_eq!(play(6, &[(0, (C4 + 47, 1, 0, 0, 0x1C))], square(32))[..3], [113, 107, 107]);
+        // A vibrato swings the period as on the other table.
+        let vib = play(6, &[(0, (C4, 1, 0, 4, 0x48))], square(32));
+        assert_eq!(vib[..6], [1712, 1712, 1736, 1757, 1770, 1775]);
     }
 
     #[test]

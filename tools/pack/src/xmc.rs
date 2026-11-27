@@ -101,7 +101,10 @@ pub struct Shape {
     /// where an R changes no volume (`retriggers`). Such a player has
     /// no H either, nor E6, the pattern loop, nor EE, the pattern
     /// delay: they are then named as not played, and no loop or delay
-    /// is counted into the length.
+    /// is counted into the length. Nor has it the Amiga frequency
+    /// table: a module on it is written as one on the linear table,
+    /// which is how that player plays it whatever the clip says, and
+    /// a note says that the slides are not the module's.
     pub retrigger: bool,
 }
 
@@ -379,9 +382,9 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     if channels == 0 {
         return Err("no channels".into());
     }
-    if flags & 1 == 0 {
-        return Err("the Amiga frequency table; the player has the linear one only".into());
-    }
+    // The Amiga frequency table: the clip says so, and a player from
+    // before it had the table plays the clip on the linear one.
+    let amiga = flags & 1 == 0;
     let orders = d.slice(80, 80 + orders_n);
     let mut warnings: BTreeMap<String, usize> = BTreeMap::new();
     let mut warn = |what: String| *warnings.entry(what).or_default() += 1;
@@ -623,7 +626,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         shape.release,
     ]);
     out.extend((ticks_ms.round_ties_even() as u32).to_le_bytes());
-    out.extend([shape.passes, rate | if shape.bits == 16 { 2 } else { 0 }]);
+    out.extend([shape.passes, rate | if shape.bits == 16 { 2 } else { 0 } | if amiga && shape.retrigger { 8 } else { 0 }]);
     for k in section {
         out.extend(k.to_le_bytes());
     }
@@ -689,6 +692,9 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     ));
     for (what, count) in &warnings {
         notes.push(format!("not played: {what} ({count} times)"));
+    }
+    if amiga && !shape.retrigger {
+        notes.push("the Amiga frequency table: the notes are right, the slides follow the linear table".into());
     }
     Ok(out)
 }

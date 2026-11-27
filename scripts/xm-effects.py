@@ -10,13 +10,14 @@
 With no `--effect`: a line an effect (0 to F, E0 to EF, G and on, as
 FastTracker names them) and a volume column's kind (`v6` is the column's
 6x), with the number of modules that use it and of those the number
-the pack maker converts today (the linear table, twenty channels at
-most), the most used first. It is how to tell what an effect the
+the pack maker converts today (twenty channels at most), the most
+used first. It is how to tell what an effect the
 player lacks would be worth.
 
 With `--effect`: the modules that use it, the most cells first, each
-with the cells and whether it converts (`amiga` and `channels` are why
-not). `--paths` prints the paths alone, of those that convert, for
+with the cells and whether it converts (`channels` is why not).
+`--table amiga` or `--table linear` takes only the modules on that
+frequency table; with `--effect any`, every module of it. `--paths` prints the paths alone, of those that convert, for
 `cargo collection --list` and `scripts/openmpt-compare.py --list`.
 
 Paths are files or folders, searched to the bottom for `.xm`. An
@@ -41,7 +42,8 @@ def scan(path):
     u16 = lambda at: struct.unpack_from('<H', d, at)[0] if at + 2 <= len(d) else 0
     u32 = lambda at: struct.unpack_from('<I', d, at)[0] if at + 4 <= len(d) else 0
     channels, patterns, flags = u16(68), u16(70), u16(74)
-    why = 'amiga' if not flags & 1 else 'channels' if not 0 < channels <= 20 else ''
+    why = 'channels' if not 0 < channels <= 20 else ''
+    amiga = not flags & 1
     used = Counter()
     at = 60 + u32(60)
     for _ in range(patterns):
@@ -72,13 +74,14 @@ def scan(path):
                 used[name(effect, param)] += 1
             if volume >= 0x60:
                 used['v%X' % (volume >> 4)] += 1
-    return why, used
+    return why, used, amiga
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('paths', nargs='+')
     p.add_argument('--effect', help='an effect as FastTracker names it: A, E6, R, v6')
+    p.add_argument('--table', choices=('amiga', 'linear'), help='only the modules on this frequency table')
     p.add_argument('--paths', dest='only_paths', action='store_true', help='with --effect: the paths of the modules that convert, alone')
     args = p.parse_args()
     files = []
@@ -98,12 +101,16 @@ def main():
             got = None
         if got is None:
             continue
+        why, used, amiga = got
+        if args.table and (args.table == 'amiga') != amiga:
+            continue
         total += 1
-        why, used = got
         for effect in used:
             modules[effect] += 1
             convertible[effect] += not why
-        if args.effect and used.get(args.effect):
+        if args.effect == 'any':
+            found.append((sum(used.values()), why, path))
+        elif args.effect and used.get(args.effect):
             found.append((used[args.effect], why, path))
     if args.effect:
         for cells, why, path in sorted(found, key=lambda f: (-f[0], f[2])):

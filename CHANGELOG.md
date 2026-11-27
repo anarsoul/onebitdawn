@@ -34,6 +34,14 @@ from `http://<ip>/update`; its settings survive the update.
   tune with one skipped its repeats and its clip came out short. The
   pack maker counts the loops into a clip's length and refuses a
   module whose loops never end.
+- The module player has FastTracker's Amiga frequency table, as
+  OpenMPT plays a module on it (on `next`, for the release after
+  v0.5): the pack maker refused such a module, a quarter of a
+  collection of key generators' music. For a clock at v0.5 it now
+  converts one as well and says that the slides follow the linear
+  table: the notes are right there, the slides and vibratos not.
+- An arpeggio over a note that has slid plays the notes nearest to
+  where it slid to, as FastTracker's does.
 
 ### Changed
 

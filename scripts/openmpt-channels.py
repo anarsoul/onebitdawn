@@ -109,7 +109,6 @@ def rebuilt(d, hsize, channels, pats, volumes, keep):
     """The module with the channel `keep` alone and ramps for instruments."""
     out = bytearray(d[:60 + hsize])
     out[38:58] = b'openmpt-channels.py'.ljust(20)
-    struct.pack_into('<H', out, 74, struct.unpack_from('<H', d, 74)[0] | 1)     # the linear table
     struct.pack_into('<H', out, 78, 125)
     for rows, cells in pats:
         body = bytearray()

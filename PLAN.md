@@ -363,6 +363,61 @@ table.
 
 Owed: nothing.
 
+## The Amiga frequency table for a module — built 2026-11-26, on `next`; held to openmpt123 on the host and heard in the page's player, not on a clock
+
+245 of the collection's 937 modules, a quarter, were refused for it:
+the player had the linear table only.
+
+- Design, as OpenMPT plays a FastTracker module on that table
+  (`GetPeriodFromNote`, `GetFreqFromPeriod`): a note's period is from
+  FastTracker's table of 104 periods, eight to a semitone, between
+  two entries by the finetune in steps of eight, halved an octave;
+  the frequency is 8363 * 1712 over the period, a division a channel
+  a tick. Slides, vibratos and the tone portamento move the period
+  by the same figures as on the linear table, so their code is
+  shared, with the period held to 1..31999.
+- An arpeggio's tick plays the note so many semitones above the one
+  the period is nearest to, C-8 at most, and not the period moved by
+  semitones. That is FastTracker's on both tables, and the player
+  did otherwise on the linear one for a note that had slid: changed
+  for both.
+- The clip says so with bit 3 of its header's flags (byte 17). A
+  firmware up to v0.5 does not look at the bit and plays such a clip
+  on the linear table: the notes right, the slides and vibratos not,
+  the same figure being wider low and narrower high. For
+  `--firmware 0.5` the pack maker writes the module with no bit,
+  which is the same sound there, and says that the slides follow the
+  linear table (the user's choice: better than a refusal).
+- Measured, openmpt123 0.8.10: where a ramp is at each tick's end is
+  where the model's periods put it, to the ramp's step of four
+  samples, for eight notes over seven octaves, eleven finetunes,
+  1xx, 2xx, E1, E2, a vibrato and an arpeggio plain and over a slid
+  note, on both tables for the last. Past the longest period
+  OpenMPT's render was a twentieth off the model's, at 450 Hz of a
+  sample; left.
+- On seven of the collection's modules, tick by tick: the channels
+  with 1xx, 2xx, 3xx and 4xx are OpenMPT's but for six, each of
+  those an instrument named alone or a note too low for the measure
+  (the backlog). Whole tunes: all 245 convert and play to their
+  ends, 7.4 hours; 238 are OpenMPT's length to 0.3 s, the seven
+  others for a jump back or an order with no pattern (the backlog);
+  the loudness follows OpenMPT's at 0.87 in the median, 28 under
+  0.5, where a third of the modules on the linear table give 0.88
+  and 14 of 211.
+- Cost: 656 bytes of flash, 208 of them the table, 4 of `.rwtext`;
+  the main stack gains 80, the arpeggio being a byte a channel now.
+- `scripts/openmpt-ticks.py` has `--amiga` and `--decimals`,
+  `xm-effects.py` `--table` and `--effect any`, `openmpt-channels.py`
+  leaves a module on its table, and `dump_the_ticks` writes a pitch
+  that is right on either.
+
+Heard in the page's player, 2026-11-26: several of the collection's
+modules, one of them plainly another tune's slides as a clip for
+v0.5 and openmpt123's as one for the player that has the table.
+
+Owed: a module on the Amiga table, with slides and an arpeggio,
+heard on a clock.
+
 ## A line output on the adapter for an amplifier — the setting built and heard 2026-11-18; the shutdown pin built, not checked; the adapters ordered 2026-11-19
 
 The user's idea (2026-11-15): an amplifier in place of Q1, fed the
@@ -760,22 +815,33 @@ From "Samples of 16 bits in a module" in `HISTORY.md`; both in
 The pack maker and the player over the 937 XM modules of the user's
 collection, for the effect R: 563 convert and play to their ends (17
 hours), none panics or hangs, 387 are refused in words (245 for the
-Amiga frequency table, 59 for more than twenty channels, 80 as cut
-short, since converted: the section above). Not R's, and not fixed:
+Amiga frequency table and 80 as cut short, both since converted, 59
+for more than twenty channels). Not fixed:
 
-- **245 modules are refused for the Amiga frequency table**, a
-  quarter of the collection and two thirds of what is refused: the
-  player has the linear table only. Not designed. Either the player
-  gets the table (a note's period from FastTracker's table and its
-  finetune, the step from 8363 * 1712 over the period once a tick,
-  slides, vibrato and arpeggio in those units, and a clip that says
-  so, which an older firmware must not take for a linear one), or
-  the pack maker writes such a module on the linear table as
-  `modxm.rs` does a ProTracker one's slides, each converted at the
-  period it is played at, which is no firmware's business and not
-  exact.
 - **OpenMPT plays 28 of the 99 modules with an R by other rules**,
   those it takes for an old ModPlug Tracker's (`openmpt123 --info`);
   the player has the FastTracker-compatible rules for every module,
   so those sound otherwise on the clock than in OpenMPT. Nothing to
   fix unless a clip is to say which tracker made it.
+- **An instrument named with no note takes that instrument's
+  volume**, and its envelope and fade from then on. FastTracker and
+  OpenMPT give the channel back the volume of the instrument that is
+  sounding, the named one being for the next note (a render:
+  `row(C4, 1); row(ins=2)` stays at 64 with the second at 32). Seen
+  as the levels of whole channels off by the two volumes' ratio in
+  a module of the collection; on either table.
+- **An order that names a pattern the file has not is 64 empty rows**
+  for the converter; openmpt123 is 7.6 s shorter for each, in three
+  of the collection's modules, so it passes such an order by.
+  FastTracker's own was not looked at.
+- **The linear table's finetune is as it is, FastTracker's in steps
+  of eight** (a render: 7 is no finetune, -1 is -8): up to four
+  period units, six cents. One line in `Tune::period_at`; left
+  because it moves the mix a hair and with it the knee `knee=auto`
+  fits to tunes the pack maker's tests hold, chosen by ear.
+- **Effects still named as not played**, by the modules that convert
+  and use them: X, the extra fine portamento (20), L, the envelope's
+  position (13), E5 (7), 7, the tremolo (5), E4 and E7. T, the
+  tremor (3 modules), is not played and not named: it is in
+  `xmc.rs`'s `SILENT` beside the panning. E0 (41) and EF do nothing
+  in FastTracker and are named all the same.

@@ -35,7 +35,9 @@ each row told by a volume in its column (`vol=0x10 + n` shows as n).
 
 OpenMPT plays a FastTracker module by FastTracker's rules unless it
 takes the file for another tracker's; this one is written under a
-name it does not know, which is what it wants. OpenMPT moves a volume
+name it does not know, which is what it wants. `--amiga` writes
+the module on the Amiga frequency table, and `--decimals 2` prints a
+figure finely enough to tell one table's pitch from the other's. OpenMPT moves a volume
 to its new value over the tick, global volume above all, so a slide's
 figures lag: read them where the next row begins. `--keep FILE`
 leaves the module there, to convert and hold the player to
@@ -54,7 +56,7 @@ RATE = 48000
 TICK = RATE * 5 // 2 // 125
 
 
-def module(spec, speed):
+def module(spec, speed, amiga=False):
     """The module's bytes, and (speed, ticks) of each row as given."""
     patterns, rows = [], []
 
@@ -82,7 +84,7 @@ def module(spec, speed):
         return bytes(c) if any(c) else b'\x80'
 
     out = bytearray(b'Extended Module: ' + b'ticks'.ljust(20) + b'\x1a' + b'openmpt-ticks.py'.ljust(20) + struct.pack('<H', 0x0104))
-    out += struct.pack('<IHHHHHHHH', 276, len(patterns), 0, 2, len(patterns), 2, 1, speed, 125)
+    out += struct.pack('<IHHHHHHHH', 276, len(patterns), 0, 2, len(patterns), 2, 0 if amiga else 1, speed, 125)
     out += bytes(range(len(patterns))).ljust(256, b'\0')
     listing, now = [], speed
     for rows in patterns:
@@ -121,7 +123,7 @@ def render(path):
     raise ValueError('no data in the render')
 
 
-def ticks(x):
+def ticks(x, decimals=0):
     """Each tick as (figure, begun), or None past the render's end."""
     unit = None
     out = []
@@ -138,7 +140,7 @@ def ticks(x):
             # The samples played before the tick began: none, for a note begun on it.
             age = x[a] / slope - (a - pos)
             # A slope the wrong way is a level on its way down within the tick.
-            out.append(('?', False) if slope < 0 else ('%d' % round(slope / unit), age < TICK * 0.5))
+            out.append(('?', False) if slope < 0 else ('%.*f' % (decimals, slope / unit), age < TICK * 0.5))
     return out
 
 
@@ -147,13 +149,15 @@ def main():
     p.add_argument('rows', help='the rows, as Python')
     p.add_argument('--speed', type=int, default=6, help="the module's speed, ticks a row (6)")
     p.add_argument('--rows', dest='stream', action='store_true', help='what is played, a figure a row of --speed ticks')
+    p.add_argument('--amiga', action='store_true', help="the module on the Amiga frequency table, not the linear one")
+    p.add_argument('--decimals', type=int, default=0, help='so many decimals to a figure, for a pitch (0)')
     p.add_argument('--keep', help='write the module here as well')
     args = p.parse_args()
-    data, listing = module(args.rows, args.speed)
+    data, listing = module(args.rows, args.speed, args.amiga)
     with tempfile.TemporaryDirectory() as tmp:
         path = args.keep or os.path.join(tmp, 'ticks.xm')
         open(path, 'wb').write(data)
-        seen = ticks(render(path))
+        seen = ticks(render(path), args.decimals)
     text = lambda t: t[0] + ('*' if t[1] else '')
     if args.stream:
         rows = [seen[at:at + args.speed] for at in range(2 * args.speed, len(seen), args.speed)]

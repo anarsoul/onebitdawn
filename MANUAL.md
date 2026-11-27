@@ -202,6 +202,10 @@ retrigger with a volume change) either: a pack for v0.5 has E9 in its
 place where the R changes no volume, and the maker names any other
 as not played, and the effects H (the global volume slide), E6 (the
 pattern loop) and EE (the pattern delay), which it has not either.
+Nor has it FastTracker's Amiga frequency table: a module on it is
+played on the linear one, its notes where they should be and its
+slides and vibratos wider or narrower than the module's, and the
+maker says so.
 
 For a speaker the page and the command (`--limiter`) also ask how
 loud the clip of a tracker module or a ZX Spectrum tune is to be: `loudest` pushes the limiter

@@ -98,8 +98,8 @@ impl Firmware {
     }
 
     /// Whether its module player has what came after v0.5: the effect
-    /// H, the global volume slide, E6, the pattern loop, EE, the pattern delay, and the effect R, the retrigger with
-    /// a volume change.
+    /// H, the global volume slide, E6, the pattern loop, EE, the pattern delay, the effect R, the retrigger with
+    /// a volume change, and the Amiga frequency table.
     pub fn retriggers(self) -> bool {
         self != Firmware::V0_5
     }

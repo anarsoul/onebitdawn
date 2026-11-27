@@ -115,15 +115,23 @@ it, and is the user's.
   tracker's name it does not know, so they get FastTracker's rules;
   28 of the collection's 99 modules with an R are played by the
   others, and sound otherwise in OpenMPT than on the clock.
+- A render's slope tells a pitch to a few parts in a hundred, the
+  ramp having a step every fourth sample: enough for an octave, not
+  for a table. Where the ramp is at a tick's end is told to four
+  samples whatever came before, so a pitch is held to OpenMPT by
+  adding up where a model's periods put the ramp, tick by tick, and
+  a finetune by the place after a second of one note (the Amiga
+  table's section in `PLAN.md` was measured so).
 - OpenMPT moves a level to its new value across a tick, the global
   volume above all: a slide's ticks read low or high in a render, and
   are right where the next row begins.
 
 ## What the collection has shown (2026-11-26)
 
-Of 937 XM modules 643 convert and play to their ends, 19 hours, with
-no panic. 245 are refused for the Amiga frequency table and 59 for
-more than twenty channels (`PLAN.md`'s backlog). Found with it and
-fixed: files that end before their instruments do and instruments
-that give a wrong size for a sample's header (80 modules), the
-effects R, H, EE and E6.
+Of its 1196 modules (937 of them XM) 1129 convert and play to their
+ends, 35 hours, with no panic; 59 of the 67 refused have more than
+twenty channels. Found with
+it and fixed: files that end before their instruments do and
+instruments that give a wrong size for a sample's header (80
+modules), the effects R, H, EE and E6, the Amiga frequency table
+(245 modules). Found and not fixed: `PLAN.md`'s backlog.
