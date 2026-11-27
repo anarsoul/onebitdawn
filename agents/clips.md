@@ -96,7 +96,7 @@ has must come out the same.
 
 ### Tracker modules (`xmc.rs`, `modxm.rs`, `s3mxm.rs`)
 
-- A FastTracker 2 module for the clock's own player, of up to twenty
+- A FastTracker 2 module for the clock's own player, of up to 32
   channels; the notes list what the module uses that the player
   lacks. The effects H (the global volume slide), E6 (the pattern
   loop) and EE (the pattern delay) are the player's since
@@ -164,6 +164,19 @@ has must come out the same.
   A sample too short for its table to pay for itself (a wave of one
   period: 64 samples are 128 bytes at 16 bits and 166 predicted) is
   kept at 16 bits, the smaller and exact.
+- A predicted sample is decoded as it plays, a block for every 16
+  samples a voice reads, on top of what a voice costs, so by the
+  pitch and by how many sound at once: a chiptune's short waves on
+  twenty channels were 40 points of the processor and a clip that
+  underran (`HISTORY.md`, 2026-11-27). By default (no `samples`) the
+  converter therefore keeps at 16 bits a sample shorter than
+  `xmc::PREDICT_MIN`, and then plays the clip (`xmc::load`:
+  `xm::Tune::voices`, the voices and the blocks decoded, a second at
+  a time, with the chip's measured cost of each) and, while the
+  dearest second is over `xmc::LOAD_LIMIT`, the shortest predicted
+  sample left, with a note. A tune over the limit with nothing
+  predicted, by its voices alone, gets a note that the clock may not
+  keep up. `samples=packed` predicts every sample and asks nothing.
   A sample of 16 bits whose low bytes are all the same is one of 8
   and is written so, that byte dropped, whatever is asked: Keygen's
   lead is one (its low bytes nought), and its clip is what it was.

@@ -105,6 +105,13 @@ pub struct Shape {
     pub bits: u8,
     /// How the module's 16-bit samples are kept.
     pub samples: Samples,
+    /// Whether a sample is predicted only where the clock can afford
+    /// to decode it (`PREDICT_MIN`, `LOAD_LIMIT`): the default, and
+    /// not what `samples=packed` asks for, which predicts them all.
+    pub weigh: bool,
+    /// The channels the firmware the clip is for plays
+    /// (`Firmware::channels`): a module with more is refused.
+    pub channels: usize,
     /// Instruments played octaves higher, by number from 1.
     pub raised: BTreeMap<usize, i32>,
     /// Whether the player has the effect R. One that has not gets E9
@@ -131,7 +138,7 @@ impl Shape {
             Output::Buzzer => (300.0, 0),
             Output::Speaker => (100.0, 10),
         };
-        Shape { drive: 0, release, knee: 0, fit: None, highpass, passes: 1, rate: 31250, bits: 16, samples: Samples::Packed, raised: BTreeMap::new(), retrigger: true }
+        Shape { drive: 0, release, knee: 0, fit: None, highpass, passes: 1, rate: 31250, bits: 16, samples: Samples::Packed, weigh: true, channels: MAX_CHANNELS, raised: BTreeMap::new(), retrigger: true }
     }
 
     /// A firmware that plays no samples of 16 bits has them cut to 8,
@@ -142,6 +149,7 @@ impl Shape {
     pub fn options(output: Output, firmware: Firmware, limiter: Limiter, options: &mut Options) -> Result<Self, String> {
         let mut shape = Shape::new(output);
         shape.retrigger = firmware.retriggers();
+        shape.channels = firmware.channels();
         shape.drive = options.number("drive", shape.drive)?;
         shape.release = options.number("release", shape.release)?;
         let tops = options.maybe("tops")?;
@@ -162,7 +170,9 @@ impl Shape {
         shape.passes = options.number("passes", shape.passes)?;
         shape.rate = options.number("rate", shape.rate)?;
         shape.bits = options.number("bits", shape.bits)?;
-        shape.samples = match (options.text("samples")?.as_deref(), firmware.wide()) {
+        let samples = options.text("samples")?;
+        shape.weigh = samples.is_none();
+        shape.samples = match (samples.as_deref(), firmware.wide()) {
             (None, false) | (Some("8"), _) => Samples::Cut,
             (None | Some("packed"), true) => Samples::Packed,
             (Some("16"), true) => Samples::Wide,
@@ -380,6 +390,80 @@ fn fit_knee(clip: &[u8], tops: u32) -> (u8, i32, usize, usize) {
     (knee as u8, peak, flattened, allowed)
 }
 
+/// A sample shorter than this is not predicted unless asked for
+/// (`samples=packed`). A predicted sample is decoded as it is read, a
+/// block for every 16 samples a voice goes through, and the short
+/// ones are the waveforms a chiptune plays high on many channels at
+/// once: three of 272 samples took 40 points of the processor in a
+/// module of 22 channels, for 453 bytes saved (2026-11-27). Over the
+/// collection of `agents/collection.md` this is 91 KB more in 83
+/// clips, 6 KB at most.
+pub const PREDICT_MIN: usize = 2048;
+
+/// The share of the processor, in hundredths, a tune's dearest second
+/// may take by `load`'s estimate with its samples predicted: over it
+/// the shortest predicted sample is kept as it is, and the next, until
+/// it is under or none is left. A clip underruns somewhere about 100
+/// on the chip, and the estimate was within seven of the chip.
+pub const LOAD_LIMIT: f64 = 75.0;
+
+/// What `load` adds up, as measured on an ESP32-C3 at 160 MHz with
+/// nine modules (2026-11-27): the hundredths of the processor a clip
+/// takes with nothing sounding, those a voice takes, of any kind of
+/// sample, and those a block of a predicted sample decoded every
+/// mixed sample takes, at the mixing rate of a clip at 31 250 Hz.
+const LOAD_IDLE: f64 = 5.0;
+const LOAD_VOICE: f64 = 2.5;
+const LOAD_BLOCK: f64 = 24.2;
+/// The blocks a predicted sample's loop costs at its wrap, which
+/// decodes from the loop's first block again.
+const LOAD_WRAP: f64 = 1.5;
+
+/// An estimate of the share of the processor, in hundredths, the
+/// clock spends playing the clip in its dearest second: the voices
+/// sounding (`xm::Tune::voices`) and the blocks their predicted
+/// samples have decoded, a mixed sample, looked at every few samples
+/// of the output.
+///
+/// For as long as the clip's header says it is: a clip made for an
+/// older firmware is played here by this one, which may not end it (a
+/// pattern loop that firmware does not play and this one never
+/// leaves).
+pub fn load(clip: &[u8]) -> f64 {
+    let mut tune = onebitdawn_core::xm::Tune::new(clip);
+    let rate = tune.rate() as usize;
+    // 62 500 mixed samples a second for a clip at 31 250, 32 000 for the rest.
+    let scale = if rate > 24000 { 1.0 } else { 32000.0 / 62500.0 };
+    let mut left = onebitdawn_core::clip::duration_ms(clip) as usize * rate / 1000;
+    let (mut dearest, mut sum, mut looks, mut out) = (0.0f64, 0.0, 0u32, 0usize);
+    while left != 0 {
+        let got = tune.block().len();
+        if got == 0 {
+            break;
+        }
+        tune.taken(got);
+        out += got;
+        left = left.saturating_sub(got);
+        looks += 1;
+        for voice in tune.voices() {
+            sum += LOAD_VOICE;
+            if voice.predicted {
+                let step = voice.step as f64 / 65536.0;
+                let wraps = if voice.loop_len != 0 { LOAD_WRAP / voice.loop_len as f64 } else { 0.0 };
+                sum += LOAD_BLOCK * step * (1.0 / onebitdawn_core::adpcm::BLOCK as f64 + wraps);
+            }
+        }
+        if out >= rate {
+            dearest = dearest.max(sum / looks as f64);
+            (sum, looks, out) = (0.0, 0, 0);
+        }
+    }
+    if looks != 0 {
+        dearest = dearest.max(sum / looks as f64);
+    }
+    LOAD_IDLE + dearest * scale
+}
+
 /// The clip of the module in `module`, and what there is to say of it.
 pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<Vec<u8>, String> {
     let d = Data(module);
@@ -396,8 +480,9 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     let instruments_n = d.u16(72)? as usize;
     let flags = d.u16(74)?;
     let (speed, tempo) = (d.u16(76)?, d.u16(78)?);
-    if channels > MAX_CHANNELS {
-        return Err(format!("{channels} channels; the player has {MAX_CHANNELS}"));
+    if channels > shape.channels {
+        let later = if shape.channels < MAX_CHANNELS { format!(" of the firmware the pack is for, {MAX_CHANNELS} of a later one") } else { String::new() };
+        return Err(format!("{channels} channels; the player has {}{later}", shape.channels));
     }
     if channels == 0 {
         return Err("no channels".into());
@@ -689,7 +774,14 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     // A sample is predicted where that is the smaller: for a wave of
     // one period the table alone is more than the 16 bits it would
     // save, and those are kept as they are, exact.
+    // Nor is a short one, whose decoding costs the clock more than
+    // its bytes are worth (`PREDICT_MIN`), unless they were all asked
+    // for.
     for i in instruments.iter_mut().filter(|i| i.kept == Samples::Packed) {
+        if shape.weigh && i.sample.len() < PREDICT_MIN {
+            i.kept = Samples::Wide;
+            continue;
+        }
         i.packed = predicted(&i.sample, i.looped);
         if i.packed.len() >= 2 * i.sample.len() {
             (i.kept, i.packed) = (Samples::Wide, Vec::new());
@@ -697,71 +789,97 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     }
     // The magic is the newest thing the clip has in it: a firmware
     // from before that refuses it.
-    let has = |kept| instruments.iter().any(|i: &Instrument| i.kept == kept && !i.sample.is_empty());
-    let mut out = if has(Samples::Packed) {
-        PACKED_MAGIC.to_vec()
-    } else if has(Samples::Wide) {
-        WIDE_MAGIC.to_vec()
-    } else {
-        MAGIC.to_vec()
+    let build = |instruments: &[Instrument]| -> Result<Vec<u8>, String> {
+        let has = |kept| instruments.iter().any(|i: &Instrument| i.kept == kept && !i.sample.is_empty());
+        let mut out = if has(Samples::Packed) {
+            PACKED_MAGIC.to_vec()
+        } else if has(Samples::Wide) {
+            WIDE_MAGIC.to_vec()
+        } else {
+            MAGIC.to_vec()
+        };
+        out.extend([
+            channels as u8,
+            byte(speed as usize, "ticks a row")?,
+            byte(tempo as usize, "beats a minute")?,
+            byte(orders.len(), "orders")?,
+            byte(patterns.len(), "patterns")?,
+            byte(instruments.len(), "instruments")?,
+            shape.drive,
+            shape.release,
+        ]);
+        out.extend((ticks_ms.round_ties_even() as u32).to_le_bytes());
+        out.extend([shape.passes, rate | if shape.bits == 16 { 2 } else { 0 } | if amiga && shape.retrigger { 8 } else { 0 }]);
+        for k in section {
+            out.extend(k.to_le_bytes());
+        }
+        // The order to start over from, for the alarm, which plays the tune
+        // round and round.
+        out.extend([if restart < orders.len() { restart as u8 } else { 0 }, shape.knee, 0, 0]);
+        out.extend(orders);
+        let tables = out.len() + 6 * patterns.len() + 80 * instruments.len();
+        let mut body: Vec<u8> = Vec::new();
+        for (rows, packed) in &patterns {
+            out.extend((*rows as u16).to_le_bytes());
+            out.extend(((tables + body.len()) as u32).to_le_bytes());
+            body.extend(packed);
+        }
+        for i in instruments {
+            // A sample of 16 bits at an even offset: the clock reads two
+            // bytes at a load, from an even address (`xm::is_misplaced`).
+            if !i.sample.is_empty() && i.kept == Samples::Wide && !(tables + body.len()).is_multiple_of(2) {
+                body.push(0);
+            }
+            // The table of an instrument of several samples is before its sample.
+            body.extend(&i.keys);
+            for n in [tables + body.len(), i.sample.len(), i.looped.0, i.looped.1] {
+                out.extend(u32::try_from(n).map_err(|_| "a sample's loop is past what a clip can say")?.to_le_bytes());
+            }
+            out.extend([i.volume, i.finetune as u8, i.relative as u8, i.flags, i.points.len() as u8, i.sustain, i.env_loop.0, i.env_loop.1]);
+            out.extend(i.fade.to_le_bytes());
+            out.extend(i.auto);
+            let kept = if i.sample.is_empty() { Samples::Cut } else { i.kept };
+            // The sample's flags: how it is kept, bit 2 for a predicted
+            // one's seek points, bit 3 for the table of several samples.
+            out.extend([kept as u8 | ((kept == Samples::Packed) as u8) << 2 | if i.keys.is_empty() { 0 } else { 8 }, 0, 0]);
+            for p in 0..ENVELOPE_POINTS {
+                let (x, y) = i.points.get(p).copied().unwrap_or((0, 0));
+                out.extend(x.to_le_bytes());
+                out.extend(y.to_le_bytes());
+            }
+            match kept {
+                Samples::Cut => body.extend(i.sample.iter().map(|s| (s >> 8) as u8)),
+                Samples::Wide => body.extend(i.sample.iter().flat_map(|s| s.to_le_bytes())),
+                Samples::Packed => body.extend(&i.packed),
+            }
+        }
+        debug_assert_eq!(out.len(), tables);
+        out.extend(body);
+        Ok(out)
     };
-    out.extend([
-        channels as u8,
-        byte(speed as usize, "ticks a row")?,
-        byte(tempo as usize, "beats a minute")?,
-        byte(orders.len(), "orders")?,
-        byte(patterns.len(), "patterns")?,
-        byte(instruments.len(), "instruments")?,
-        shape.drive,
-        shape.release,
-    ]);
-    out.extend((ticks_ms.round_ties_even() as u32).to_le_bytes());
-    out.extend([shape.passes, rate | if shape.bits == 16 { 2 } else { 0 } | if amiga && shape.retrigger { 8 } else { 0 }]);
-    for k in section {
-        out.extend(k.to_le_bytes());
+    let mut out = build(&instruments)?;
+    // The clock decodes a predicted sample as it plays, and a tune
+    // with many of them sounding at once may be more than it can
+    // (`LOAD_LIMIT`): then the shortest is kept as it is, which costs
+    // the fewest bytes, and the next.
+    let mut spared = 0;
+    let before = load(&out);
+    let mut now = before;
+    while shape.weigh && now > LOAD_LIMIT {
+        let Some(shortest) = instruments.iter_mut().filter(|i| i.kept == Samples::Packed && !i.sample.is_empty()).min_by_key(|i| i.sample.len()) else { break };
+        (shortest.kept, shortest.packed) = (Samples::Wide, Vec::new());
+        spared += 1;
+        out = build(&instruments)?;
+        now = load(&out);
     }
-    // The order to start over from, for the alarm, which plays the tune
-    // round and round.
-    out.extend([if restart < orders.len() { restart as u8 } else { 0 }, shape.knee, 0, 0]);
-    out.extend(orders);
-    let tables = out.len() + 6 * patterns.len() + 80 * instruments.len();
-    let mut body: Vec<u8> = Vec::new();
-    for (rows, packed) in &patterns {
-        out.extend((*rows as u16).to_le_bytes());
-        out.extend(((tables + body.len()) as u32).to_le_bytes());
-        body.extend(packed);
+    if spared != 0 {
+        notes.push(format!(
+            "{spared} of the samples kept at 16 bits and not predicted: with them predicted the tune's dearest second is about {before:.0} % of the clock's processor, now {now:.0} %"
+        ));
     }
-    for i in &instruments {
-        // A sample of 16 bits at an even offset: the clock reads two
-        // bytes at a load, from an even address (`xm::is_misplaced`).
-        if !i.sample.is_empty() && i.kept == Samples::Wide && !(tables + body.len()).is_multiple_of(2) {
-            body.push(0);
-        }
-        // The table of an instrument of several samples is before its sample.
-        body.extend(&i.keys);
-        for n in [tables + body.len(), i.sample.len(), i.looped.0, i.looped.1] {
-            out.extend(u32::try_from(n).map_err(|_| "a sample's loop is past what a clip can say")?.to_le_bytes());
-        }
-        out.extend([i.volume, i.finetune as u8, i.relative as u8, i.flags, i.points.len() as u8, i.sustain, i.env_loop.0, i.env_loop.1]);
-        out.extend(i.fade.to_le_bytes());
-        out.extend(i.auto);
-        let kept = if i.sample.is_empty() { Samples::Cut } else { i.kept };
-        // The sample's flags: how it is kept, bit 2 for a predicted
-        // one's seek points, bit 3 for the table of several samples.
-        out.extend([kept as u8 | ((kept == Samples::Packed) as u8) << 2 | if i.keys.is_empty() { 0 } else { 8 }, 0, 0]);
-        for p in 0..ENVELOPE_POINTS {
-            let (x, y) = i.points.get(p).copied().unwrap_or((0, 0));
-            out.extend(x.to_le_bytes());
-            out.extend(y.to_le_bytes());
-        }
-        match kept {
-            Samples::Cut => body.extend(i.sample.iter().map(|s| (s >> 8) as u8)),
-            Samples::Wide => body.extend(i.sample.iter().flat_map(|s| s.to_le_bytes())),
-            Samples::Packed => body.extend(&i.packed),
-        }
+    if now > LOAD_LIMIT {
+        notes.push(format!("the tune's dearest second is about {now:.0} % of the clock's processor: it may not keep up"));
     }
-    debug_assert_eq!(out.len(), tables);
-    out.extend(body);
     if let Some(tops) = shape.fit {
         let (knee, peak, flattened, allowed) = fit_knee(&out, tops);
         out[KNEE_AT] = knee;

@@ -241,7 +241,7 @@
   </p>
   <details>
     <summary>Tracker modules: <code>.xm</code>, <code>.mod</code>, <code>.s3m</code></summary>
-    <p class="small">The clock plays the module itself, up to twenty channels; what a module uses that the player lacks is listed under the clip.</p>
+    <p class="small">The clock plays the module itself, up to 32 channels (twenty for a clock at v0.5); what a module uses that the player lacks is listed under the clip.</p>
     <dl>
       <dt><code>highpass=300</code></dt><dd>The bass cut's corner in Hz (100 for a speaker), and <code>passes=1</code> how many times it is applied, 0 to 2.</dd>
       <dt><code>drive=160</code></dt><dd>What the limiter aims a peak at, 127 being full scale; more is louder and clips.</dd>
@@ -250,7 +250,7 @@
       <dt><code>knee=auto</code></dt><dd>The lowest knee, and so the loudest clip, at which the limiter flattens no more than 60 samples a minute at full scale: on a speaker a flat top is a click where an instrument plays alone. <code>tops=600</code> allows more and is louder; <code>tops=0</code> is the limiter off. The knee it found is in the clip's details. The speaker's choice above, how the clips are made, is this for every module and ZX Spectrum tune: 1650, 600 and 60.</dd>
       <dt><code>raise=1:2</code></dt><dd>Play instrument 1 two octaves higher, for a bass line a buzzer cannot play.</dd>
       <dt><code>rate=16000</code></dt><dd>Samples a second, 31250 by default; 16000 and 8000 are less work for the clock.</dd>
-      <dt><code>samples=16</code></dt><dd>A module's 16-bit samples are kept in 8 bits a sample and a sixteenth more, each predicted from the samples before it: nearly the sound of the 16 bits. This keeps them as they are, at twice the bytes. Either way the clip needs a firmware after v0.5, and neither is taken in a pack for v0.5.</dd>
+      <dt><code>samples=16</code></dt><dd>A module's 16-bit samples are kept in 8 bits a sample and a sixteenth more, each predicted from the samples before it: nearly the sound of the 16 bits. A short sample, and those of a tune with more of them sounding at once than the clock has time to decode, are kept as they are; the clip's notes say so. This keeps them all as they are, at twice the bytes; <code>samples=packed</code> predicts them all. Either way the clip needs a firmware after v0.5, and neither is taken in a pack for v0.5.</dd>
       <dt><code>samples=8</code></dt><dd>Cut them to 8 bits, which is what a pack for v0.5 gets: under a quiet instrument 8 bits hiss.</dd>
     </dl>
   </details>

@@ -13,6 +13,16 @@ from `http://<ip>/update`; its settings survive the update.
 
 ### Added
 
+- The module player has 32 channels, FastTracker's limit, where it
+  had twenty (on `next`, for the release after v0.5). The pack maker
+  refuses a module of more than twenty for a clock at v0.5.
+- The pack maker predicts a module's 16-bit sample only where the
+  clock has the time to decode it (on `next`, for the release after
+  v0.5): a sample shorter than 2048 samples is kept as it is, and so
+  are the shortest of a tune whose dearest second would otherwise
+  take over three quarters of the processor, with a note of it. A
+  chiptune of short waves on twenty channels made a clip that
+  stuttered. `samples=packed` predicts them all, as before.
 - The module player has FastTracker's effect R, the retrigger with a
   volume change (on `next`, for the release after v0.5), as OpenMPT
   plays it: the count of ticks carried from row to row, each of x's

@@ -395,9 +395,11 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   of a module whose 16-bit samples were kept (`samples=16`: two bytes
   a sample, an instrument's entry saying which are; a firmware from
   before it refuses the clip), or the `XMC4` one of a module whose
-  16-bit samples were kept predicted (the pack maker's default); no heap, twenty
-  channels (`xm::MAX_CHANNELS`; eight, then sixteen, then this,
-  all on 2026-11-18).
+  16-bit samples were kept predicted (the pack maker's default); no heap, 32
+  channels (`xm::MAX_CHANNELS`; eight, sixteen, then twenty on
+  2026-11-18, which is what v0.5 has and the pack maker keeps a clip
+  for it to; 32 since 2026-11-27, a channel 221 bytes of the main
+  stack).
 - It mixes at 32 kHz and averages to 16 kHz (8 if the clip asks; at
   62.5 kHz to 31.25 for a clip at `clip::FAST_HZ`).
 - A channel keeps its sample and the mixer reads from that, not from

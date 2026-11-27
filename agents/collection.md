@@ -18,6 +18,7 @@ is the user's key-generator music, 937 XM modules; any folder of
 | tool | what it answers |
 | --- | --- |
 | `cargo collection path…` | does every module convert or get refused in words, and does its clip play to an end; what do the modules use that the player lacks |
+| `cargo collection --cost path…` | what does playing each module's clip for a speaker cost the host, over the tune and in its dearest second: an order to pick the dearest by, not the chip's figures (`packs/heavy.sh`, not in git, is a pack of them) |
 | `scripts/xm-effects.py path…` | which effects do the modules use, and which modules use a given one |
 | `scripts/openmpt-ticks.py 'rows'` | what does OpenMPT do with these rows, tick by tick: the rules of an effect |
 | `scripts/openmpt-channels.py --effect X module…` | does the player do the same as OpenMPT on the channels of real modules that use the effect, tick by tick |
@@ -140,7 +141,9 @@ bench again; add a module to it with an effect.
 
 Of its 1196 modules (937 of them XM) 1129 convert and play to their
 ends, 35 hours, with no panic; 59 of the 67 refused have more than
-twenty channels. Found with
+twenty channels, which was the limit (32 since 2026-11-27: 1188
+convert, 37 hours, and what is dear to play is then the pack
+maker's to say, `xmc::load`). Found with
 it and fixed: files that end before their instruments do and
 instruments that give a wrong size for a sample's header (80
 modules), the effects R, H, EE and E6, the Amiga frequency table

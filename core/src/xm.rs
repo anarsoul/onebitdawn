@@ -119,8 +119,10 @@ const RAMP_PER_SECOND: u32 = 512;
 const CUT_DECAY: i32 = 64;
 /// Channels played; the converter refuses a module with more. A
 /// channel that is not sounding costs the mixer nothing, one that is
-/// about as much as any other, so a module's cost follows its voices.
-pub const MAX_CHANNELS: usize = 20;
+/// about as much as any other, so a module's cost follows its voices,
+/// which the pack maker counts (`xmc::load`). FastTracker's own limit;
+/// v0.5 had twenty, and is given no clip of more.
+pub const MAX_CHANNELS: usize = 32;
 
 /// The mixing rate: four times the PCM clips' 8 kHz, and twice the
 /// 16 kHz a clip may ask for instead.
@@ -607,6 +609,20 @@ impl Cell {
     }
 }
 
+/// A channel the mixer is adding to the sound (`Tune::voices`): the
+/// sample it plays, by where it is in the clip, how long that is and
+/// its loop, in samples, the step a mixed sample with 16 bits of
+/// fraction, and whether the sample is a predicted one, which is
+/// decoded a block of `adpcm::BLOCK` at a time as the voice reads it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Voice {
+    pub sample: u32,
+    pub len: u32,
+    pub loop_len: u32,
+    pub step: u32,
+    pub predicted: bool,
+}
+
 #[derive(Clone, Copy, Default)]
 struct Channel<'a> {
     cell: Cell,
@@ -842,6 +858,19 @@ impl<'a> Tune<'a> {
     /// What a tick's pool holds; see `mix_hz`.
     fn tick_pool(&self) -> i32 {
         (self.mix_hz * 5 / 2) as i32
+    }
+
+    /// The channels the mixer is adding now, which is what a tune
+    /// costs to play: for the pack maker, which counts them before it
+    /// chooses how a sample is kept. The firmware has no use for it.
+    pub fn voices(&self) -> impl Iterator<Item = Voice> + '_ {
+        self.channel[..self.channels].iter().filter(|ch| ch.mixing).map(|ch| Voice {
+            sample: ch.data,
+            len: ch.len,
+            loop_len: ch.loop_len,
+            step: ch.step,
+            predicted: ch.kind == Kind::Packed,
+        })
     }
 
     /// Samples a second `next_sample` gives: `PCM_HZ`, or twice it or

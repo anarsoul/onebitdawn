@@ -10,7 +10,7 @@
 With no `--effect`: a line an effect (0 to F, E0 to EF, G and on, as
 FastTracker names them) and a volume column's kind (`v6` is the column's
 6x), with the number of modules that use it and of those the number
-the pack maker converts today (twenty channels at most), the most
+the pack maker converts today (32 channels at most), the most
 used first. It is how to tell what an effect the
 player lacks would be worth.
 
@@ -42,7 +42,7 @@ def scan(path):
     u16 = lambda at: struct.unpack_from('<H', d, at)[0] if at + 2 <= len(d) else 0
     u32 = lambda at: struct.unpack_from('<I', d, at)[0] if at + 4 <= len(d) else 0
     channels, patterns, flags = u16(68), u16(70), u16(74)
-    why = 'channels' if not 0 < channels <= 20 else ''
+    why = 'channels' if not 0 < channels <= 32 else ''
     amiga = not flags & 1
     used = Counter()
     at = 60 + u32(60)

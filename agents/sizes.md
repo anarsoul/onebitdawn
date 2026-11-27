@@ -114,6 +114,7 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-26 | 29.8 → 29.6 KB | on `next`: the tremolo, the tremor, X, L, E5 and the named instrument, some fourteen bytes a channel (30 552 → 30 280), `.rwtext` 4 bytes less; 754 bytes of flash |
 | 2026-11-26 | 29.6 KB | on `next`: a channel's step by a division of 32 bits, on both frequency tables, where it was one of 64 a channel a tick (a call into the ROM); the same steps, 42 bytes of flash less, nothing of the stack (30 280) |
 | 2026-11-26 | 29.6 KB | on `next`: an instrument of several samples, a table looked up where a note begins; 214 bytes of flash, nothing of the stack or `.rwtext` |
+| 2026-11-27 | 29.6 → 27.0 KB | on `next`: `xm::MAX_CHANNELS` from 20 to 32, 221 bytes a channel (30 280 → 27 632) |
 
 How much of it is used, measured 2026-11-23 on the bare bench board
 with the `stack-watch` feature (`src/stack.rs`: the stack painted,

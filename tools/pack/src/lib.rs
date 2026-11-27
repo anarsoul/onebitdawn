@@ -105,6 +105,13 @@ impl Firmware {
         self != Firmware::V0_5
     }
 
+    /// The channels its module player has: a module with more is
+    /// refused for it. v0.5 reads a clip's rows as twenty channels at
+    /// most, so one of more would be played wrong there, not refused.
+    pub fn channels(self) -> usize {
+        if self == Firmware::V0_5 { 20 } else { onebitdawn_core::xm::MAX_CHANNELS }
+    }
+
     /// Whether it plays a clip this maker's firmware does.
     pub fn plays(self, clip: &[u8]) -> bool {
         use onebitdawn_core::{adpcm, xm};

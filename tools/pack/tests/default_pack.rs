@@ -122,10 +122,14 @@ fn the_default_pack_from_its_sources() {
     // from before them refuses; cut to 8 it is a clip of the kind
     // there was, smaller by a byte a sample. The pack's has them
     // predicted, as a module's 16-bit samples are unless told, in 8
-    // bits a sample and a sixteenth more, a third kind of clip.
+    // bits a sample and a sixteenth more, a third kind of clip: all
+    // but its two waves of 128 samples, which are too short to be
+    // worth decoding and are predicted only when that is asked for.
     let wide = made("mods/starlight-aurora.xm:knee=64,release=13,samples=16", Output::Speaker);
     let cut = made("mods/starlight-aurora.xm:knee=64,release=13,samples=8", Output::Speaker);
-    assert_eq!(made("mods/starlight-aurora.xm:knee=64,release=13,samples=packed", Output::Speaker).data, ninth.data);
+    let all = made("mods/starlight-aurora.xm:knee=64,release=13,samples=packed", Output::Speaker);
+    assert_eq!(&all.data[..4], b"XMC4");
+    assert!(all.data.len() < ninth.data.len() && ninth.data.len() < all.data.len() + 512, "{} {}", all.data.len(), ninth.data.len());
     assert_eq!((&ninth.data[..4], &wide.data[..4], &cut.data[..4]), (&b"XMC4"[..], &b"XMC3"[..], &b"XMC2"[..]));
     assert!(wide.data.len() > cut.data.len() + 100_000 && wide.data.len() < 2 * cut.data.len());
     assert!(ninth.data.len() > cut.data.len() && ninth.data.len() < cut.data.len() + (wide.data.len() - cut.data.len()) / 8);
@@ -368,6 +372,52 @@ fn an_instrument_of_several_samples_has_an_entry_a_sample() {
     assert!(said(&old), "{:?}", old.notes);
     assert_eq!((old.data[9], old.data[entry(&old, 0) + 29], long(&old, entry(&old, 0) + 4)), (1, 0, 1000));
     assert_eq!(&old.data[..4], b"XMC2");
+}
+
+/// A sample is predicted where the clock can afford to decode it: not
+/// a short one, and not those that would have the tune's dearest
+/// second over the limit; `samples=packed` predicts them all.
+#[test]
+fn a_sample_is_predicted_where_the_clock_can_afford_it() {
+    use onebitdawn_pack::xmc::{LOAD_LIMIT, PREDICT_MIN, load};
+    let wave = |n: usize| -> Vec<i16> { (0..n).map(|i| ((i * 37 % 251) as i32 * 200 - 25000 + (i % 7) as i32) as i16).collect() };
+    let made = |data: Vec<u8>, options: &[(&str, &str)]| {
+        let options = options.iter().map(|&(k, v)| (k.to_string(), v.to_string())).collect();
+        convert_for(&Source { data, file: "test.xm".into(), options, label: None }, Target::default()).unwrap()
+    };
+    let spared = |clip: &Clip| clip.notes.iter().any(|n| n.contains("not predicted"));
+    // A short sample is kept as it is, one of the least length is
+    // predicted, and a short one too when asked.
+    let short = module_of_16_bits(&wave(PREDICT_MIN - 1), (0, PREDICT_MIN as u32 - 1), &[[49, 1, 0, 0, 0]]);
+    let long = module_of_16_bits(&wave(PREDICT_MIN), (0, PREDICT_MIN as u32), &[[49, 1, 0, 0, 0]]);
+    assert_eq!(&made(short.clone(), &[]).data[..4], b"XMC3");
+    assert_eq!(&made(short, &[("samples", "packed")]).data[..4], b"XMC4");
+    let one = made(long, &[]);
+    assert_eq!(&one.data[..4], b"XMC4");
+    assert!(!spared(&one) && load(&one.data) < LOAD_LIMIT / 4.0, "{}", load(&one.data));
+    // The same sample two octaves up on 24 channels at once is more
+    // blocks decoded than the clock has time for: kept as it is, with
+    // a word, and under the limit so. On four channels it is not.
+    let many = |channels: usize| {
+        let mut cells = vec![[73, 1, 0, 0, 0]; channels];
+        cells.resize(16 * channels, [0; 5]);
+        let mut d = module_of_16_bits(&wave(PREDICT_MIN), (0, PREDICT_MIN as u32), &cells);
+        d[68..70].copy_from_slice(&(channels as u16).to_le_bytes());
+        // The pattern's rows, after its header's length and type.
+        d[60 + 276 + 5..][..2].copy_from_slice(&16u16.to_le_bytes());
+        d
+    };
+    let (few, crowd, forced) = (made(many(4), &[]), made(many(24), &[]), made(many(24), &[("samples", "packed")]));
+    assert_eq!((&few.data[..4], &crowd.data[..4], &forced.data[..4]), (&b"XMC4"[..], &b"XMC3"[..], &b"XMC4"[..]));
+    assert!(!spared(&few) && spared(&crowd) && !spared(&forced), "{:?}", crowd.notes);
+    assert!(load(&crowd.data) <= LOAD_LIMIT && load(&forced.data) > LOAD_LIMIT, "{} {}", load(&crowd.data), load(&forced.data));
+    // v0.5 has twenty channels and would read the rows of more wrong:
+    // no clip of them for it.
+    let old = convert_for(&Source { data: many(24), file: "test.xm".into(), options: vec![], label: None }, OLD);
+    assert_eq!(old.err().as_deref(), Some("test.xm: 24 channels; the player has 20 of the firmware the pack is for, 32 of a later one"));
+    assert!(convert_for(&Source { data: many(20), file: "test.xm".into(), options: vec![], label: None }, OLD).is_ok());
+    // The sound is the same but for the coding's noise.
+    assert_eq!(play(&crowd.data).len(), play(&forced.data).len());
 }
 
 /// A module of one channel and one instrument, its sample of 16 bits

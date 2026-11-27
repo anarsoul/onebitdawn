@@ -59,7 +59,7 @@ Any file:
                   sound file does not unless these say otherwise
 
 Tracker modules (.xm, .mod, .s3m), which the clock plays itself, up to
-twenty channels; what a module uses that the player lacks is listed:
+32 channels (twenty for v0.5); what a module uses that the player lacks is listed:
     highpass=HZ   the bass cut's corner (300; 100 for a speaker)
     passes=N      times it is applied, 12 dB an octave each, 0 to 2 (1)
     drive=N       what the limiter aims a peak at, 127 being full scale
@@ -79,7 +79,9 @@ twenty channels; what a module uses that the player lacks is listed:
     samples=packed|16|8
                   a module's 16-bit samples: in 8 bits a sample and a
                   sixteenth more, each predicted from the samples
-                  before it (the default: nearly the 16 bits' sound);
+                  before it (nearly the 16 bits' sound; the default,
+                  but for a short sample and for those the clock has
+                  not the time to decode, which stay as they are);
                   as they are, twice the bytes; or cut to 8 bits,
                   which hiss under a quiet instrument. The first two
                   make a clip that needs a firmware after v0.5

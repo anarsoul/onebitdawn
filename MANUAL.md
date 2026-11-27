@@ -192,8 +192,12 @@ about a byte each (each as what is left of it after the samples
 before it have predicted it). `format=pcm16` keeps the 16 bits as
 they are, 32 KB a second; `format=adpcm` is IMA ADPCM, 8 KB a second
 and audibly rougher; `format=pcm` is 8 bits, 16 KB. A module's
-16-bit samples are kept the first way too; `samples=16` keeps them as
-they are and `samples=8` cuts them to 8 bits. A clock at v0.5 or
+16-bit samples are kept the first way too, where the clock has the
+time to decode them: a short sample, and those of a tune with too
+many of them sounding at once, are kept as they are, which the pack
+maker says of a clip. `samples=packed` has them all the first way,
+`samples=16` keeps them all as they are and `samples=8` cuts them to
+8 bits. A clock at v0.5 or
 before plays only ADPCM, 8-bit PCM and 8-bit samples, and refuses a
 pack with anything else in it: for one, choose v0.5 on the page, which
 makes those and refuses the options for the others, or give the

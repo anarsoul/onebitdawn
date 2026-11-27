@@ -3921,3 +3921,70 @@ host; this is their check on hardware, with a firmware of `next`.
   effect's and how much the channels'.
 
 Owed: nothing of these; a buzzer has not played the ten.
+
+## 32 channels, and a sample predicted where the clock can afford it — 2026-11-27, on `next`; verified
+
+**The limit.** `xm::MAX_CHANNELS` 20 to 32, FastTracker's own (the
+user's decision after the bench): 1188 of the collection's 1196
+modules convert and play to their ends, 1130 before. A channel is
+221 bytes of the main stack (30 280 to 27 632). A module of more
+than twenty is refused for v0.5 (`Firmware::channels`), which would
+read its rows as twenty.
+
+**What it showed.** With every 16-bit sample predicted, as the pack
+maker's default was, the dearest modules of 21 channels and more
+underran on `another-bench`: DockWare (22 channels) 93 % of the
+processor filling and 83 underruns, FlashGet (24) 70 % and 110. An
+underrun is heard: the DMA plays chunks a lap of the ring old, two
+of them (34 ms) each time, and the tune runs long. The cost does not
+follow the channels: 32 channels took 55 %, and a module of 18,
+which the old limit admitted, 64 %. By counters in the player on the
+host and then the chip: a sounding voice is about 2.5 points
+whatever its kind of sample, and a predicted sample's decoding is
+paid on top by the samples read, so by the pitch. Those modules play
+waves of 270 to 1500 samples high on many channels at once; the same
+two with nothing predicted took 52 % and 32 %, for 453 and 1282
+bytes more.
+
+**The rules**, in `tools/pack/src/xmc.rs`, by default (no `samples`
+option; `samples=packed` predicts all, as before):
+
+- A sample shorter than `PREDICT_MIN`, 2048 samples, is kept at 16
+  bits, whatever the channels: a bound of 16 channels under which
+  all are predicted leaves a module of 14 at 107 % by the estimate,
+  and a bound of 13 saves a kilobyte a clip.
+- Then the clip is played and its cost estimated (`xmc::load`, over
+  `xm::Tune::voices`, which the firmware does not call): 5 points,
+  2.5 a sounding voice, 24.2 for a block decoded every mixed sample,
+  the dearest second; within seven points of the chip on nine
+  modules. While it is over `LOAD_LIMIT`, 75, the shortest predicted
+  sample left is kept at 16 bits, with a note; a tune over it with
+  nothing predicted is told the clock may not keep up.
+
+Chosen over the 154 modules of the collection with predicted samples
+that sound, by the estimate's dearest second: all predicted 155 % at
+worst and 12 modules over 70; shorter than 1024 still 155 % (FlashGet's
+sample is 1504); shorter than 2048, 82 % for 91 KB in all; with the
+limit of 75 as well, 74 % and none over 80 for 169 KB, 45 in a clip
+at most; nothing predicted 73 % for 3774 KB. Not kept: a clip left
+unpredicted where predicting saves under a share of it, and a limit
+on the predicted voices sounding at once, which the estimate has
+with the pitch and the other voices.
+
+**On the bench** with the rules, each clip to its end: no underrun
+in any of twelve, DockWare 52 %, Lucid 51 % (83 before), FlashGet
+32 %, UHS Reader 43 % (70), SMAC, 32 channels with long samples that
+stay predicted, 55 %; the two the limit acts on 40 % and 50 %; the
+one told it may not keep up (32 channels, 84 % by the estimate)
+49 %, its longest chunk 15.1 ms of the 16.4. The firmware is byte
+for byte what it was without the rules; of the project's modules
+only "Starlight & Aurora" changes, by two waves of 128 samples.
+
+**Heard.** The user heard the pack of the eight dearest
+(`packs/heavy.sh`, not in git) with this firmware on both
+white-clock's amplifier and test-clock's speaker: no stutter, all
+well.
+
+Owed: nothing. The estimate's constants are one chip's, at the
+converter's default rate; a clip at 16 kHz is scaled and was not
+measured.

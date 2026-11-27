@@ -8,7 +8,7 @@
 //! `tests/local.rs` asks of the files at hand, of thousands: a file
 //! converts or is refused in words, never a panic, and its clip ends.
 //!
-//!     cargo collection [--firmware 0.5|0.6] [--raw DIR] [--list FILE] path…
+//!     cargo collection [--firmware 0.5|0.6] [--raw DIR] [--cost] [--list FILE] path…
 //!
 //! A path is a file or a folder, searched to its bottom for `.xm`,
 //! `.mod` and `.s3m`; `--list` names a file of paths, one a line. The
@@ -24,11 +24,19 @@
 //! milliseconds the clip's header gives, the module's path. That is
 //! what `scripts/openmpt-compare.py` reads. `agents/collection.md` has
 //! the rest.
+//!
+//! With `--cost` the speaker's clip is the one played, and each file
+//! that plays has a line of what its playing cost this machine: the
+//! channels, the seconds, the nanoseconds a sample over the tune and
+//! over its dearest second, the clip's bytes, the path, with tabs
+//! between. The figures are for putting modules in order, the dearest
+//! to be run on a clock; they are not the chip's.
 
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::panic::catch_unwind;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use onebitdawn_core::{clip, xm};
 use onebitdawn_pack::{Firmware, Output, Source, Target, convert_for};
@@ -62,10 +70,12 @@ fn kind(text: &str) -> String {
 fn main() {
     let mut args = std::env::args().skip(1);
     let (mut firmware, mut raw, mut files) = (Firmware::default(), None::<PathBuf>, Vec::new());
+    let mut cost = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--firmware" => firmware = args.next().as_deref().and_then(Firmware::parse).expect("--firmware 0.5 or 0.6"),
             "--raw" => raw = Some(args.next().expect("--raw DIR").into()),
+            "--cost" => cost = true,
             "--list" => {
                 let list = std::fs::read_to_string(args.next().expect("--list FILE")).expect("the list");
                 files.extend(list.lines().filter(|l| !l.is_empty()).map(PathBuf::from));
@@ -74,7 +84,7 @@ fn main() {
         }
     }
     if files.is_empty() {
-        eprintln!("usage: cargo collection [--firmware 0.5|0.6] [--raw DIR] [--list FILE] path…");
+        eprintln!("usage: cargo collection [--firmware 0.5|0.6] [--raw DIR] [--cost] [--list FILE] path…");
         std::process::exit(2);
     }
     let mut index = raw.as_ref().map(|dir| {
@@ -93,7 +103,7 @@ fn main() {
         };
         let file = format!("m.{}", path.extension().and_then(|e| e.to_str()).unwrap_or("xm").to_ascii_lowercase());
         // With --raw the speaker's clip alone, its limiter off.
-        let outputs: &[Output] = if raw.is_some() { &[Output::Speaker] } else { &[Output::Buzzer, Output::Speaker] };
+        let outputs: &[Output] = if raw.is_some() || cost { &[Output::Speaker] } else { &[Output::Buzzer, Output::Speaker] };
         for (o, &output) in outputs.iter().enumerate() {
             let mut options = vec![("name".to_string(), "local".to_string())];
             if raw.is_some() {
@@ -118,7 +128,7 @@ fn main() {
             if o == 1 {
                 continue;
             }
-            for note in clip.notes.iter().filter(|n| n.starts_with("not played") || n.starts_with("not converted") || n.starts_with("the file ends")) {
+            for note in clip.notes.iter().filter(|n| n.starts_with("not played") || n.starts_with("not converted") || n.starts_with("the file ends") || n.contains("not predicted") || n.contains("may not keep up")) {
                 *lacks.entry(kind(note)).or_default() += 1;
             }
             if !xm::is_tune(&clip.data) {
@@ -133,8 +143,13 @@ fn main() {
                 let rate = tune.rate();
                 let cap = rate as usize * 60 * MINUTES;
                 let (mut count, mut peak, mut sound) = (0usize, 0i32, Vec::new());
+                let (began, mut second, mut dearest) = (Instant::now(), Instant::now(), 0u128);
                 while let Some(s) = tune.next_sample() {
                     count += 1;
+                    if count % rate as usize == 0 {
+                        dearest = dearest.max(second.elapsed().as_nanos() / rate as u128);
+                        second = Instant::now();
+                    }
                     peak = peak.max((s as i32).abs());
                     if keep {
                         sound.extend(s.to_le_bytes());
@@ -143,7 +158,7 @@ fn main() {
                         return Err(());
                     }
                 }
-                Ok((count, peak, sound, rate))
+                Ok((count, peak, sound, rate, began.elapsed().as_nanos() / count.max(1) as u128, dearest))
             });
             match played {
                 Err(_) => {
@@ -154,7 +169,10 @@ fn main() {
                     println!("does not end in {MINUTES} minutes: {name}");
                     bad += 1;
                 }
-                Ok(Ok((count, peak, sound, rate))) => {
+                Ok(Ok((count, peak, sound, rate, mean, dearest))) => {
+                    if cost {
+                        println!("{}\t{}\t{mean}\t{dearest}\t{}\t{name}", clip.data[4], count / rate as usize, clip.data.len());
+                    }
                     if count == 0 || peak == 0 {
                         println!("silent ({count} samples): {name}");
                         silent += 1;

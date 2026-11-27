@@ -567,10 +567,6 @@ for more than twenty channels). Not fixed:
   the player has the FastTracker-compatible rules for every module,
   so those sound otherwise on the clock than in OpenMPT. Nothing to
   fix unless a clip is to say which tracker made it.
-- **More than twenty channels**: 59 modules, 21 to 32 channels but
-  one of 64, FastTracker's limit being 32; six of them use twenty or
-  fewer. A channel is the main stack's and a voice the mixer's
-  time: both to be measured before the limit is raised.
 - **ScreamTracker's Q**, R with another memory, is not converted
   from an S3M module.
 - **ED with no note** begins the channel's note again at its tick
