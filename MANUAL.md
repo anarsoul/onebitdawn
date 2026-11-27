@@ -200,8 +200,8 @@ makes those and refuses the options for the others, or give the
 command `--firmware 0.5`. Its module player has no effect R (the
 retrigger with a volume change) either: a pack for v0.5 has E9 in its
 place where the R changes no volume, and the maker names any other
-as not played, and the effect H (the global volume slide), which it
-has not either.
+as not played, and the effects H (the global volume slide) and EE
+(the pattern delay), which it has not either.
 
 For a speaker the page and the command (`--limiter`) also ask how
 loud the clip of a tracker module or a ZX Spectrum tune is to be: `loudest` pushes the limiter

@@ -203,6 +203,16 @@ fn an_r_is_the_modules_for_a_player_that_has_it() {
     let said = |clip: &Clip| clip.notes.iter().any(|n| n.contains("effect H"));
     assert!(!said(&new) && said(&old), "{:?} {:?}", new.notes, old.notes);
     assert!(play(&new.data).iter().any(|&s| s != 0));
+    // And EE, the pattern delay, which the clip's length counts: a
+    // row of 120 ms held for five more.
+    let held = [[49, 1, 0, 0xE, 0xE5]];
+    let (new, old) = (made(&held, Target::default()), made(&held, OLD));
+    let said = |clip: &Clip| clip.notes.iter().any(|n| n.contains("effect EE"));
+    assert!(!said(&new) && said(&old), "{:?} {:?}", new.notes, old.notes);
+    let ms = |clip: &Clip| onebitdawn_core::clip::duration_ms(&clip.data);
+    assert_eq!(ms(&new) - ms(&old), 600);
+    // The player holds the row for as long as the clip says.
+    assert!((play(&new.data).len() as i64 * 1000 / 31250 - ms(&new) as i64).abs() < 20, "{} {}", play(&new.data).len(), ms(&new));
 }
 
 /// A module of one channel and one instrument, its sample of 16 bits

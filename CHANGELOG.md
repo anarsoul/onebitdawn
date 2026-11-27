@@ -25,6 +25,10 @@ from `http://<ip>/update`; its settings survive the update.
   slide, as OpenMPT plays it (on `next`, for the release after v0.5):
   a module that fades in from G00 was silent to its end. The pack
   maker names it as not played only for a clock at v0.5.
+- The module player has FastTracker's effect EE, the pattern delay,
+  as OpenMPT plays it (on `next`, for the release after v0.5): a
+  tune with one ran on early and its clip came out short. The pack
+  maker counts the delay into a clip's length.
 
 ### Changed
 

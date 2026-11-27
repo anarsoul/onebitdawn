@@ -99,7 +99,8 @@ pub struct Shape {
     pub raised: BTreeMap<usize, i32>,
     /// Whether the player has the effect R. One that has not gets E9
     /// where an R changes no volume (`retriggers`). Such a player has
-    /// no H either, which is then named as not played.
+    /// no H either, nor EE, the pattern delay: they are then named
+    /// as not played, and no delay is counted into the length.
     pub retrigger: bool,
 }
 
@@ -419,7 +420,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     for pattern in &cells {
         for row in pattern {
             for &[_note, _ins, volume, effect, param] in row {
-                if (effect != 0 || param != 0) && !SILENT.contains(&effect) && !((effect == R || effect == H) && shape.retrigger) && (!EFFECTS.contains(&effect) || (effect == 0xE && !E_EFFECTS.contains(&(param >> 4)))) {
+                if (effect != 0 || param != 0) && !SILENT.contains(&effect) && !((effect == R || effect == H) && shape.retrigger) && (!EFFECTS.contains(&effect) || (effect == 0xE && !E_EFFECTS.contains(&(param >> 4)) && !(param >> 4 == 0xE && shape.retrigger))) {
                     warn(format!("effect {}", effect_name(effect, param)));
                 }
                 if !VOLUMES.contains(&(volume >> 4)) && !SILENT_VOLUMES.contains(&(volume >> 4)) {
@@ -551,7 +552,12 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     while order < orders.len() {
         let mut go: Option<(usize, usize)> = None;
         for cells_row in cells[orders[order] as usize].iter().skip(row) {
+            // The rows an EE holds the row for, the last channel's.
+            let mut held = 0.0;
             for &[_note, _ins, _volume, effect, param] in cells_row {
+                if effect == 0xE && param >> 4 == 0xE && shape.retrigger {
+                    held = (param & 0xF) as f64;
+                }
                 if effect == 0xF && param != 0 {
                     if param >= 0x20 {
                         now_tempo = param as f64;
@@ -564,7 +570,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
                     go = Some((go.map_or(order + 1, |g| g.0), (param >> 4) as usize * 10 + (param & 0xF) as usize));
                 }
             }
-            ticks_ms += now_speed * 2500.0 / now_tempo;
+            ticks_ms += (1.0 + held) * now_speed * 2500.0 / now_tempo;
             if go.is_some() {
                 break;
             }

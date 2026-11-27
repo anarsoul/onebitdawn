@@ -34,7 +34,7 @@
 //! effects 0 arpeggio (in FastTracker's tick order), 1 2 3 portamento,
 //! 4 vibrato, 5 6 with volume slide, 9 offset, A volume slide, B jump,
 //! C volume, D break, E1 E2 fine portamento, E9 retrigger, EA EB fine
-//! volume, EC cut, ED delay, F speed and tempo, G global volume, K key
+//! volume, EC cut, ED delay, EE pattern delay, F speed and tempo, G global volume, K key
 //! off, H global volume slide, R retrigger with a volume change (`Tune::retrigger`); and an instrument's auto-vibrato, as a sine. Panning is nothing on one buzzer. The converter says what a
 //! module uses beyond that.
 //!
@@ -657,7 +657,10 @@ pub struct Tune<'a> {
     row: u16,
     rows: u16,
     cursor: usize,
-    tick: u8,
+    /// The tick of the row, counted through its repeats (EE).
+    tick: u16,
+    /// The rows the row is held for besides its own: EEx.
+    row_delay: u8,
     /// A jump or a break read on this row: the order and row to go to.
     go: Option<(usize, u16)>,
     pool: i32,
@@ -714,6 +717,7 @@ impl<'a> Tune<'a> {
             rows: 0,
             cursor: 0,
             tick: 0,
+            row_delay: 0,
             go: None,
             pool: 0,
             looping: false,
@@ -932,6 +936,7 @@ impl<'a> Tune<'a> {
                 self.ended = true;
                 return;
             }
+            self.row_delay = 0;
             for c in 0..self.channels {
                 let cell = self.read_cell();
                 self.channel[c].cell = cell;
@@ -947,7 +952,9 @@ impl<'a> Tune<'a> {
             self.settle(c);
         }
         self.tick += 1;
-        if self.tick >= self.speed {
+        // A row held by EE is its ticks so many times over, none of the
+        // further ones a first tick.
+        if self.tick >= self.speed as u16 * (1 + self.row_delay as u16) {
             self.tick = 0;
             match self.go.take() {
                 // A jump to where the tune has been is its loop: the end.
@@ -1161,6 +1168,8 @@ impl<'a> Tune<'a> {
                 2 => ch.period = (ch.period + lo as i32 * 4).min(PERIOD_MAX),
                 0xA => ch.volume = (ch.volume + lo).min(64),
                 0xB => ch.volume = ch.volume.saturating_sub(lo),
+                // The last channel's is the row's, nought too.
+                0xE => self.row_delay = lo,
                 _ => {}
             },
             0xF if cell.param >= 0x20 => self.tempo = cell.param,
@@ -1184,7 +1193,9 @@ impl<'a> Tune<'a> {
     fn row_tick(&mut self, c: usize) {
         let cell = self.channel[c].cell;
         let (tick, speed) = (self.tick, self.speed);
-        if cell.delay() == tick {
+        // A delayed note begins at its tick, and of a row held by EE
+        // at that tick of every repeat.
+        if cell.delay() != 0 && tick % speed.max(1) as u16 == cell.delay() as u16 {
             self.trigger(c);
         }
         let instrument = self.instrument(self.channel[c].instrument);
@@ -1214,7 +1225,7 @@ impl<'a> Tune<'a> {
             }
             0xA => Self::volume_slide(ch),
             0xE => match cell.param >> 4 {
-                9 if lo != 0 && tick % lo == 0 => {
+                9 if lo != 0 && tick % lo as u16 == 0 => {
                     self.cut += cut;
                     ch.fresh = true;
                     ch.pos = 0;
@@ -1222,8 +1233,8 @@ impl<'a> Tune<'a> {
                     ch.playing = ch.len > 0;
                     ch.retrig_count = 0;
                 }
-                9 if lo != 0 => ch.retrig_count = tick % lo,
-                0xC if tick == lo => ch.volume = 0,
+                9 if lo != 0 => ch.retrig_count = (tick % lo as u16) as u8,
+                0xC if tick == lo as u16 => ch.volume = 0,
                 _ => {}
             },
             // Up if there is an x, as the volume slide.
@@ -1231,27 +1242,23 @@ impl<'a> Tune<'a> {
                 let (up, down) = (ch.global_slide >> 4, ch.global_slide & 0xF);
                 self.global = if up != 0 { (self.global + up).min(64) } else { self.global.saturating_sub(down) };
             }
-            0x14 if tick == cell.param => Self::key_off(ch, instrument),
+            0x14 if tick == cell.param as u16 => Self::key_off(ch, instrument),
             RETRIGGER => self.retrigger(c, false),
             _ => {}
         }
     }
 
     /// FastTracker's arpeggio: which of the three notes a tick plays
-    /// depends on the speed, the row's last ticks being base, y, x.
-    fn arpeggio(param: u8, speed: u8, tick: u8) -> i32 {
+    /// is from the ticks left of the speed, the last of them being
+    /// base, y, x. A row held by EE counts each repeat's ticks anew,
+    /// and a repeat's first is no first tick: it has a step as well.
+    fn arpeggio(param: u8, speed: u8, tick: u16) -> i32 {
         let (x, y) = ((param >> 4) as i32, (param & 0xF) as i32);
-        let offset = speed % 3;
-        if offset == 2 && tick == 1 {
-            return x;
-        }
-        if tick < offset {
-            return 0;
-        }
-        match (tick - offset) % 3 {
+        let speed = speed.max(1) as u16;
+        match (speed - tick % speed) % 3 {
             0 => 0,
-            1 => y,
-            _ => x,
+            1 => x,
+            _ => y,
         }
     }
 
@@ -1832,6 +1839,67 @@ mod tests {
         // A tune that fades in from G00 is heard.
         let out = mixed(&module(1, 6, 125, &[0], &[pattern(4, &[(0, (C4, 1, 0, 0x10, 0)), (1, (0, 0, 0, H, 0x40))])], &[square(32)]));
         assert!(out.iter().any(|&s| s != 0));
+    }
+
+    #[test]
+    fn ee_holds_the_row_as_openmpt_does() {
+        // Two channels, the second for an EE beside another effect:
+        // the first's ticks as `r_retriggers…` writes them, a row
+        // with its repeats between bars. Each is a render of
+        // openmpt123's.
+        const E: u8 = 0xE;
+        const NO: Cell5 = (0, 0, 0, 0, 0);
+        let play = |speed: u8, rows: &[(Cell5, Cell5)]| {
+            let pattern: Vec<Row> = rows.iter().map(|&(a, b)| vec![a, b]).collect();
+            strikes(&module(2, speed, 125, &[0], &[pattern], &[square(32)]), 0)
+        };
+        let text = |seen: &[(i32, u8, bool)]| seen.iter().map(|&(_, v, begun)| format!("{v}{}", if begun { "*" } else { "" })).collect::<Vec<_>>().join(" ");
+        let held = |x: u8| (0, 0, 0, E, 0xE0 | x);
+        // A row of three times its ticks, a slide on all but the first.
+        assert_eq!(
+            text(&play(6, &[((C4, 1, 0x30, 0, 0), NO), ((0, 0, 0, 0xA, 0x01), held(2)), (NO, NO)])[6..]),
+            "32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 15 15 15 15 15 15"
+        );
+        // The same in the column, with the EE in the cell itself.
+        assert_eq!(text(&play(6, &[((C4, 1, 0, 0, 0), NO), ((0, 0, 0x61, E, 0xE1), NO), (NO, NO)])[6..]), "64 63 62 61 60 59 58 57 56 55 54 53 53 53 53 53 53 53");
+        // The note of the row is begun once; E9's ticks are of the
+        // whole count, and so are R's, which goes on in the next row.
+        assert_eq!(text(&play(6, &[((C4, 1, 0, 0, 0), held(2)), (NO, NO)])), "64* 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64");
+        assert_eq!(
+            text(&play(6, &[((C4, 1, 0, 0, 0), NO), ((0, 0, 0, E, 0x94), held(2)), (NO, NO)])[6..]),
+            "64 64 64 64 64* 64 64 64 64* 64 64 64 64* 64 64 64 64* 64 64 64 64 64 64 64"
+        );
+        assert_eq!(
+            text(&play(6, &[((C4, 1, 0, 0, 0), NO), ((0, 0, 0, RETRIGGER, 0x84), held(2)), ((0, 0, 0, RETRIGGER, 0x84), NO)])[6..]),
+            "64 64 64 64 64* 64 64 64 64* 64 64 64 64* 64 64 64 64* 64 64 64 64* 64 64 64"
+        );
+        // A note delayed begins at its tick of every repeat, and one
+        // delayed past the speed never.
+        assert_eq!(
+            text(&play(6, &[((C4, 1, 0x20, 0, 0), NO), ((C4 + 12, 1, 0, E, 0xD2), held(2)), (NO, NO)])[6..]),
+            "16 16 64* 64 64 64 64 64 64* 64 64 64 64 64 64* 64 64 64 64 64 64 64 64 64"
+        );
+        assert_eq!(text(&play(3, &[((C4, 1, 0x20, 0, 0), NO), ((C4 + 12, 1, 0, E, 0xD4), held(2)), (NO, NO)])[3..]), "16 16 16 16 16 16 16 16 16 16 16 16");
+        // A cut and a key-off past the speed meet their ticks.
+        assert_eq!(text(&play(3, &[((C4, 1, 0, 0, 0), NO), ((0, 0, 0, E, 0xC4), held(2)), (NO, NO)])[3..]), "64 64 64 64 0 0 0 0 0 0 0 0");
+        let off = play(3, &[((C4, 1, 0, 0, 0), NO), ((0, 0, 0, 0x14, 7), held(2)), (NO, NO)]);
+        assert_eq!(off.len(), 15);
+        // The last channel's EE is the row's, and one of nought
+        // takes the delay away.
+        assert_eq!(play(3, &[((C4, 1, 0, E, 0xE1), held(3))]).len(), 12);
+        assert_eq!(play(3, &[((C4, 1, 0, E, 0xE3), held(1))]).len(), 6);
+        assert_eq!(play(3, &[((C4, 1, 0, E, 0xE1), held(0))]).len(), 3);
+        // The arpeggio's step is from the ticks left of the speed: a
+        // repeat's first tick has one, the row's has none. The ticks
+        // an octave up, of 0C0 under EE2.
+        let up = |speed: u8| {
+            let seen = play(speed, &[((C4, 1, 0, 0, 0), NO), ((0, 0, 0, 0, 0xC0), held(2))]);
+            let base = seen[0].0;
+            (0..3 * speed as usize).filter(|&t| seen[speed as usize + t].0 != base).collect::<Vec<_>>()
+        };
+        assert_eq!(up(4), [3, 4, 7, 8, 11]);
+        assert_eq!(up(5), [1, 4, 6, 9, 11, 14]);
+        assert_eq!(up(6), [2, 5, 8, 11, 14, 17]);
     }
 
     #[test]
