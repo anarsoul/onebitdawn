@@ -201,7 +201,9 @@ command `--firmware 0.5`. Its module player has no effect R (the
 retrigger with a volume change) either: a pack for v0.5 has E9 in its
 place where the R changes no volume, and the maker names any other
 as not played, and the effects H (the global volume slide), E6 (the
-pattern loop) and EE (the pattern delay), which it has not either.
+pattern loop), EE (the pattern delay), 7 (the tremolo), T (the
+tremor), X (the extra fine portamento), L (the envelope's position)
+and E5 (the finetune), which it has not either.
 Nor has it FastTracker's Amiga frequency table: a module on it is
 played on the linear one, its notes where they should be and its
 slides and vibratos wider or narrower than the module's, and the

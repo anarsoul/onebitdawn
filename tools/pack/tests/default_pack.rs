@@ -226,6 +226,31 @@ fn an_r_is_the_modules_for_a_player_that_has_it() {
     assert!(convert_for(&source, OLD).is_ok());
 }
 
+/// What the player gained after R, H, E6 and EE: named as not played
+/// for v0.5 and for no later firmware. And what does nothing in
+/// FastTracker or on one speaker is named for neither.
+#[test]
+fn the_later_effects_are_named_for_v0_5_alone() {
+    let wave: Vec<i16> = (0..2000).map(|i| ((i % 64) * 256 - 8000) as i16).collect();
+    let notes = |cells: &[[u8; 5]], target: Target| {
+        let source = Source { data: module_of_16_bits(&wave, (0, 2000), cells), file: "test.xm".into(), options: vec![("samples".into(), "8".into())], label: None };
+        convert_for(&source, target).unwrap().notes.into_iter().filter(|n| n.starts_with("not played")).collect::<Vec<_>>()
+    };
+    for (cell, name) in [([0, 0, 0, 7, 0x44], "7"), ([0, 0, 0, 0x15, 8], "L"), ([0, 0, 0, 0x1D, 0x11], "T"), ([0, 0, 0, 0x21, 0x13], "X"), ([49, 1, 0, 0xE, 0x5C], "E5")] {
+        let cells = [[49, 1, 0, 0, 0], cell];
+        assert_eq!(notes(&cells, Target::default()), [""; 0], "{name}");
+        assert_eq!(notes(&cells, OLD), [format!("not played: effect {name} (1 times)")], "{name}");
+    }
+    // The filter, the panning, the inverted loop, a waveform that is
+    // the sine: nothing to say. Another waveform, the glissando and
+    // an X that is no slide are not played by either.
+    let nothing = [[49, 1, 0, 0xE, 0x01], [0, 0, 0, 0xE, 0x8C], [0, 0, 0, 0xE, 0xF3], [0, 0, 0, 0xE, 0x40], [0, 0, 0, 0xE, 0x70], [0, 0, 0, 8, 0x80]];
+    assert_eq!((notes(&nothing, Target::default()), notes(&nothing, OLD)), (vec![], vec![]));
+    for target in [Target::default(), OLD] {
+        assert_eq!(notes(&[[49, 1, 0, 0xE, 0x42], [0, 0, 0, 0xE, 0x31], [0, 0, 0, 0x21, 0x30]], target), ["not played: effect E3 (1 times)", "not played: effect E4 (1 times)", "not played: effect X (1 times)"]);
+    }
+}
+
 /// A module on the Amiga frequency table: a clip that says so for a
 /// player that has the table, and for v0.5, which plays any clip on
 /// the linear one, the clip that player would make of it and a word

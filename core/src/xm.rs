@@ -33,7 +33,7 @@
 //! volume column's set, slides, vibrato and tone portamento, and the
 //! effects 0 arpeggio (in FastTracker's tick order), 1 2 3 portamento,
 //! 4 vibrato, 5 6 with volume slide, 9 offset, A volume slide, B jump,
-//! C volume, D break, E1 E2 fine portamento, E9 retrigger, EA EB fine
+//! C volume, D break, E1 E2 fine portamento, E5 finetune, 7 tremolo (a sine), L envelope position, T tremor, X1 X2 extra fine portamento, E9 retrigger, EA EB fine
 //! volume, E6 pattern loop, EC cut, ED delay, EE pattern delay, F speed and tempo, G global volume, K key
 //! off, H global volume slide, R retrigger with a volume change (`Tune::retrigger`); and an instrument's auto-vibrato, as a sine. Panning is nothing on one buzzer. The converter says what a
 //! module uses beyond that.
@@ -175,6 +175,10 @@ const POW: [u16; OCTAVE as usize] = {
     table
 };
 
+/// Half a sine wave, 32 steps, peak 127: the tremolo's, which is
+/// FastTracker's table as OpenMPT has it (`ModSinusTable`) and not
+/// the vibrato's halved.
+const TREMOLO: [u8; 32] = [0, 12, 25, 37, 49, 60, 71, 81, 90, 98, 106, 112, 117, 122, 125, 126, 127, 126, 125, 122, 117, 112, 106, 98, 90, 81, 71, 60, 49, 37, 25, 12];
 /// Half a sine wave, 32 steps, peak 255: the vibrato's.
 const SINE: [u8; 32] =
     [0, 24, 49, 74, 97, 120, 141, 161, 180, 197, 212, 224, 235, 244, 250, 253, 255, 253, 250, 244, 235, 224, 212, 197, 180, 161, 141, 120, 97, 74, 49, 24];
@@ -185,6 +189,11 @@ const KEY_OFF: u8 = 97;
 pub const RETRIGGER: u8 = 0x1B;
 /// The effect H, the global volume slide.
 pub const GLOBAL_SLIDE: u8 = 0x11;
+/// The effects L, the envelope's position, T, the tremor, and X, the
+/// extra fine portamento.
+pub const ENVELOPE_AT: u8 = 0x15;
+pub const TREMOR: u8 = 0x1D;
+pub const EXTRA_FINE: u8 = 0x21;
 /// The fade's full level.
 const FADE_FULL: u32 = 32768;
 
@@ -660,6 +669,25 @@ struct Channel<'a> {
     retrig_param: u8,
     retrig_count: u8,
     retrig_fine: u8,
+    /// What E1 and E2 last slid by, the high nibble E1's, and the same
+    /// of X1 and X2.
+    fine: u8,
+    extra_fine: u8,
+    /// The tremolo: where in its cycle (64 a cycle), its speed and
+    /// depth, and what it adds to the volume on this tick, in 256ths
+    /// of full volume.
+    tremolo_pos: u8,
+    tremolo_speed: u8,
+    tremolo_depth: u8,
+    tremolo: i16,
+    /// T: its parameter, and FastTracker's count as OpenMPT has it
+    /// (`ProcessTremor`): bit 7 a tremor begun, bit 6 sounding, bit 5
+    /// an instrument named since, the rest the ticks left.
+    tremor_param: u8,
+    tremor: u8,
+    /// The volume heard, in 256ths, for `dump_the_ticks`.
+    #[cfg(test)]
+    heard: i32,
     /// The instrument's own vibrato: where in its cycle, and its depth
     /// so far in 256ths of a period unit.
     auto_pos: u8,
@@ -1039,6 +1067,8 @@ impl<'a> Tune<'a> {
             ch.envelope_frame = 0;
             ch.fade = FADE_FULL;
             ch.retrig_fine = 0;
+            // And a tremor is over.
+            ch.tremor = 0x20;
         }
         if cell.note == KEY_OFF {
             // A key-off beside a number leaves the volume the number gave.
@@ -1056,6 +1086,7 @@ impl<'a> Tune<'a> {
                 if let Some(i) = instrument {
                     let ch = &mut self.channel[c];
                     ch.vibrato_pos = 0;
+                    ch.tremolo_pos = 0;
                     ch.auto_pos = 0;
                     ch.auto_depth = if i.auto_vibrato().0 == 0 { i.auto_vibrato().1 << 8 } else { 0 };
                 }
@@ -1237,9 +1268,10 @@ impl<'a> Tune<'a> {
         let (hi, lo) = (cell.param >> 4, cell.param & 0xF);
         let order = self.order;
         let instrument = self.instrument(self.channel[c].instrument);
-        let longest = if self.amiga { AMIGA_MAX } else { PERIOD_MAX };
+        let (longest, amiga) = (if self.amiga { AMIGA_MAX } else { PERIOD_MAX }, self.amiga);
         let ch = &mut self.channel[c];
         ch.arpeggio = 0;
+        ch.tremolo = 0;
         if !cell.has_vibrato() {
             ch.vibrato = 0;
         }
@@ -1265,6 +1297,17 @@ impl<'a> Tune<'a> {
                 }
             }
             5 | 6 | 0xA if cell.param != 0 => ch.slide = cell.param,
+            // The tremolo is on the row's first tick too, from where
+            // it was.
+            7 => {
+                if hi != 0 {
+                    ch.tremolo_speed = hi;
+                }
+                if lo != 0 {
+                    ch.tremolo_depth = lo;
+                }
+                Self::tremolo(ch, false);
+            }
             0xB => {
                 self.go = Some((cell.param as usize, 0));
                 self.break_row = 0;
@@ -1277,8 +1320,20 @@ impl<'a> Tune<'a> {
             0xE => match hi {
                 // E9 counts on R's counter, from the row's start.
                 9 => ch.retrig_count = 0,
-                1 => ch.period = (ch.period - lo as i32 * 4).max(1),
-                2 => ch.period = (ch.period + lo as i32 * 4).min(longest),
+                // Each remembers what it last slid by.
+                1 | 2 => {
+                    ch.fine = Self::remembered(ch.fine, hi == 1, lo);
+                    let by = Self::remembered_by(ch.fine, hi == 1) * 4;
+                    ch.period = if hi == 1 { (ch.period - by).max(1) } else { (ch.period + by).min(longest) };
+                }
+                // The finetune of the note begun on the row, and of
+                // that note alone (openmpt123, 2026-11-26).
+                5 if cell.note != 0 && cell.note != KEY_OFF && ch.playing => {
+                    if let Some(i) = instrument {
+                        ch.period = Self::period_at(amiga, cell.note as i32 - 1 + i.relative(), (lo as i32 - 8) * 16);
+                        (ch.target, ch.struck) = (ch.period, ch.period);
+                    }
+                }
                 0xA => ch.volume = (ch.volume + lo).min(64),
                 0xB => ch.volume = ch.volume.saturating_sub(lo),
                 // E60 marks the row, E6x goes back to the mark x times:
@@ -1307,6 +1362,20 @@ impl<'a> Tune<'a> {
             GLOBAL_SLIDE if cell.param != 0 => ch.global_slide = cell.param,
             // K.
             0x14 if cell.param == 0 => Self::key_off(ch, instrument),
+            // L: the envelope goes on from there.
+            ENVELOPE_AT => ch.envelope_frame = cell.param as _,
+            TREMOR => {
+                if cell.param != 0 {
+                    ch.tremor_param = cell.param;
+                }
+                ch.tremor |= 0x80;
+            }
+            // X1 and X2: E1 and E2 by a quarter of their step.
+            EXTRA_FINE if hi == 1 || hi == 2 => {
+                ch.extra_fine = Self::remembered(ch.extra_fine, hi == 1, lo);
+                let by = Self::remembered_by(ch.extra_fine, hi == 1);
+                ch.period = if hi == 1 { (ch.period - by).max(1) } else { (ch.period + by).min(longest) };
+            }
             // x and y are remembered each by itself.
             RETRIGGER => {
                 ch.retrig_param = (if hi != 0 { hi } else { ch.retrig_param >> 4 }) << 4 | if lo != 0 { lo } else { ch.retrig_param & 0xF };
@@ -1351,6 +1420,7 @@ impl<'a> Tune<'a> {
                 Self::vibrato(ch);
                 Self::volume_slide(ch);
             }
+            7 => Self::tremolo(ch, true),
             0xA => Self::volume_slide(ch),
             0xE => match cell.param >> 4 {
                 9 if lo != 0 && tick % lo as u16 == 0 => {
@@ -1371,6 +1441,15 @@ impl<'a> Tune<'a> {
                 self.global = if up != 0 { (self.global + up).min(64) } else { self.global.saturating_sub(down) };
             }
             0x14 if tick == cell.param as u16 => Self::key_off(ch, instrument),
+            // The count runs out and the other state begins, for one
+            // tick more than its nibble says.
+            TREMOR if ch.tremor & 0x80 != 0 => {
+                ch.tremor = match ch.tremor & !0x20 {
+                    0x80 => ch.tremor_param >> 4 | 0xC0,
+                    0xC0 => ch.tremor_param & 0xF | 0x80,
+                    count => count - 1,
+                }
+            }
             RETRIGGER => self.retrigger(c, false),
             _ => {}
         }
@@ -1389,6 +1468,31 @@ impl<'a> Tune<'a> {
             0 => 0,
             1 => 1 + (param >> 4),
             _ => 1 + (param & 0xF),
+        }
+    }
+
+    /// A fine slide's memory with `nibble` put in for its direction
+    /// if it is not nought, and what the direction then slides by.
+    fn remembered(memory: u8, up: bool, nibble: u8) -> u8 {
+        match (nibble, up) {
+            (0, _) => memory,
+            (_, true) => memory & 0x0F | nibble << 4,
+            (_, false) => memory & 0xF0 | nibble,
+        }
+    }
+
+    fn remembered_by(memory: u8, up: bool) -> i32 {
+        (if up { memory >> 4 } else { memory & 0xF }) as i32
+    }
+
+    /// The tremolo's part of this tick's volume: a sine of at most
+    /// `depth * 127 / 8` 256ths either way, up first, and on the
+    /// ticks but a row's first the cycle moved on after it.
+    fn tremolo(ch: &mut Channel<'_>, on: bool) {
+        let wave = TREMOLO[(ch.tremolo_pos & 31) as usize] as i16 * ch.tremolo_depth as i16 / 8;
+        ch.tremolo = if ch.tremolo_pos & 32 == 0 { wave } else { -wave };
+        if on {
+            ch.tremolo_pos = ch.tremolo_pos.wrapping_add(ch.tremolo_speed);
         }
     }
 
@@ -1454,7 +1558,21 @@ impl<'a> Tune<'a> {
             Some(i) => Self::envelope(ch, i),
             None => 64,
         };
-        ch.amp = ((ch.volume as u32 * level * global / 64) * ch.fade / FADE_FULL) as i32;
+        // The volume in 256ths: a tremolo's swing on it unless it is
+        // nought, and nothing while a tremor is at its silence, which
+        // it stays at after its last row.
+        let mut volume = ch.volume as i32 * 4;
+        if volume != 0 {
+            volume = (volume + ch.tremolo as i32).clamp(0, 256);
+        }
+        if ch.tremor & 0xE0 == 0x80 {
+            volume = 0;
+        }
+        #[cfg(test)]
+        {
+            ch.heard = volume;
+        }
+        ch.amp = ((volume as u32 * level * global / 256) * ch.fade / FADE_FULL) as i32;
         let gain = ch.amp << 8;
         if ch.fresh || !ch.playing {
             (ch.gain, ch.ramp, ch.fresh) = (gain, 0, false);
@@ -1842,7 +1960,7 @@ mod tests {
             let Cell { volume, effect, param, .. } = ch.cell;
             // From C-0 on either table.
             let semitones = if t.amiga { 12.0 * (27392.0 / ch.sounding as f64).log2() } else { (PERIOD_MAX - ch.sounding) as f64 / SEMITONE as f64 };
-            let (level, at) = (ch.volume, ch.data);
+            let (level, at) = (ch.heard as f64 / 4.0, ch.data);
             out += &format!("{semitones:.4} {level} {} {at} {volume:02X} {effect:02X} {param:02X} {}\n", begun as u8, t.global);
         }
         std::fs::write(path, out).unwrap();
@@ -2371,6 +2489,82 @@ mod tests {
         assert_eq!((none[2], none[4]), ((0, 32, false), on));
         let silent = module(1, 1, 125, &[0], &[pattern(2, &[(0, (C4, 1, 0, 0, 0)), (1, (C4, 9, 0, 0, 0))])], &[square(32)]);
         assert_eq!(ticks(&silent).iter().map(|t| t.2).collect::<Vec<_>>(), [true, false]);
+    }
+
+    /// The first channel's volume as it is heard on each tick, in
+    /// 64ths, with the envelope in it.
+    fn heard(data: &[u8]) -> Vec<f64> {
+        let mut t = Tune::new(data);
+        let mut seen = Vec::new();
+        loop {
+            t.step_tick();
+            if t.ended {
+                return seen;
+            }
+            seen.push(t.channel[0].amp as f64 / 64.0);
+        }
+    }
+
+    /// A row a cell, of one channel.
+    fn rows(cells: &[Cell5]) -> Vec<Row> {
+        cells.iter().map(|&c| vec![c]).collect()
+    }
+
+    /// The tremor, T, and the tremolo, 7, as openmpt123 0.8.10 renders
+    /// these rows (2026-11-26): the level at each tick's end.
+    #[test]
+    fn tremor_and_tremolo_are_openmpts() {
+        let play = |speed, cells: &[Cell5]| heard(&module(1, speed, 125, &[0], &[rows(cells)], &[square(32)]));
+        let near = |seen: &[f64], want: &[i32]| assert!(seen.len() >= want.len() && seen.iter().zip(want).all(|(s, &w)| (s - w as f64).abs() < 0.8), "{seen:?}\n{want:?}");
+        const T: u8 = TREMOR;
+        // x + 1 ticks of sound and y + 1 of silence, counted on the
+        // ticks but a row's first and across rows; a row with no T
+        // stays as the last left it, silent too; the parameter is
+        // remembered; an instrument's number ends it, and a volume
+        // does not.
+        let tremor = play(6, &[
+            (C4, 1, 0, 0, 0), (0, 0, 0, T, 0x11), (0, 0, 0, T, 0x11), (0, 0, 0, T, 0), EMPTY, EMPTY, (0, 0, 0, T, 0x20), (0, 0, 0, T, 0x02), EMPTY,
+            (0, 1, 0, 0, 0), (0, 0, 0, T, 0), (C4, 0, 0, T, 0), (C4, 1, 0, T, 0x13), (0, 0, 0x30, 0, 0),
+        ]);
+        #[rustfmt::skip]
+        near(&tremor, &[
+            64, 64, 64, 64, 64, 64,   64, 64, 64, 0, 0, 64,   64, 64, 0, 0, 64, 64,   64, 0, 0, 64, 64, 0,   0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0,
+            0, 0, 64, 64, 64, 0,   0, 64, 0, 0, 0, 64,   64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64,   64, 64, 0, 0, 0, 64,   64, 0, 0, 0, 64, 0,   64, 64, 64, 0, 0, 0,   0, 0, 0, 0, 0, 0,
+        ]);
+        // The tremolo: a sine on the volume, up first, on the first
+        // tick where the row before left it; a note begins it anew,
+        // the volume is the channel's again after it, a volume of
+        // nought has none and full volume only its lower half.
+        let tremolo = play(6, &[
+            (C4, 1, 0x30, 0, 0), (0, 0, 0, 7, 0x44), (0, 0, 0, 7, 0), EMPTY, (0, 0, 0, 7, 0x80), (C4, 1, 0x30, 7, 0), (0, 0, 0x50, 7, 0x4F), (0, 0, 0x10, 7, 0), EMPTY,
+        ]);
+        #[rustfmt::skip]
+        near(&tremolo, &[
+            32, 32, 32, 32, 32, 32,   32, 32, 38, 43, 46, 48,   46, 46, 43, 38, 32, 26,   32, 32, 32, 32, 32, 32,   21, 21, 16, 21, 32, 43,
+            32, 32, 43, 48, 43, 32,   22, 22, 9, 4, 9, 22,   0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0,
+        ]);
+    }
+
+    /// L, the envelope's position, the memory of the fine slides, X
+    /// and E5, as openmpt123 0.8.10 has them (2026-11-26).
+    #[test]
+    fn the_envelopes_position_and_the_fine_slides_are_openmpts() {
+        // An envelope that falls from 64 to nought a tick at a time.
+        let falling = Ins { envelope: vec![(0, 64), (64, 0)], flags: 1, ..square(32) };
+        let seen = heard(&module(1, 4, 125, &[0], &[rows(&[(C4, 1, 0, 0, 0), EMPTY, (0, 0, 0, ENVELOPE_AT, 0x20), EMPTY, (C4, 1, 0, ENVELOPE_AT, 0x30), (0, 0, 0, ENVELOPE_AT, 0x50)])], &[falling]));
+        assert_eq!(seen, [64, 63, 62, 61, 60, 59, 58, 57, 32, 31, 30, 29, 28, 27, 26, 25, 16, 15, 14, 13, 0, 0, 0, 0].map(f64::from));
+        let play = |cells: &[Cell5]| ticks(&module(1, 1, 125, &[0], &[rows(cells)], &[square(32)])).iter().map(|t| PERIOD_C4 - t.0).collect::<Vec<_>>();
+        // E1 and E2 each remember what they slid by.
+        let e = |p| (0, 0, 0, 0xE, p);
+        assert_eq!(play(&[(C4, 1, 0, 0xE, 0x1F), e(0x10), e(0x10), e(0x2F), e(0x20), e(0x10)]), [60, 120, 180, 120, 60, 120]);
+        assert_eq!(play(&[(C4, 1, 0, 0xE, 0x10), e(0x20)]), [0, 0]);
+        // X1 and X2 are a quarter of that, with a memory of their own.
+        let x = |p| (0, 0, 0, EXTRA_FINE, p);
+        assert_eq!(play(&[(C4, 1, 0, EXTRA_FINE, 0x1F), x(0x10), x(0x2F), x(0x20), x(0x10), e(0x10), x(0x30)]), [15, 30, 15, 0, 15, 15, 15]);
+        // E5 is the finetune of its row's note and of no other.
+        let c = |fx, p| (C4, 0, 0, fx, p);
+        assert_eq!(play(&[(C4, 1, 0, 0xE, 0x5F), c(0, 0), c(0xE, 0x50), c(0, 0), c(0xE, 0x5C), e(0x5F), EMPTY]), [56, 0, -64, 0, 32, 32, 32]);
     }
 
     #[test]

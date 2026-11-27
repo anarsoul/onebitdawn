@@ -13,9 +13,13 @@ what is listened to, and in the second an effect of its own (`other`)
 or a speed (`speed`, the effect F), for what must stand beside the
 first's effect. `gap(n)` is n empty rows, `pattern()` ends the pattern
 (they are 64 rows otherwise). `C4` is the note C-4 (49; a semitone is
-1), `E`, `G`, `H`, `K`, `R` are those effects' numbers. Instrument 1 is
-a ramp at volume 64 and 2 the same at 32; both run for 14 seconds at
-C-4 and then are silent, so a long case begins its note again.
+1), `E`, `G`, `H`, `K`, `L`, `R`, `T`, `X` are those effects' numbers. Instrument 1 is
+a ramp at volume 64, 2 the same at 32 and 3 the same at 48 and an
+octave up (its relative note), to tell whose sample a note plays, and
+4 is 1 with a volume envelope that falls from 64 to nought a tick at
+a time, so its figure tells where its envelope is; they run for 14
+seconds at C-4 and then are silent, so a long case begins
+its note again.
 
 The module starts with two rows of its own, a C-4 of instrument 1 and
 an empty one, which give the unit and are not printed: the rows given
@@ -50,7 +54,7 @@ import argparse, os, struct, subprocess, sys, tempfile
 import numpy as np
 
 C4 = 49
-E, G, H, K, R = 0x0E, 0x10, 0x11, 0x14, 0x1B
+E, G, H, K, L, R, T, X = 0x0E, 0x10, 0x11, 0x14, 0x15, 0x1B, 0x1D, 0x21
 RAMP = 120000          # samples of an instrument: 14 s at C-4
 RATE = 48000
 TICK = RATE * 5 // 2 // 125
@@ -74,7 +78,7 @@ def module(spec, speed, amiga=False):
 
     row(C4, 1)
     row()
-    exec(spec, {'row': row, 'gap': gap, 'pattern': pattern, 'C4': C4, 'E': E, 'G': G, 'H': H, 'K': K, 'R': R})
+    exec(spec, {'row': row, 'gap': gap, 'pattern': pattern, 'C4': C4, 'E': E, 'G': G, 'H': H, 'K': K, 'L': L, 'R': R, 'T': T, 'X': X})
     gap(2)
     while rows:
         patterns.append(rows[:64])
@@ -84,7 +88,7 @@ def module(spec, speed, amiga=False):
         return bytes(c) if any(c) else b'\x80'
 
     out = bytearray(b'Extended Module: ' + b'ticks'.ljust(20) + b'\x1a' + b'openmpt-ticks.py'.ljust(20) + struct.pack('<H', 0x0104))
-    out += struct.pack('<IHHHHHHHH', 276, len(patterns), 0, 2, len(patterns), 2, 0 if amiga else 1, speed, 125)
+    out += struct.pack('<IHHHHHHHH', 276, len(patterns), 0, 2, len(patterns), 4, 0 if amiga else 1, speed, 125)
     out += bytes(range(len(patterns))).ljust(256, b'\0')
     listing, now = [], speed
     for rows in patterns:
@@ -99,10 +103,14 @@ def module(spec, speed, amiga=False):
                     held = p & 0xF
             listing.append((now * (1 + held), ' '.join('%02X' % v for v in c) + ('  ' + '%X%02X' % other if other else '')))
     deltas = b''.join(struct.pack('<h', 1 if i % 4 == 0 else 0) for i in range(RAMP))
-    for volume in (64, 32):
-        head = struct.pack('<I', 263) + b'ramp'.ljust(22) + b'\0' + struct.pack('<H', 1) + struct.pack('<I', 40)
-        out += head.ljust(263, b'\0')
-        out += struct.pack('<IIIBbBBbB', len(deltas), 0, 0, volume, 0, 0x10, 128, 0, 0) + b'ramp'.ljust(22) + deltas
+    for volume, relative, envelope in ((64, 0, False), (32, 0, False), (48, 12, False), (64, 0, True)):
+        head = bytearray((struct.pack('<I', 263) + b'ramp'.ljust(22) + b'\0' + struct.pack('<H', 1) + struct.pack('<I', 40)).ljust(263, b'\0'))
+        if envelope:
+            # The volume envelope: from 64 down to nought over 64 ticks, no sustain.
+            head[129:137] = struct.pack('<HHHH', 0, 64, 64, 0)
+            head[225], head[233] = 2, 1
+        out += head
+        out += struct.pack('<IIIBbBBbB', len(deltas), 0, 0, volume, 0, 0x10, 128, relative, 0) + b'ramp'.ljust(22) + deltas
     return bytes(out), listing
 
 

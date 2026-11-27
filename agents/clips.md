@@ -35,7 +35,7 @@ asks for 16 bits (`samples=16|packed`, `format=packed|pcm16`) is
 refused, and so is a clip made already of a version v0.5 does not
 play (`Firmware::plays`, by the magic); and a module's effect R,
 which that player has not, is E9 where it changes no volume
-(`Firmware::retriggers`), its effects H, E6 and EE are named as not played, and a module on the Amiga frequency table is written with no word of the table and a note that its slides follow the linear one. The page starts at Speaker (the user, 2026-11-24: who comes to it
+(`Firmware::retriggers`), its effects H, E6, EE, 7, T, X, L and E5 are named as not played, and a module on the Amiga frequency table is written with no word of the table and a note that its slides follow the linear one. The page starts at Speaker (the user, 2026-11-24: who comes to it
 more likely has one), the command at the buzzer. The page asks which firmware, "v0.5"
 or "v0.6 or later" (the default), and `obd_convert` takes the minor
 version. A new version of a clip is a new `Firmware` and an option of the
@@ -108,7 +108,10 @@ has must come out the same.
   flags (byte 17) and is played on that table since 2026-11-26; a
   firmware up to v0.5 does not look at the bit and plays the clip on
   the linear table, so for it the bit is left out and a note says
-  that the slides are not the module's. The effect R (retrigger with a volume change) is the
+  that the slides are not the module's. The tremolo (7, a sine),
+  the tremor (T), X1 and X2, L and E5 are the player's since the
+  same day and named for a firmware up to v0.5; E0, EF, E8, E40 and
+  E70 do nothing in FastTracker or here and are not named. The effect R (retrigger with a volume change) is the
   player's since 2026-11-26 and a clip keeps it as it is. For a
   firmware up to v0.5 (`--firmware 0.5`), whose player has none, an
   R that changes no volume is written as E9, which that player has:

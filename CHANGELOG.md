@@ -47,6 +47,13 @@ from `http://<ip>/update`; its settings survive the update.
   named is the next note's, as in FastTracker: it took the named
   one's volume at once, and whole channels were too loud or too
   quiet for it.
+- The module player has FastTracker's tremolo (7), tremor (T),
+  extra fine portamento (X1, X2), envelope position (L) and
+  finetune (E5), as OpenMPT plays them, and E1 and E2 remember what
+  they last slid by (on `next`, for the release after v0.5). The
+  pack maker names them as not played only for a clock at v0.5; it
+  did not name the tremor at all, and no longer names what does
+  nothing in FastTracker (E0, EF) or on one speaker (E8).
 
 ### Changed
 

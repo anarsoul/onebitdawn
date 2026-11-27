@@ -773,7 +773,10 @@ Covered:
   volumes and ticks, the effect H's global volume, a row held by
   EE and the rows E6 plays again, as openmpt123 renders each of the
   test's rows; the Amiga frequency table's notes, finetunes, slides
-  and arpeggio, as periods openmpt123's renders were held to.
+  and arpeggio, as periods openmpt123's renders were held to; an
+  instrument named with and without a note, the tremor and the
+  tremolo's levels, L, X, E5 and the fine slides' memory, each as
+  openmpt123 renders the test's rows.
 - The SID: pitch, each waveform's shape, ring modulation, sync, the
   envelope's times and its late note, the filter's modes and its
   stability at every setting, the frames' timing and the loop; a

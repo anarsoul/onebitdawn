@@ -111,6 +111,7 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-26 | 29.8 KB | on `next`: the module player's effect EE, nothing of the stack (30 480); 8 bytes of flash |
 | 2026-11-26 | 29.8 KB | on `next`: the module player's effect E6, the row and the flag in `Tune` (30 480 → 30 472), the two bytes a channel in its padding; 174 bytes of flash |
 | 2026-11-26 | 29.8 KB | on `next`: the Amiga frequency table, the arpeggio a byte a channel that was four (30 472 → 30 552), 4 bytes of `.rwtext`; 656 bytes of flash, 208 of them the table |
+| 2026-11-26 | 29.8 → 29.6 KB | on `next`: the tremolo, the tremor, X, L, E5 and the named instrument, some fourteen bytes a channel (30 552 → 30 280), `.rwtext` 4 bytes less; 754 bytes of flash |
 
 How much of it is used, measured 2026-11-23 on the bare bench board
 with the `stack-watch` feature (`src/stack.rs`: the stack painted,

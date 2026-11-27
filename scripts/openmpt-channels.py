@@ -155,7 +155,7 @@ def compare(tag, keep, x, ours, effect, show):
         slope = (x[b] - x[a]) / (b - a)
         age = x[a] / slope - TICK * 4 // 10 if slope > 1e-9 else None
         ref.append((slope, age is not None and age < TICK * 0.5))
-        semitones, volume, begun = float(ours[k][0]), int(ours[k][1]), ours[k][2] == '1'
+        semitones, volume, begun = float(ours[k][0]), float(ours[k][1]), ours[k][2] == '1'
         # The level is the channel's volume under the global one.
         mine.append((volume * int(ours[k][7]) / 64 * 2 ** (semitones / 12), begun, volume))
     rs, ms = np.array([r[0] for r in ref]), np.array([m[0] for m in mine])
@@ -184,7 +184,7 @@ def compare(tag, keep, x, ours, effect, show):
         begins += begun
         if (differs or begun) and shown < show:
             shown += 1
-            print('   tick %d: openmpt123 %.1f%s, the player %.1f%s (volume %d, semitone %.2f, column %s, effect %s %s)' % (
+            print('   tick %d: openmpt123 %.1f%s, the player %.1f%s (volume %g, semitone %.2f, column %s, effect %s %s)' % (
                 k, r, '*' if ref[k][1] else '', m, '*' if mine[k][1] else '', mine[k][2], float(ours[k][0]), ours[k][4], ours[k][5], ours[k][6]))
     print("%s ch %d: %d ticks%s: the level differs on %d, a note begins in one alone on %d%s" % (
         tag, keep, total, '' if effect is None else ' of the effect', level, begins, '' if effect is None else '; other ticks that differ: %d' % other))

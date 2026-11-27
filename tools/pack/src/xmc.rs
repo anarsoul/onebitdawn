@@ -30,7 +30,7 @@ use std::collections::BTreeMap;
 
 use onebitdawn_core::adpcm::BLOCK;
 use onebitdawn_core::shape::{STEP, Shaper};
-use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, GLOBAL_SLIDE as H, RETRIGGER as R, SEEK, WIDE_MAGIC, seek_points};
+use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, ENVELOPE_AT as L, EXTRA_FINE as X, GLOBAL_SLIDE as H, RETRIGGER as R, TREMOR as T, SEEK, WIDE_MAGIC, seek_points};
 
 use crate::bytes::{Data, Padded, text};
 use crate::shape::{rate_flag, section};
@@ -42,9 +42,19 @@ const ENVELOPE_POINTS: usize = 12;
 /// after v0.5 plays (`Shape::retrigger`).
 const EFFECTS: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF, 0x10, 0x14];
 const E_EFFECTS: [u8; 7] = [1, 2, 9, 0xA, 0xB, 0xC, 0xD];
+/// And what came after v0.5 beside R and H: the tremolo, L, T and X,
+/// and of E's the finetune, the loop and the delay.
+const LATER: [u8; 4] = [7, L, T, X];
+const LATER_E: [u8; 3] = [5, 6, 0xE];
 const VOLUMES: [u8; 13] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xA, 0xB, 0xF];
 /// Panning does nothing on one buzzer; not worth a note.
-const SILENT: [u8; 3] = [8, 0x19, 0x1D];
+const SILENT: [u8; 2] = [8, 0x19];
+/// Nor do the E's that do nothing in FastTracker, the Amiga's filter
+/// and its inverted loop, nor the panning, nor a vibrato's or a
+/// tremolo's waveform set to the sine it is.
+fn silent_e(param: u8) -> bool {
+    matches!(param >> 4, 0 | 8 | 0xF) || matches!(param, 0x40 | 0x70)
+}
 const SILENT_VOLUMES: [u8; 3] = [0xC, 0xD, 0xE];
 
 /// The options a module takes.
@@ -104,7 +114,8 @@ pub struct Shape {
     /// is counted into the length. Nor has it the Amiga frequency
     /// table: a module on it is written as one on the linear table,
     /// which is how that player plays it whatever the clip says, and
-    /// a note says that the slides are not the module's.
+    /// a note says that the slides are not the module's. And 7, T,
+    /// X, L and E5 are named for it as well (`LATER`, `LATER_E`).
     pub retrigger: bool,
 }
 
@@ -424,7 +435,13 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     for pattern in &cells {
         for row in pattern {
             for &[_note, _ins, volume, effect, param] in row {
-                if (effect != 0 || param != 0) && !SILENT.contains(&effect) && !((effect == R || effect == H) && shape.retrigger) && (!EFFECTS.contains(&effect) || (effect == 0xE && !E_EFFECTS.contains(&(param >> 4)) && !(matches!(param >> 4, 6 | 0xE) && shape.retrigger))) {
+                let played = match effect {
+                    0xE => E_EFFECTS.contains(&(param >> 4)) || silent_e(param) || (LATER_E.contains(&(param >> 4)) && shape.retrigger),
+                    // X1 and X2; nothing else is an X.
+                    X => shape.retrigger && matches!(param >> 4, 1 | 2),
+                    _ => EFFECTS.contains(&effect) || SILENT.contains(&effect) || ((effect == R || effect == H || LATER.contains(&effect)) && shape.retrigger),
+                };
+                if (effect != 0 || param != 0) && !played {
                     warn(format!("effect {}", effect_name(effect, param)));
                 }
                 if !VOLUMES.contains(&(volume >> 4)) && !SILENT_VOLUMES.contains(&(volume >> 4)) {
