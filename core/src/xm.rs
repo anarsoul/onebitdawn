@@ -1717,9 +1717,10 @@ mod tests {
     /// channel `CLIP_CHANNEL` of the converted module `CLIP_FILE`, or
     /// of the clip built in that `CLIP_INDEX` says: the period in
     /// semitones up from the lowest note, the volume, whether a note
-    /// began, where its sample is in the clip, and the row's volume
-    /// column, effect and parameter; to hold the effects to another
-    /// player's render tick by tick.
+    /// began, where its sample is in the clip, the row's volume
+    /// column, effect and parameter, and the global volume; to hold
+    /// the effects to another player's render tick by tick
+    /// (`scripts/openmpt-channels.py`).
     #[test]
     #[ignore]
     fn dump_the_ticks() {
@@ -1740,7 +1741,8 @@ mod tests {
             ch.pos = ch.pos.max(1);
             let Cell { volume, effect, param, .. } = ch.cell;
             let semitones = (PERIOD_MAX - ch.sounding) as f64 / SEMITONE as f64;
-            out += &format!("{semitones:.4} {} {} {} {volume:02X} {effect:02X} {param:02X}\n", ch.volume, begun as u8, ch.data);
+            let (level, at) = (ch.volume, ch.data);
+            out += &format!("{semitones:.4} {level} {} {at} {volume:02X} {effect:02X} {param:02X} {}\n", begun as u8, t.global);
         }
         std::fs::write(path, out).unwrap();
     }

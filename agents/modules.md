@@ -807,11 +807,13 @@ Dumps for comparing a player with a reference:
 - `CLIP_TICK_DUMP=file CLIP_FILE=tune.xmc CLIP_CHANNEL=n cargo
   host-test dump_the_ticks -- --ignored` writes a line a tick of one
   channel of a converted module: pitch, volume, whether a note
-  began, the row's cell. Against a render of the same module with
+  began, the row's cell, the global volume. Against a render of the same module with
   every sample a ramp (its slope within a tick is volume times pitch,
   and it starts from nothing where a note begins) it holds an effect
   to another player tick by tick; the effect R was held so to
-  openmpt123. A module made for such a check must not say
+  openmpt123, and `scripts/openmpt-channels.py` does it for the
+  channels of real modules (`agents/collection.md`). A module made
+  for such a check must not say
   "FastTracker v2.00" in its header unless FastTracker wrote it:
   OpenMPT takes it for an old ModPlug Tracker's and plays it by
   other rules.

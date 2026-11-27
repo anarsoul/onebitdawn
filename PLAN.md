@@ -340,6 +340,29 @@ short, by up to 21 seconds among eight measured.
 
 Owed: a module with a pattern loop heard on a clock.
 
+## Tools for a collection of modules and openmpt123 — built 2026-11-26, on `next`
+
+What the four effects above were held to OpenMPT with was scripts of
+a session; they are kept now, for the next effect and the Amiga
+table.
+
+- `cargo collection` (`tools/pack/examples/collection.rs`) converts
+  and plays every module of a folder outside the repository and says
+  what was refused, what did not end and what the player lacks;
+  with `--raw` it writes the sound with the limiter off.
+- `scripts/openmpt-ticks.py` renders rows written on its command
+  line in openmpt123 and prints their ticks; `openmpt-channels.py`
+  compares the player with it tick by tick on real modules' channels;
+  `openmpt-compare.py` whole tunes' lengths and loudness;
+  `xm-effects.py` counts who uses what.
+- `agents/collection.md` is how to use them and what they cannot
+  say. `dump_the_ticks` has the global volume as well, which the
+  channels' comparison wants.
+- Tried on the cases of the effects' tests and on modules of the
+  collection, where they give the figures the session's scripts gave.
+
+Owed: nothing.
+
 ## A line output on the adapter for an amplifier — the setting built and heard 2026-11-18; the shutdown pin built, not checked; the adapters ordered 2026-11-19
 
 The user's idea (2026-11-15): an amplifier in place of Q1, fed the

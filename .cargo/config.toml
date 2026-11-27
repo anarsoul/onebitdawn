@@ -21,6 +21,9 @@ host-test = "test -p onebitdawn-core --target host-tuple"
 pack      = "run -q --release -p onebitdawn-pack --target host-tuple --"
 pack-test = "test -p onebitdawn-pack --target host-tuple"
 pack-wasm = "build --profile tool -p onebitdawn-pack --lib --target wasm32-unknown-unknown"
+# The pack maker and the module player over a collection of modules
+# kept elsewhere (`tools/pack/examples/collection.rs`, `agents/collection.md`).
+collection = "run -q --release -p onebitdawn-pack --example collection --target host-tuple --"
 
 [build]
 rustflags = [
