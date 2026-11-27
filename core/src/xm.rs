@@ -34,7 +34,7 @@
 //! effects 0 arpeggio (in FastTracker's tick order), 1 2 3 portamento,
 //! 4 vibrato, 5 6 with volume slide, 9 offset, A volume slide, B jump,
 //! C volume, D break, E1 E2 fine portamento, E9 retrigger, EA EB fine
-//! volume, EC cut, ED delay, EE pattern delay, F speed and tempo, G global volume, K key
+//! volume, E6 pattern loop, EC cut, ED delay, EE pattern delay, F speed and tempo, G global volume, K key
 //! off, H global volume slide, R retrigger with a volume change (`Tune::retrigger`); and an instrument's auto-vibrato, as a sine. Panning is nothing on one buzzer. The converter says what a
 //! module uses beyond that.
 //!
@@ -623,6 +623,9 @@ struct Channel<'a> {
     tone_speed: u8,
     slide: u8,
     global_slide: u8,
+    /// E6: the row its loop goes back to, and the times still to go.
+    loop_row: u8,
+    loop_count: u8,
     vibrato_speed: u8,
     vibrato_depth: u8,
     vibrato_pos: u8,
@@ -663,6 +666,12 @@ pub struct Tune<'a> {
     row_delay: u8,
     /// A jump or a break read on this row: the order and row to go to.
     go: Option<(usize, u16)>,
+    /// The row a break or a pattern loop last named, FastTracker's
+    /// one word for both: a loop goes back to it, and a pattern that
+    /// ends after one begins the next there.
+    break_row: u16,
+    /// A pattern loop goes back at this row's end.
+    loop_jump: bool,
     pool: i32,
     /// Mixed samples a second. A tick is 2.5 / tempo seconds: each
     /// mixed sample takes `tempo` out of a pool of 2.5 times this.
@@ -719,6 +728,8 @@ impl<'a> Tune<'a> {
             tick: 0,
             row_delay: 0,
             go: None,
+            break_row: 0,
+            loop_jump: false,
             pool: 0,
             looping: false,
             last: false,
@@ -956,11 +967,21 @@ impl<'a> Tune<'a> {
         // further ones a first tick.
         if self.tick >= self.speed as u16 * (1 + self.row_delay as u16) {
             self.tick = 0;
+            let (looped, row) = (core::mem::take(&mut self.loop_jump), self.break_row);
             match self.go.take() {
                 // A jump to where the tune has been is its loop: the end.
                 Some((order, _)) if order <= self.order && !self.looping => self.last = true,
-                Some((order, row)) => self.enter(order, row),
-                None if self.row >= self.rows => self.enter(self.order + 1, 0),
+                Some((order, row)) => {
+                    self.break_row = 0;
+                    self.enter(order, row);
+                }
+                // A pattern loop, its row kept; held by EE it lands a
+                // row on.
+                None if looped => self.enter(self.order, row + (self.row_delay != 0) as u16),
+                None if self.row >= self.rows => {
+                    self.break_row = 0;
+                    self.enter(self.order + 1, row);
+                }
                 None => {}
             }
         }
@@ -1158,9 +1179,15 @@ impl<'a> Tune<'a> {
                 }
             }
             5 | 6 | 0xA if cell.param != 0 => ch.slide = cell.param,
-            0xB => self.go = Some((cell.param as usize, 0)),
+            0xB => {
+                self.go = Some((cell.param as usize, 0));
+                self.break_row = 0;
+            }
             0xC => ch.volume = cell.param.min(64),
-            0xD => self.go = Some((self.go.map_or(order + 1, |g| g.0), (hi * 10 + lo) as u16)),
+            0xD => {
+                self.break_row = (hi * 10 + lo) as u16;
+                self.go = Some((self.go.map_or(order + 1, |g| g.0), self.break_row));
+            }
             0xE => match hi {
                 // E9 counts on R's counter, from the row's start.
                 9 => ch.retrig_count = 0,
@@ -1168,6 +1195,20 @@ impl<'a> Tune<'a> {
                 2 => ch.period = (ch.period + lo as i32 * 4).min(PERIOD_MAX),
                 0xA => ch.volume = (ch.volume + lo).min(64),
                 0xB => ch.volume = ch.volume.saturating_sub(lo),
+                // E60 marks the row, E6x goes back to the mark x times:
+                // the row is the break's, so a break before it in the
+                // row goes to that row of its pattern.
+                6 if lo == 0 => ch.loop_row = self.row as u8,
+                6 => {
+                    ch.loop_count = if ch.loop_count == 0 { lo } else { ch.loop_count - 1 };
+                    if ch.loop_count != 0 {
+                        self.break_row = ch.loop_row as u16;
+                        self.loop_jump = true;
+                        if let Some(go) = &mut self.go {
+                            go.1 = self.break_row;
+                        }
+                    }
+                }
                 // The last channel's is the row's, nought too.
                 0xE => self.row_delay = lo,
                 _ => {}
@@ -1900,6 +1941,58 @@ mod tests {
         assert_eq!(up(4), [3, 4, 7, 8, 11]);
         assert_eq!(up(5), [1, 4, 6, 9, 11, 14]);
         assert_eq!(up(6), [2, 5, 8, 11, 14, 17]);
+    }
+
+    #[test]
+    fn e6_loops_the_pattern_as_openmpt_does() {
+        // Two channels and rows of three ticks; a row of the first
+        // channel is told by the volume its column sets, and what is
+        // listed is the rows as they are played, a star where the
+        // note begins. Each list is a render of openmpt123's.
+        const E: u8 = 0xE;
+        const NO: Cell5 = (0, 0, 0, 0, 0);
+        const NOTE: (Cell5, Cell5) = ((C4, 1, 0, 0, 0), NO);
+        let played = |patterns: &[&[(Cell5, Cell5)]]| {
+            let patterns: Vec<Vec<Row>> = patterns.iter().map(|rows| rows.iter().map(|&(a, b)| vec![a, b]).collect()).collect();
+            let orders: Vec<u8> = (0..patterns.len() as u8).collect();
+            let seen = strikes(&module(2, 3, 125, &orders, &patterns, &[square(32)]), 0);
+            seen.chunks(3).map(|row| format!("{}{}", row[0].1, if row[0].2 { "*" } else { "" })).collect::<Vec<_>>().join(" ")
+        };
+        // A row marked `v`, with an effect in the first channel or the second.
+        let own = |v: u8, effect: u8, param: u8| ((0, 0, 0x10 + v, effect, param), NO);
+        let other = |v: u8, effect: u8, param: u8| ((0, 0, 0x10 + v, 0, 0), (0, 0, 0, effect, param));
+        let row = |v: u8| own(v, 0, 0);
+        // Back to the mark x times; with no mark, to the top.
+        assert_eq!(played(&[&[NOTE, own(4, E, 0x60), row(8), own(12, E, 0x62), row(16)]]), "64* 4 8 12 4 8 12 4 8 12 16");
+        assert_eq!(played(&[&[NOTE, row(4), own(8, E, 0x61), row(12)]]), "64* 4 8 64* 4 8 12");
+        // Each channel has its mark and its count: of two that go
+        // back on a row the last channel's mark is gone to, and one
+        // loop inside another is played again each time round.
+        assert_eq!(played(&[&[NOTE, own(4, E, 0x60), other(8, E, 0x60), ((0, 0, 0x1C, E, 0x61), (0, 0, 0, E, 0x61)), row(16)]]), "64* 4 8 12 8 12 16");
+        assert_eq!(
+            played(&[&[NOTE, other(4, E, 0x60), own(8, E, 0x60), own(12, E, 0x61), other(16, E, 0x62), row(20), row(24)]]),
+            "64* 4 8 12 8 12 16 4 8 12 8 12 16 4 8 12 8 12 16 20 24"
+        );
+        // A loop taken on a row held by EE lands a row past its mark
+        // (the held row is listed twice, being two rows long).
+        assert_eq!(played(&[&[NOTE, own(4, E, 0x60), ((0, 0, 0x18, E, 0x61), (0, 0, 0, E, 0xE1)), row(12)]]), "64* 4 8 8 8 8 12");
+        assert_eq!(played(&[&[NOTE, own(4, E, 0x60), row(8), ((0, 0, 0x1C, E, 0x61), (0, 0, 0, E, 0xE1)), row(16)]]), "64* 4 8 12 12 8 12 12 16");
+        // The mark is kept into the next pattern.
+        let next = [row(4), row(8), row(12), row(16), row(20)];
+        assert_eq!(
+            played(&[&[NOTE, row(32), own(33, E, 0x60), row(34), other(35, 0xD, 0)], &[row(4), row(8), row(12), own(16, E, 0x61), row(20)]]),
+            "64* 32 33 34 35 4 8 12 16 12 16 20"
+        );
+        // With a break on the row the tune goes on, to the row the
+        // later of the two named.
+        assert_eq!(played(&[&[NOTE, own(32, E, 0x60), row(33), ((0, 0, 0x10 + 34, E, 0x61), (0, 0, 0, 0xD, 0)), row(35)], &next]), "64* 32 33 34 4 8 12 16 20");
+        assert_eq!(played(&[&[NOTE, other(32, E, 0x60), row(33), ((0, 0, 0x10 + 34, 0xD, 0), (0, 0, 0, E, 0x61)), row(35)], &next]), "64* 32 33 34 8 12 16 20");
+        // A pattern that ends after a loop was taken begins the next
+        // at the loop's mark; a mark alone does not do it, nor a loop
+        // with a break after it.
+        assert_eq!(played(&[&[NOTE, row(32), own(33, E, 0x60), own(34, E, 0x61)], &next]), "64* 32 33 34 33 34 12 16 20");
+        assert_eq!(played(&[&[NOTE, row(32), own(33, E, 0x60), row(34)], &next]), "64* 32 33 34 4 8 12 16 20");
+        assert_eq!(played(&[&[NOTE, row(32), own(33, E, 0x60), own(34, E, 0x61), other(35, 0xD, 0)], &next]), "64* 32 33 34 33 34 35 4 8 12 16 20");
     }
 
     #[test]

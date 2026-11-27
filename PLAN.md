@@ -297,13 +297,48 @@ for a pause of 15 to 55 rows in all, and their clips came out up to
   the ramp of the effect R's check. Of the collection's 24 modules
   with an EE that convert, 16 are now as long as openmpt123 plays
   them to a tenth of a second; the other eight are still 1.5 to 21
-  seconds short, each with an E6, the pattern loop, which the player
-  has not (the backlog).
+  seconds short, each with an E6, the pattern loop (the next
+  section).
 - The arpeggio's step is now computed as OpenMPT does, the same
   within a row as it was.
 - Cost: 8 bytes of flash, none of the main stack or `.rwtext`.
 
 Owed: a module with an EE heard on a clock.
+
+## The module player's effect E6, the pattern loop — built 2026-11-26, on `next`; held to openmpt123 on the host, not heard on a clock
+
+E60 marks a row and E6x goes back to it x times. The player had
+none: 36 of the collection's modules that convert use it and came out
+short, by up to 21 seconds among eight measured.
+
+- Design, FastTracker's own as openmpt123 0.8.10 renders it (each
+  rule a render): a channel has its mark, row 0 until an E60, kept
+  from pattern to pattern, and its count, so loops of two channels
+  nest; of two that go back on one row the last channel's row is
+  gone to. The row gone back to is the same word a break's row is
+  (FastTracker's `pBreakPos`): a D or B later in the row takes the
+  tune on, to the row the last of them and the E6 named, and a
+  pattern that ends by itself after a loop was taken begins the next
+  at the loop's mark, which a D or B clears. A loop taken on a row
+  held by EE lands a row past its mark.
+- Going back is `Tune::enter`, the pattern read again from its top to
+  the row, as a break to a row is; nothing in the per-sample code.
+- The pack maker counts a clip's length by the same rules, a row at
+  a time, and refuses a module whose loops never end (over an hour).
+  For `--firmware 0.5` E6 is named and not counted.
+- Checked on the host: the test's rows are openmpt123's renders. Of
+  the collection's 36 modules with an E6 that convert, 33 are as
+  long as openmpt123 plays them to two tenths of a second. The
+  other three differ in where a tune played once ends, not in a
+  loop: the player ends at a jump back in the order list and at the
+  list's end, and OpenMPT at a row it has played in the same state,
+  so it goes round a jump back that follows a loop (two modules,
+  37 and 42 seconds more) and once into the song's start again
+  where the last pattern's loop leaves it at another row (7
+  seconds). Left as it is.
+- Cost: 174 bytes of flash, 8 of the main stack, none of `.rwtext`.
+
+Owed: a module with a pattern loop heard on a clock.
 
 ## A line output on the adapter for an amplifier — the setting built and heard 2026-11-18; the shutdown pin built, not checked; the adapters ordered 2026-11-19
 
@@ -716,11 +751,6 @@ short, since converted: the section above). Not R's, and not fixed:
   `modxm.rs` does a ProTracker one's slides, each converted at the
   period it is played at, which is no firmware's business and not
   exact.
-- **E6, the pattern loop, is not played**: 36 of the modules that
-  convert use it (46 of the collection), and each comes out shorter
-  than OpenMPT plays it, by up to 21 seconds among the eight
-  measured. Not designed: the player reads a pattern forward only,
-  so a loop wants the place of its start kept for each channel.
 - **OpenMPT plays 28 of the 99 modules with an R by other rules**,
   those it takes for an old ModPlug Tracker's (`openmpt123 --info`);
   the player has the FastTracker-compatible rules for every module,

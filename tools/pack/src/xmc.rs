@@ -99,8 +99,9 @@ pub struct Shape {
     pub raised: BTreeMap<usize, i32>,
     /// Whether the player has the effect R. One that has not gets E9
     /// where an R changes no volume (`retriggers`). Such a player has
-    /// no H either, nor EE, the pattern delay: they are then named
-    /// as not played, and no delay is counted into the length.
+    /// no H either, nor E6, the pattern loop, nor EE, the pattern
+    /// delay: they are then named as not played, and no loop or delay
+    /// is counted into the length.
     pub retrigger: bool,
 }
 
@@ -420,7 +421,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     for pattern in &cells {
         for row in pattern {
             for &[_note, _ins, volume, effect, param] in row {
-                if (effect != 0 || param != 0) && !SILENT.contains(&effect) && !((effect == R || effect == H) && shape.retrigger) && (!EFFECTS.contains(&effect) || (effect == 0xE && !E_EFFECTS.contains(&(param >> 4)) && !(param >> 4 == 0xE && shape.retrigger))) {
+                if (effect != 0 || param != 0) && !SILENT.contains(&effect) && !((effect == R || effect == H) && shape.retrigger) && (!EFFECTS.contains(&effect) || (effect == 0xE && !E_EFFECTS.contains(&(param >> 4)) && !(matches!(param >> 4, 6 | 0xE) && shape.retrigger))) {
                     warn(format!("effect {}", effect_name(effect, param)));
                 }
                 if !VOLUMES.contains(&(volume >> 4)) && !SILENT_VOLUMES.contains(&(volume >> 4)) {
@@ -546,39 +547,49 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         instruments.push(entry);
     }
 
-    // The length, played once as the player does: to the end of the
-    // order list or to a jump back.
+    // The length, played once as the player does (`Tune::step_tick`):
+    // to the end of the order list or to a jump back, a row at a time
+    // with its pattern loops and delays.
     let (mut ticks_ms, mut order, mut row, mut now_speed, mut now_tempo) = (0.0f64, 0usize, 0usize, speed as f64, tempo as f64);
+    // E6: each channel's mark and count, and the row a break or a
+    // loop last named.
+    let mut loops = vec![(0usize, 0u8); channels];
+    let mut break_row = 0;
     while order < orders.len() {
-        let mut go: Option<(usize, usize)> = None;
-        for cells_row in cells[orders[order] as usize].iter().skip(row) {
-            // The rows an EE holds the row for, the last channel's.
-            let mut held = 0.0;
-            for &[_note, _ins, _volume, effect, param] in cells_row {
-                if effect == 0xE && param >> 4 == 0xE && shape.retrigger {
-                    held = (param & 0xF) as f64;
-                }
-                if effect == 0xF && param != 0 {
-                    if param >= 0x20 {
-                        now_tempo = param as f64;
-                    } else {
-                        now_speed = param as f64;
+        let pattern = &cells[orders[order] as usize];
+        let Some(cells_row) = pattern.get(row.min(pattern.len().saturating_sub(1))) else { break };
+        row = row.min(pattern.len() - 1);
+        let mut go: Option<usize> = None;
+        // The rows an EE holds the row for, the last channel's.
+        let (mut held, mut looped) = (0, false);
+        for (c, &[_note, _ins, _volume, effect, param]) in cells_row.iter().enumerate() {
+            match (effect, param >> 4) {
+                (0xF, _) if param >= 0x20 => now_tempo = param as f64,
+                (0xF, _) if param != 0 => now_speed = param as f64,
+                (0xB, _) => (go, break_row) = (Some(param as usize), 0),
+                (0xD, hi) => (go, break_row) = (Some(go.unwrap_or(order + 1)), hi as usize * 10 + (param & 0xF) as usize),
+                (0xE, 0xE) if shape.retrigger => held = param & 0xF,
+                (0xE, 6) if shape.retrigger && param & 0xF == 0 => loops[c].0 = row,
+                (0xE, 6) if shape.retrigger => {
+                    loops[c].1 = if loops[c].1 == 0 { param & 0xF } else { loops[c].1 - 1 };
+                    if loops[c].1 != 0 {
+                        (break_row, looped) = (loops[c].0, true);
                     }
-                } else if effect == 0xB {
-                    go = Some((param as usize, 0));
-                } else if effect == 0xD {
-                    go = Some((go.map_or(order + 1, |g| g.0), (param >> 4) as usize * 10 + (param & 0xF) as usize));
                 }
-            }
-            ticks_ms += (1.0 + held) * now_speed * 2500.0 / now_tempo;
-            if go.is_some() {
-                break;
+                _ => {}
             }
         }
-        if go.is_some_and(|g| g.0 <= order) {
-            break;
+        ticks_ms += (1.0 + held as f64) * now_speed * 2500.0 / now_tempo;
+        if ticks_ms > 3_600_000.0 {
+            return Err("over an hour of it: its pattern loops (E6) never end".into());
         }
-        (order, row) = go.unwrap_or((order + 1, 0));
+        match go {
+            Some(to) if to <= order => break,
+            Some(to) => (order, row, break_row) = (to, break_row, 0),
+            None if looped => row = break_row + (held != 0) as usize,
+            None if row + 1 >= pattern.len() => (order, row, break_row) = (order + 1, break_row, 0),
+            None => row += 1,
+        }
     }
 
     let byte = |n: usize, what: &str| u8::try_from(n).map_err(|_| format!("{n} {what}; the clip has room for 255"));

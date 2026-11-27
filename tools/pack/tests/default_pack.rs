@@ -213,6 +213,17 @@ fn an_r_is_the_modules_for_a_player_that_has_it() {
     assert_eq!(ms(&new) - ms(&old), 600);
     // The player holds the row for as long as the clip says.
     assert!((play(&new.data).len() as i64 * 1000 / 31250 - ms(&new) as i64).abs() < 20, "{} {}", play(&new.data).len(), ms(&new));
+    // And E6, the pattern loop: three rows played three times, and a
+    // loop that never ends refused.
+    let looped = [[49, 1, 0, 0xE, 0x60], [0, 0, 0, 0, 0], [0, 0, 0, 0xE, 0x62]];
+    let (new, old) = (made(&looped, Target::default()), made(&looped, OLD));
+    let said = |clip: &Clip| clip.notes.iter().any(|n| n.contains("effect E6"));
+    assert!(!said(&new) && said(&old), "{:?} {:?}", new.notes, old.notes);
+    assert_eq!(ms(&new) - ms(&old), 6 * 120);
+    assert!((play(&new.data).len() as i64 * 1000 / 31250 - ms(&new) as i64).abs() < 20, "{} {}", play(&new.data).len(), ms(&new));
+    let source = Source { data: module_of_16_bits(&wave, (0, 2000), &[[49, 1, 0, 0xE, 0x61], [0, 0, 0, 0xE, 0x61]]), file: "test.xm".into(), options: vec![], label: None };
+    assert_eq!(convert_for(&source, Target::default()).err().as_deref(), Some("test.xm: over an hour of it: its pattern loops (E6) never end"));
+    assert!(convert_for(&source, OLD).is_ok());
 }
 
 /// A module of one channel and one instrument, its sample of 16 bits

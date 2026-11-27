@@ -29,6 +29,11 @@ from `http://<ip>/update`; its settings survive the update.
   as OpenMPT plays it (on `next`, for the release after v0.5): a
   tune with one ran on early and its clip came out short. The pack
   maker counts the delay into a clip's length.
+- The module player has FastTracker's effect E6, the pattern loop,
+  as OpenMPT plays it (on `next`, for the release after v0.5): a
+  tune with one skipped its repeats and its clip came out short. The
+  pack maker counts the loops into a clip's length and refuses a
+  module whose loops never end.
 
 ### Changed
 

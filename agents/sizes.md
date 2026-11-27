@@ -109,6 +109,7 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-26 | 29.9 → 29.8 KB | on `next`: the module player's effect R, four bytes a channel of twenty and 12 of `.rwtext` (30 648 → 30 560); 612 bytes of flash |
 | 2026-11-26 | 29.8 KB | on `next`: the module player's effect H, a byte a channel that is four (30 560 → 30 480), `.rwtext` 4 bytes less; 50 bytes of flash |
 | 2026-11-26 | 29.8 KB | on `next`: the module player's effect EE, nothing of the stack (30 480); 8 bytes of flash |
+| 2026-11-26 | 29.8 KB | on `next`: the module player's effect E6, the row and the flag in `Tune` (30 480 → 30 472), the two bytes a channel in its padding; 174 bytes of flash |
 
 How much of it is used, measured 2026-11-23 on the bare bench board
 with the `stack-watch` feature (`src/stack.rs`: the stack painted,
