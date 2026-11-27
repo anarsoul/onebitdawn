@@ -97,7 +97,8 @@ impl Firmware {
         self != Firmware::V0_5
     }
 
-    /// Whether its module player has the effect R, the retrigger with
+    /// Whether its module player has what came after v0.5: the effect
+    /// H, the global volume slide, and the effect R, the retrigger with
     /// a volume change.
     pub fn retriggers(self) -> bool {
         self != Firmware::V0_5

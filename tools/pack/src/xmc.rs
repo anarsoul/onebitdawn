@@ -30,7 +30,7 @@ use std::collections::BTreeMap;
 
 use onebitdawn_core::adpcm::BLOCK;
 use onebitdawn_core::shape::{STEP, Shaper};
-use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, RETRIGGER as R, SEEK, WIDE_MAGIC, seek_points};
+use onebitdawn_core::xm::{MAGIC, MAX_CHANNELS, PACKED_LOOP, PACKED_MAGIC, GLOBAL_SLIDE as H, RETRIGGER as R, SEEK, WIDE_MAGIC, seek_points};
 
 use crate::bytes::{Data, Padded, text};
 use crate::shape::{rate_flag, section};
@@ -98,7 +98,8 @@ pub struct Shape {
     /// Instruments played octaves higher, by number from 1.
     pub raised: BTreeMap<usize, i32>,
     /// Whether the player has the effect R. One that has not gets E9
-    /// where an R changes no volume (`retriggers`).
+    /// where an R changes no volume (`retriggers`). Such a player has
+    /// no H either, which is then named as not played.
     pub retrigger: bool,
 }
 
@@ -418,7 +419,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     for pattern in &cells {
         for row in pattern {
             for &[_note, _ins, volume, effect, param] in row {
-                if (effect != 0 || param != 0) && !SILENT.contains(&effect) && !(effect == R && shape.retrigger) && (!EFFECTS.contains(&effect) || (effect == 0xE && !E_EFFECTS.contains(&(param >> 4)))) {
+                if (effect != 0 || param != 0) && !SILENT.contains(&effect) && !((effect == R || effect == H) && shape.retrigger) && (!EFFECTS.contains(&effect) || (effect == 0xE && !E_EFFECTS.contains(&(param >> 4)))) {
                     warn(format!("effect {}", effect_name(effect, param)));
                 }
                 if !VOLUMES.contains(&(volume >> 4)) && !SILENT_VOLUMES.contains(&(volume >> 4)) {

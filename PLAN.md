@@ -250,6 +250,30 @@ the reading astray after the first instrument.
 
 Owed: nothing of a clock's.
 
+## The module player's effect H, the global volume slide — built 2026-11-26, on `next`; held to openmpt123 on the host, not heard on a clock
+
+A module that fades in with G00 and H was silent to its end: the
+player had G and not H (three of the collection start so, and the
+pack maker named H as not played).
+
+- Hxy as OpenMPT plays a FastTracker module's: on every tick of the
+  row but the first the global volume goes up by x, or with no x
+  down by y, and stays in 0 to 64; a parameter of nought is the
+  channel's last H, its own memory. The pack maker no longer names
+  it. A firmware without it (v0.5) plays the clip as before, so for
+  `--firmware 0.5` it is named still.
+- Checked on the host against openmpt123 0.8.10 with the ramp of the
+  effect R's check: the test's figures are its renders (x and y, the
+  memory, nothing to remember, both ends). OpenMPT moves the global
+  volume to its new value over the tick, so its figure is read where
+  a row begins. Of the collection's 39 modules with an H that
+  convert, six were silent and none is; rendered with no limiter
+  beside openmpt123, the loudness over time agrees better in 27 and
+  worse in none (median correlation 0.45 before, 0.92 after).
+- Cost: 50 bytes of flash, 80 of the main stack, none of `.rwtext`.
+
+Owed: a module that fades in heard on a clock.
+
 ## A line output on the adapter for an amplifier — the setting built and heard 2026-11-18; the shutdown pin built, not checked; the adapters ordered 2026-11-19
 
 The user's idea (2026-11-15): an amplifier in place of Q1, fed the
@@ -661,11 +685,6 @@ short, since converted: the section above). Not R's, and not fixed:
   `modxm.rs` does a ProTracker one's slides, each converted at the
   period it is played at, which is no firmware's business and not
   exact.
-- **A module that fades in is silent.** Three start with G00 and
-  raise the global volume with H, which the player has not (the pack
-  maker names it), so the tune is played at nothing to its end. Fix:
-  H in the player, or the pack maker leaving a G00 out where only an
-  H follows it.
 - **OpenMPT plays 28 of the 99 modules with an R by other rules**,
   those it takes for an old ModPlug Tracker's (`openmpt123 --info`);
   the player has the FastTracker-compatible rules for every module,

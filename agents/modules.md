@@ -770,7 +770,8 @@ Covered:
   trip over random runs and the bad clips that must end.
 - The module player: pitch, volumes, each effect's periods tick by
   tick, the song's order, the envelope, the shaping; the effect R's
-  volumes and ticks as openmpt123 renders each of the test's rows.
+  volumes and ticks, and the effect H's global volume, as
+  openmpt123 renders each of the test's rows.
 - The SID: pitch, each waveform's shape, ring modulation, sync, the
   envelope's times and its late note, the filter's modes and its
   stability at every setting, the frames' timing and the loop; a

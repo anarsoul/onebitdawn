@@ -35,7 +35,7 @@
 //! 4 vibrato, 5 6 with volume slide, 9 offset, A volume slide, B jump,
 //! C volume, D break, E1 E2 fine portamento, E9 retrigger, EA EB fine
 //! volume, EC cut, ED delay, F speed and tempo, G global volume, K key
-//! off, R retrigger with a volume change (`Tune::retrigger`); and an instrument's auto-vibrato, as a sine. Panning is nothing on one buzzer. The converter says what a
+//! off, H global volume slide, R retrigger with a volume change (`Tune::retrigger`); and an instrument's auto-vibrato, as a sine. Panning is nothing on one buzzer. The converter says what a
 //! module uses beyond that.
 //!
 //! The channels are mixed at four times the output rate with linear
@@ -163,6 +163,8 @@ const SINE: [u8; 32] =
 const KEY_OFF: u8 = 97;
 /// The effect R, by its number in a cell.
 pub const RETRIGGER: u8 = 0x1B;
+/// The effect H, the global volume slide.
+pub const GLOBAL_SLIDE: u8 = 0x11;
 /// The fade's full level.
 const FADE_FULL: u32 = 32768;
 
@@ -620,6 +622,7 @@ struct Channel<'a> {
     porta_down: u8,
     tone_speed: u8,
     slide: u8,
+    global_slide: u8,
     vibrato_speed: u8,
     vibrato_depth: u8,
     vibrato_pos: u8,
@@ -1164,6 +1167,8 @@ impl<'a> Tune<'a> {
             0xF if cell.param != 0 => self.speed = cell.param,
             // G.
             0x10 => self.global = cell.param.min(64),
+            // H: the channel's own memory.
+            GLOBAL_SLIDE if cell.param != 0 => ch.global_slide = cell.param,
             // K.
             0x14 if cell.param == 0 => Self::key_off(ch, instrument),
             // x and y are remembered each by itself.
@@ -1221,6 +1226,11 @@ impl<'a> Tune<'a> {
                 0xC if tick == lo => ch.volume = 0,
                 _ => {}
             },
+            // Up if there is an x, as the volume slide.
+            GLOBAL_SLIDE => {
+                let (up, down) = (ch.global_slide >> 4, ch.global_slide & 0xF);
+                self.global = if up != 0 { (self.global + up).min(64) } else { self.global.saturating_sub(down) };
+            }
             0x14 if tick == cell.param => Self::key_off(ch, instrument),
             RETRIGGER => self.retrigger(c, false),
             _ => {}
@@ -1785,6 +1795,43 @@ mod tests {
         };
         assert_eq!(peak(&[(0, (C4, 1, 0x30, 0, 0))]), 127 * 256 / 2);
         assert_eq!(peak(&[(0, (C4, 1, 0x30, 0x10, 32))]), 127 * 256 / 4);
+    }
+
+    #[test]
+    fn h_slides_the_global_volume_as_openmpt_does() {
+        const H: u8 = GLOBAL_SLIDE;
+        // The global volume at each row's end, six ticks a row: each
+        // list is a render of openmpt123's, read where a row begins.
+        let globals = |cells: &[At]| {
+            let data = module(1, 6, 125, &[0], &[pattern(16, cells)], &[square(32)]);
+            let mut t = Tune::new(&data);
+            let mut seen = Vec::new();
+            for tick in 0..6 * cells.len() {
+                let before = t.global;
+                t.step_tick();
+                // The first tick of a row slides nothing.
+                assert!(tick % 6 != 0 || cells[tick / 6].1.3 != H || t.global == before);
+                if tick % 6 == 5 {
+                    seen.push(t.global);
+                }
+            }
+            seen
+        };
+        // Up by x a tick, down by y, the last parameter for none, and
+        // x before y.
+        assert_eq!(
+            globals(&[(0, (C4, 1, 0, 0x10, 0x20)), (1, (0, 0, 0, H, 0x10)), (2, (0, 0, 0, H, 0)), (3, (0, 0, 0, H, 0x02)), (4, (0, 0, 0, H, 0)), (5, (0, 0, 0, H, 0x34))]),
+            [32, 37, 42, 32, 22, 37]
+        );
+        // With nothing to remember it does nothing; the volume stays
+        // in 0 to 64, and comes up from nought.
+        assert_eq!(
+            globals(&[(0, (C4, 1, 0, 0x10, 0x3C)), (1, (0, 0, 0, H, 0)), (2, (0, 0, 0, H, 0xF0)), (3, (0, 0, 0, H, 0x0F)), (4, (0, 0, 0, H, 0x0F)), (5, (0, 0, 0, H, 0x10))]),
+            [60, 60, 64, 0, 0, 5]
+        );
+        // A tune that fades in from G00 is heard.
+        let out = mixed(&module(1, 6, 125, &[0], &[pattern(4, &[(0, (C4, 1, 0, 0x10, 0)), (1, (0, 0, 0, H, 0x40))])], &[square(32)]));
+        assert!(out.iter().any(|&s| s != 0));
     }
 
     #[test]

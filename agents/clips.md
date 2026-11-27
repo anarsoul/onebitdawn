@@ -34,7 +34,7 @@ asks for 16 bits (`samples=16|packed`, `format=packed|pcm16`) is
 refused, and so is a clip made already of a version v0.5 does not
 play (`Firmware::plays`, by the magic); and a module's effect R,
 which that player has not, is E9 where it changes no volume
-(`Firmware::retriggers`). The page starts at Speaker (the user, 2026-11-24: who comes to it
+(`Firmware::retriggers`), and its effect H is named as not played. The page starts at Speaker (the user, 2026-11-24: who comes to it
 more likely has one), the command at the buzzer. The page asks which firmware, "v0.5"
 or "v0.6 or later" (the default), and `obd_convert` takes the minor
 version. A new version of a clip is a new `Firmware` and an option of the
@@ -97,7 +97,8 @@ has must come out the same.
 
 - A FastTracker 2 module for the clock's own player, of up to twenty
   channels; the notes list what the module uses that the player
-  lacks. The effect R (retrigger with a volume change) is the
+  lacks. The effect H (the global volume slide) is the player's
+  since 2026-11-26 and is named only for a firmware up to v0.5. The effect R (retrigger with a volume change) is the
   player's since 2026-11-26 and a clip keeps it as it is. For a
   firmware up to v0.5 (`--firmware 0.5`), whose player has none, an
   R that changes no volume is written as E9, which that player has:

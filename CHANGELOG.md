@@ -21,6 +21,11 @@ from `http://<ip>/update`; its settings survive the update.
   at v0.5 (`--firmware 0.5`, or the page's choice) it goes on writing
   E9 where an R changes no volume and names any other as not played.
 
+- The module player has FastTracker's effect H, the global volume
+  slide, as OpenMPT plays it (on `next`, for the release after v0.5):
+  a module that fades in from G00 was silent to its end. The pack
+  maker names it as not played only for a clock at v0.5.
+
 ### Changed
 
 - On the line output the note melodies and a beeper clip (Trantor)

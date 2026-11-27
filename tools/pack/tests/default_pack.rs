@@ -197,6 +197,12 @@ fn an_r_is_the_modules_for_a_player_that_has_it() {
     let (new, old) = (made(&loud, Target::default()), made(&loud, OLD));
     assert!(has(&new, [1, 0, 0x1B, 0x43]) && has(&old, [1, 0, 0x1B, 0x43]));
     assert!(!said(&new) && said(&old), "{:?} {:?}", new.notes, old.notes);
+    // The global volume slide, H, came with it: named for v0.5 alone.
+    let fade = [[49, 1, 0, 0x10, 0], [0, 0, 0, 0x11, 0x40]];
+    let (new, old) = (made(&fade, Target::default()), made(&fade, OLD));
+    let said = |clip: &Clip| clip.notes.iter().any(|n| n.contains("effect H"));
+    assert!(!said(&new) && said(&old), "{:?} {:?}", new.notes, old.notes);
+    assert!(play(&new.data).iter().any(|&s| s != 0));
 }
 
 /// A module of one channel and one instrument, its sample of 16 bits
