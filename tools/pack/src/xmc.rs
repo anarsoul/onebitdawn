@@ -222,11 +222,21 @@ fn rows(data: &[u8], channels: usize) -> Vec<Vec<[u8; 5]>> {
 /// pattern, which is no longer for it; `plain` is which channels have
 /// no R with a volume.
 fn retriggers(packed: &mut [u8], channels: usize, plain: &[bool]) {
-    let (mut q, mut channel) = (0, 0);
+    for (cell, effect, param) in effect_cells(packed) {
+        if packed[effect] == R && packed[param] & 0xF != 0 && (packed[param] >> 4 == 8 || (packed[param] >> 4 == 0 && plain[cell % channels])) {
+            packed[effect] = 0xE;
+            packed[param] = 0x90 | (packed[param] & 0xF);
+        }
+    }
+}
+
+/// The cells of a pattern's packed data that have both an effect and
+/// a parameter: which cell, and where the two bytes are.
+fn effect_cells(packed: &[u8]) -> Vec<(usize, usize, usize)> {
+    let (mut q, mut cell, mut found) = (0, 0, Vec::new());
     while q < packed.len() {
         let b = packed[q];
         q += 1;
-        // Where the cell's effect and parameter are, if it has both.
         let at = if b & 0x80 != 0 {
             let before = |bit: u8| (b & (bit - 1)).count_ones() as usize;
             let at = (b & 0x18 == 0x18).then(|| (q + before(8), q + before(16)));
@@ -236,16 +246,12 @@ fn retriggers(packed: &mut [u8], channels: usize, plain: &[bool]) {
             q += 4;
             Some((q - 2, q - 1))
         };
-        if let Some((effect, param)) = at.filter(|&(_, param)| param < packed.len())
-            && packed[effect] == R
-            && packed[param] & 0xF != 0
-            && (packed[param] >> 4 == 8 || (packed[param] >> 4 == 0 && plain[channel]))
-        {
-            packed[effect] = 0xE;
-            packed[param] = 0x90 | (packed[param] & 0xF);
+        if let Some((effect, param)) = at.filter(|&(_, param)| param < packed.len()) {
+            found.push((cell, effect, param));
         }
-        channel = (channel + 1) % channels;
+        cell += 1;
     }
+    found
 }
 
 fn effect_name(effect: u8, param: u8) -> String {
@@ -381,7 +387,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
     let rate = rate_flag(shape.rate)?;
     let header = d.size(60)?;
     let orders_n = d.u16(64)? as usize;
-    let restart = d.u16(66)? as usize;
+    let mut restart = d.u16(66)? as usize;
     let channels = d.u16(68)? as usize;
     let patterns_n = d.u16(70)? as usize;
     let instruments_n = d.u16(72)? as usize;
@@ -411,11 +417,33 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
         patterns.push((rows, if size > 0 { d.slice(start, start + size).to_vec() } else { vec![0x80; rows * channels] }));
         at = start + size;
     }
-    // An order may name a pattern the file does not have: 64 empty rows.
-    if let Some(&most) = orders.iter().max() {
-        while most as usize >= patterns.len() {
-            patterns.push((64, vec![0x80; 64 * channels]));
+    // An order may name a pattern the file has not, an empty one at
+    // the tune's end that FastTracker did not save, more often than
+    // not: 64 rows of silence there, and openmpt123 passes such an
+    // order by. So does the clip, which has the order list without
+    // them, and the jumps and the restart counted in that list.
+    let missing = orders.iter().filter(|&&o| o as usize >= patterns.len()).count();
+    let kept: Vec<u8> = orders.iter().copied().filter(|&o| (o as usize) < patterns.len()).collect();
+    if missing != 0 {
+        // An order's place in the new list; of one left out, the next's.
+        let mut place = Vec::with_capacity(orders.len());
+        for &o in orders {
+            place.push((place.last().map_or(0, |&(at, was)| at + was as usize), (o as usize) < patterns.len()));
         }
+        let moved = |order: usize| place.get(order).map_or(kept.len(), |&(at, _)| at);
+        for (_, packed) in &mut patterns {
+            for (_, effect, param) in effect_cells(packed) {
+                if packed[effect] == 0xB {
+                    packed[param] = moved(packed[param] as usize).min(255) as u8;
+                }
+            }
+        }
+        restart = moved(restart);
+        notes.push(format!("{missing} of the order list's {} name a pattern the module has not, and are passed by", orders.len()));
+    }
+    let orders = &kept[..];
+    if orders.is_empty() {
+        return Err("no pattern to play".into());
     }
     let unpack = |patterns: &[(usize, Vec<u8>)]| -> Vec<Vec<Vec<[u8; 5]>>> { patterns.iter().map(|(_, packed)| rows(packed, channels)).collect() };
     // For a player with no R, one that leaves the volume alone becomes E9.

@@ -54,6 +54,10 @@ from `http://<ip>/update`; its settings survive the update.
   pack maker names them as not played only for a clock at v0.5; it
   did not name the tremor at all, and no longer names what does
   nothing in FastTracker (E0, EF) or on one speaker (E8).
+- An order that names a pattern the module has not, an empty one
+  FastTracker did not save as a rule, is passed by, as OpenMPT
+  passes it: it was 64 rows of silence, at a tune's end or its
+  start.
 
 ### Changed
 

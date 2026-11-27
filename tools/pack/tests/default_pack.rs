@@ -251,6 +251,35 @@ fn the_later_effects_are_named_for_v0_5_alone() {
     }
 }
 
+/// An order that names a pattern the module has not is passed by, as
+/// OpenMPT passes it, and a jump goes where it went.
+#[test]
+fn an_order_with_no_pattern_is_passed_by() {
+    let wave: Vec<i16> = (0..2000).map(|i| ((i % 64) * 256 - 8000) as i16).collect();
+    let made = |orders: &[u8], restart: u8| {
+        // A jump on the sixteenth row: a clip is a second at least.
+        let mut cells = vec![[0; 5]; 16];
+        (cells[0], cells[15]) = ([49, 1, 0, 0, 0], [0, 0, 0, 0xB, 3]);
+        let mut data = module_of_16_bits(&wave, (0, 2000), &cells);
+        (data[64], data[66]) = (orders.len() as u8, restart);
+        data[80..80 + orders.len()].copy_from_slice(orders);
+        convert(&Source { data, file: "test.xm".into(), options: vec![("samples".into(), "8".into())], label: None }, Output::Buzzer)
+    };
+    // Orders 0 and 2 have no pattern: the list is the two others, the
+    // jump to the fourth is one to the second and the restart at the
+    // third is at the second.
+    let clip = made(&[9, 0, 255, 0], 2).unwrap();
+    assert_eq!((clip.data[7], clip.data[28]), (2, 1));
+    assert_eq!(&clip.data[32..34], [0, 0]);
+    assert!(clip.data.windows(5).any(|w| w == [0, 0, 0, 0xB, 1]) && !clip.data.windows(5).any(|w| w == [0, 0, 0, 0xB, 3]));
+    assert!(clip.notes.iter().any(|n| n == "2 of the order list's 4 name a pattern the module has not, and are passed by"), "{:?}", clip.notes);
+    // With every pattern there, nothing changes and nothing is said.
+    let whole = made(&[0, 0, 0, 0], 2).unwrap();
+    assert_eq!((whole.data[7], whole.data[28]), (4, 2));
+    assert!(whole.data.windows(5).any(|w| w == [0, 0, 0, 0xB, 3]) && !whole.notes.iter().any(|n| n.contains("passed by")));
+    assert_eq!(made(&[4, 7], 0).unwrap_err(), "test.xm: no pattern to play");
+}
+
 /// A module on the Amiga frequency table: a clip that says so for a
 /// player that has the table, and for v0.5, which plays any clip on
 /// the linear one, the clip that player would make of it and a word

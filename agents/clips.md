@@ -111,7 +111,11 @@ has must come out the same.
   that the slides are not the module's. The tremolo (7, a sine),
   the tremor (T), X1 and X2, L and E5 are the player's since the
   same day and named for a firmware up to v0.5; E0, EF, E8, E40 and
-  E70 do nothing in FastTracker or here and are not named. The effect R (retrigger with a volume change) is the
+  E70 do nothing in FastTracker or here and are not named. An order
+  that names a pattern the file has not is left out of the clip's
+  order list, with the jumps (B) and the restart counted in the
+  list that is left, as openmpt123 passes such an order by;
+  FastTracker plays 64 empty rows for it. The effect R (retrigger with a volume change) is the
   player's since 2026-11-26 and a clip keeps it as it is. For a
   firmware up to v0.5 (`--firmware 0.5`), whose player has none, an
   R that changes no volume is written as E9, which that player has:

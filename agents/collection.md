@@ -122,6 +122,13 @@ it, and is the user's.
   adding up where a model's periods put the ramp, tick by tick, and
   a finetune by the place after a second of one note (the Amiga
   table's section in `PLAN.md` was measured so).
+- A level that changes every tick (an envelope, a tremolo) is not
+  read from a ramp's slope, which has the level's own slope in it:
+  give every instrument a sample of one value and read the render at
+  each tick's end, which is the volume (the tremolo and L were
+  measured so, with `openmpt-ticks.py`'s module patched).
+  `openmpt-channels.py` cannot hold a tremolo to OpenMPT for the
+  same reason.
 - OpenMPT moves a level to its new value across a tick, the global
   volume above all: a slide's ticks read low or high in a render, and
   are right where the next row begins.
@@ -134,4 +141,6 @@ twenty channels. Found with
 it and fixed: files that end before their instruments do and
 instruments that give a wrong size for a sample's header (80
 modules), the effects R, H, EE and E6, the Amiga frequency table
-(245 modules). Found and not fixed: `PLAN.md`'s backlog.
+(245 modules), an instrument named with no note, the effects 7, T,
+X, L and E5, orders with no pattern. Found and not fixed: `PLAN.md`'s
+backlog.
