@@ -6,7 +6,10 @@
 //! arguments into memory it asks `obd_alloc` for, and reads an answer
 //! at `obd_answer` for `obd_answer_len` bytes: text, or a pack.
 //!
-//! One thread and one session: a page.
+//! One thread and one session an instance. The page has several: its
+//! own, which keeps the clips, plays them and makes the pack, and one
+//! in each worker that converts; a clip goes from a worker's to the
+//! page's by `obd_clip` and `obd_adopt`.
 
 use std::sync::Mutex;
 
@@ -100,6 +103,22 @@ pub unsafe extern "C" fn obd_convert(file: *const u8, file_len: usize, data: *co
 #[unsafe(no_mangle)]
 pub extern "C" fn obd_forget(id: usize) {
     with(|session, _| session.forget(id));
+}
+
+/// A clip's bytes in the answer; -1 if there is no such clip.
+#[unsafe(no_mangle)]
+pub extern "C" fn obd_clip(id: usize) -> i32 {
+    with(|session, into| answer(session.data(id).map(<[u8]>::to_vec).ok_or_else(|| "no such clip".to_string()), into))
+}
+
+/// Keep a clip another instance made: its number here.
+///
+/// # Safety
+/// `data` is an `obd_alloc`'s of `len` or more.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn obd_adopt(data: *const u8, len: usize) -> usize {
+    let data = unsafe { bytes(data, len) };
+    with(|session, _| session.adopt(data))
 }
 
 /// The pack of the clips the lines name, in the answer.

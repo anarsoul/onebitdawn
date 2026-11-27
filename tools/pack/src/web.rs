@@ -85,23 +85,38 @@ impl Session {
         let made = crate::convert_for(&source, target)?;
         let notes: Vec<String> = made.notes.iter().map(|n| quoted(n)).collect();
         let takes: Vec<String> = kind.map_or(&[][..], Kind::options).iter().map(|o| quoted(o)).collect();
-        let free = self.clips.iter().position(Option::is_none).unwrap_or(self.clips.len());
-        let json = format!(
-            "{{\"id\":{free},\"name\":{},\"label\":{},\"loops\":{},\"bytes\":{},\"ms\":{},\"kind\":{},\"options\":[{}],\"notes\":[{}]}}",
-            quoted(&made.name),
-            quoted(&made.label),
-            made.loops,
-            made.data.len(),
-            clip::duration_ms(&made.data),
+        let (name, label) = (quoted(&made.name), quoted(&made.label));
+        let (loops, bytes, ms) = (made.loops, made.data.len(), clip::duration_ms(&made.data));
+        let id = self.keep(made);
+        Ok(format!(
+            "{{\"id\":{id},\"name\":{name},\"label\":{label},\"loops\":{loops},\"bytes\":{bytes},\"ms\":{ms},\"kind\":{},\"options\":[{}],\"notes\":[{}]}}",
             quoted(kind.map_or("", Kind::id)),
             takes.join(","),
             notes.join(",")
-        );
+        ))
+    }
+
+    /// Keep a clip, under the first number free.
+    fn keep(&mut self, made: Clip) -> usize {
+        let free = self.clips.iter().position(Option::is_none).unwrap_or(self.clips.len());
         if free == self.clips.len() {
             self.clips.push(None);
         }
         self.clips[free] = Some(made);
-        Ok(json)
+        free
+    }
+
+    /// A clip's bytes, for another session to `adopt`: the page
+    /// converts in workers, a session each, and keeps the clips in
+    /// its own.
+    pub fn data(&self, id: usize) -> Option<&[u8]> {
+        self.clips.get(id).and_then(Option::as_ref).map(|made| &made.data[..])
+    }
+
+    /// Keep a clip another session made: its number here. The name,
+    /// the label and the loop are the page's, given to `build`.
+    pub fn adopt(&mut self, data: &[u8]) -> usize {
+        self.keep(Clip { name: String::new(), label: String::new(), loops: false, data: data.to_vec(), notes: Vec::new() })
     }
 
     /// Forget a clip.
@@ -249,6 +264,13 @@ mod tests {
         wide.extend([0u8; 32000]);
         assert!(session.convert("w.pcm", &wide, "", Target { firmware: Firmware::V0_5, ..Default::default() }).unwrap_err().contains("PCM2"));
         assert!(session.convert("w.pcm", &wide, "", Target { firmware: Firmware::V0_6, ..Default::default() }).unwrap().starts_with(r#"{"id":2,"#));
+        // A clip goes from a worker's session to the page's as its bytes.
+        let mut page = Session::default();
+        assert!(session.data(9).is_none());
+        let id = page.adopt(session.data(0).unwrap());
+        assert_eq!((id, page.adopt(&pcm())), (0, 1));
+        assert_eq!(page.build("0\tfirst\tThe First\t1\n").unwrap(), session.build("0\tfirst\tThe First\t1\n").unwrap());
+        assert_eq!(page.preview(0), 16000);
         assert!(limits().starts_with("{\"room\":1179648,\"clips\":16,\"name\":20,\"label\":32,\"header\":44,\"entry\":64"));
     }
 

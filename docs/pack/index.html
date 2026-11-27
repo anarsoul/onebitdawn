@@ -12,6 +12,8 @@
        The page of the pack maker: tools/pack as WebAssembly
        (onebitdawn_pack.wasm beside this file, `cargo pack-wasm`), which
        does all of the work; this is the list, the fields and the sound.
+       The files are converted in workers, an instance of the wasm each,
+       so that the page and a clip being heard do not wait for them.
        No file leaves the browser. -->
   <style>
     /* The installer's colours (../index.html). */
@@ -310,9 +312,11 @@ const utf8 = new TextEncoder();
 const text = new TextDecoder();
 // The clips, in the pack's order: the file, its bytes, the options,
 // what the converter made of it (`clip`) or why not (`error`), and
-// the name, label and loop as the fields have them.
+// the name, label and loop as the fields have them. `busy` while a
+// worker is at it, for the `job` of that number; `asked` is the
+// options it was last given, `gone` a row removed.
 const rows = [];
-let x = null;       // the wasm's exports
+let x = null;       // the wasm's exports: the clips, the sound, the pack
 let limits = null;  // the pack's limits, from the wasm
 let playing = null; // { row, context, timer }
 
@@ -337,26 +341,92 @@ function firmware() {
   return Number($('firmware').value);
 }
 
+// A conversion can take seconds, so it is a worker's: this function is
+// its whole script. It answers with the clip's description and bytes,
+// and keeps nothing.
+function converter() {
+  const utf8 = new TextEncoder();
+  const text = new TextDecoder();
+  let wasm = null;
+  let x = null;
+  const put = (bytes) => {
+    const at = x.obd_alloc(bytes.length);
+    new Uint8Array(x.memory.buffer, at, bytes.length).set(bytes);
+    return [at, bytes.length];
+  };
+  const answer = () => new Uint8Array(x.memory.buffer, x.obd_answer(), x.obd_answer_len()).slice();
+  self.onmessage = ({ data: m }) => {
+    if (m.wasm) {
+      wasm = m.wasm;
+      return;
+    }
+    try {
+      x = x || new WebAssembly.Instance(wasm, {}).exports;
+      const given = [put(utf8.encode(m.file)), put(m.bytes), put(utf8.encode(m.options))];
+      const ok = x.obd_convert(...given.flat(), m.speaker, m.firmware, m.limiter) === 0;
+      for (const [at, len] of given) x.obd_free(at, len);
+      const said = text.decode(answer());
+      let clip = null;
+      if (ok) {
+        const id = JSON.parse(said).id;
+        x.obd_clip(id);
+        clip = answer();
+        x.obd_forget(id);
+      }
+      self.postMessage({ ok, said, clip }, clip ? [clip.buffer] : []);
+    } catch (e) {
+      // A trap leaves the instance as it fell: the next file gets a new one.
+      x = null;
+      self.postMessage({ ok: false, said: 'The converter failed: ' + e });
+    }
+  };
+}
+const POOL_MAX = 4;
+const idle = [];   // the workers with nothing to do
+const queue = [];  // { row, job }, waiting for one
+
 // Make the row's clip, or again after its options changed.
 function convert(row) {
-  if (row.clip) x.obd_forget(row.clip.id);
-  const file = put(utf8.encode(row.file));
-  const data = put(row.bytes);
-  const options = put(utf8.encode(row.options));
-  const ok = x.obd_convert(...file, ...data, ...options, speaker() ? 1 : 0, firmware(), limiter()) === 0;
-  for (const [at, len] of [file, data, options]) x.obd_free(at, len);
-  const said = text.decode(answer());
-  if (!ok) {
-    row.clip = null;
-    row.error = said;
-    return;
+  row.job = (row.job || 0) + 1;
+  row.busy = true;
+  row.asked = row.options;
+  queue.push({ row, job: row.job });
+  pump();
+}
+function pump() {
+  while (idle.length && queue.length) {
+    const { row, job } = queue.shift();
+    // Asked again since, or removed: nobody wants this one.
+    if (row.gone || row.job !== job) continue;
+    const worker = idle.pop();
+    const done = (m) => { idle.push(worker); settle(row, job, m); pump(); };
+    worker.onmessage = (e) => done(e.data);
+    worker.onerror = (e) => { e.preventDefault(); done({ ok: false, said: 'The converter failed: ' + e.message }); };
+    worker.postMessage({ file: row.file, bytes: row.bytes, options: row.options, speaker: speaker() ? 1 : 0, firmware: firmware(), limiter: limiter() });
   }
-  row.clip = JSON.parse(said);
-  row.error = '';
-  // What the user typed stays; the rest follows the clip.
-  if (!row.named) row.name = row.clip.name;
-  if (!row.labelled) row.label = row.clip.label;
-  if (!row.looped) row.loops = row.clip.loops;
+  $('status').textContent = rows.some((r) => r.busy) ? 'Converting…' : '';
+}
+// A worker's answer: the clip into this page's instance, which plays
+// it and makes the pack of it.
+function settle(row, job, m) {
+  if (row.gone || row.job !== job) return;
+  row.busy = false;
+  if (row.clip) x.obd_forget(row.clip.id);
+  if (!m.ok) {
+    row.clip = null;
+    row.error = m.said;
+  } else {
+    row.clip = JSON.parse(m.said);
+    const [at, len] = put(m.clip);
+    row.clip.id = x.obd_adopt(at, len);
+    x.obd_free(at, len);
+    row.error = '';
+    // What the user typed stays; the rest follows the clip.
+    if (!row.named) row.name = row.clip.name;
+    if (!row.labelled) row.label = row.clip.label;
+    if (!row.looped) row.loops = row.clip.loops;
+  }
+  render();
 }
 
 function size(bytes) {
@@ -390,34 +460,47 @@ function tally() {
   $('room').className = over ? 'small bad' : 'small';
   // Two clips of one name: said here, before the pack is asked for.
   const twice = good.map((r) => r.name).find((name, k, all) => all.indexOf(name) !== k);
-  $('make').disabled = !good.length || over || twice !== undefined || rows.some((r) => r.error);
+  $('make').disabled = !good.length || over || twice !== undefined || rows.some((r) => r.error || r.busy);
   $('made').textContent = twice !== undefined ? `Two clips are named ${twice}: give one another name.` : '';
   $('made').className = twice !== undefined ? 'small bad' : 'small';
 }
 
+// The list is drawn again when a worker answers, which may be while a
+// field is typed in: the focus and the caret are put back.
+let drawing = false;
 function render() {
   const list = $('clips');
-  list.replaceChildren(...rows.map((row, k) => {
+  const active = document.activeElement;
+  const held = active && active.dataset.at ? { at: active.dataset.at, from: active.selectionStart, to: active.selectionEnd } : null;
+  const items = rows.map((row, k) => {
     const item = el('li');
     const head = el('div', { className: 'head' }, el('span', { className: 'file', textContent: row.file }));
-    if (row.clip) head.append(el('span', { className: 'small size', textContent: `${length(row.clip.ms)}, ${size(row.clip.bytes)}` }));
+    if (row.busy) head.append(el('span', { className: 'small size', textContent: 'Converting…' }));
+    else if (row.clip) head.append(el('span', { className: 'small size', textContent: `${length(row.clip.ms)}, ${size(row.clip.bytes)}` }));
     item.append(head);
     if (row.error) item.append(el('p', { className: 'bad', textContent: row.error }));
 
-    const field = (label, value, max, set, wide) => {
+    const field = (at, label, value, max, set) => {
       const input = el('input', { type: 'text', value, maxLength: max, spellcheck: false });
+      input.dataset.at = k + at;
       input.addEventListener('input', () => { set(input.value); tally(); });
-      return el('label', { className: wide ? 'wide' : '' }, label, input);
+      return el('label', {}, label, input);
     };
     const fields = el('div', { className: 'fields' });
     if (row.clip) {
       fields.append(
-        field('Label, as the clock shows it', row.label, limits.label, (v) => { row.label = v; row.labelled = true; }),
-        field('Name, for the API: a-z and _', row.name, limits.name, (v) => { row.name = v; row.named = true; }));
+        field('label', 'Label, as the clock shows it', row.label, limits.label, (v) => { row.label = v; row.labelled = true; }),
+        field('name', 'Name, for the API: a-z and _', row.name, limits.name, (v) => { row.name = v; row.named = true; }));
     }
     if (!row.clip || row.clip.options.length) {
       const options = el('input', { type: 'text', value: row.options, spellcheck: false, placeholder: row.clip ? row.clip.options.join(', ') : '' });
-      options.addEventListener('change', () => { row.options = options.value; work(() => convert(row)); });
+      options.dataset.at = k + 'options';
+      // Typed is kept; entered (Enter, or the field left) is converted.
+      const enter = () => { if (!drawing && row.options !== row.asked) { convert(row); render(); } };
+      options.addEventListener('input', () => { row.options = options.value; });
+      options.addEventListener('change', enter);
+      options.addEventListener('blur', enter);
+      options.addEventListener('keydown', (e) => { if (e.key === 'Enter') enter(); });
       // Behind the Advanced box, unless there is something in it to see.
       fields.append(el('label', { className: row.options ? 'wide' : 'wide advanced' }, 'Options', options));
     }
@@ -443,7 +526,9 @@ function render() {
     remove.addEventListener('click', () => {
       if (playing && playing.row === row) stop();
       if (row.clip) x.obd_forget(row.clip.id);
+      row.gone = true;
       rows.splice(k, 1);
+      pump();
       render();
     });
     line.append(move('↑', k - 1, 'Move up'), move('↓', k + 1, 'Move down'), remove);
@@ -454,29 +539,24 @@ function render() {
       item.append(el('ul', { className: 'notes' }, ...row.clip.notes.map((n) => el('li', { textContent: n, className: n.startsWith('not ') ? '' : 'advanced' }))));
     }
     return item;
-  }));
+  });
+  drawing = true;
+  list.replaceChildren(...items);
+  drawing = false;
+  const again = held && list.querySelector(`[data-at="${held.at}"]`);
+  if (again) {
+    again.focus();
+    again.setSelectionRange(held.from, held.to);
+  }
   tally();
-}
-
-// A conversion can take seconds: say so, let the page draw, then work.
-function work(job) {
-  $('status').textContent = 'Converting…';
-  setTimeout(() => {
-    try {
-      job();
-      $('status').textContent = '';
-    } catch (e) {
-      $('status').textContent = 'The converter failed: ' + e;
-    }
-    render();
-  }, 30);
 }
 
 async function add(files) {
   for (const file of files) {
     const row = { file: file.name, bytes: new Uint8Array(await file.arrayBuffer()), options: '', clip: null, error: '', name: '', label: '', loops: false };
     rows.push(row);
-    await new Promise((done) => work(() => { convert(row); done(); }));
+    convert(row);
+    render();
   }
 }
 
@@ -536,7 +616,7 @@ $('make').addEventListener('click', () => {
 });
 
 for (const radio of [...document.querySelectorAll('input[name=output]'), $('firmware'), $('limiter')]) {
-  radio.addEventListener('change', () => { stop(); $('loudness').hidden = $('loudnessnote').hidden = !speaker(); work(() => rows.forEach(convert)); });
+  radio.addEventListener('change', () => { stop(); $('loudness').hidden = $('loudnessnote').hidden = !speaker(); rows.forEach(convert); render(); });
 }
 // A browser may bring the choices back as they were left.
 $('loudness').hidden = $('loudnessnote').hidden = !speaker();
@@ -556,7 +636,15 @@ document.addEventListener('drop', (e) => { if (x) add([...e.dataTransfer.files])
   try {
     const response = await fetch('onebitdawn_pack.wasm');
     if (!response.ok) throw new Error('HTTP ' + response.status);
-    x = (await WebAssembly.instantiate(await response.arrayBuffer(), {})).instance.exports;
+    const wasm = await WebAssembly.compile(await response.arrayBuffer());
+    x = (await WebAssembly.instantiate(wasm, {})).exports;
+    // The converters, with a core left for the page and the sound.
+    const script = URL.createObjectURL(new Blob([`'use strict';(${converter})();`], { type: 'text/javascript' }));
+    for (let k = 0; k < Math.max(1, Math.min(POOL_MAX, (navigator.hardwareConcurrency || 2) - 1)); k++) {
+      const worker = new Worker(script);
+      worker.postMessage({ wasm });
+      idle.push(worker);
+    }
     x.obd_limits();
     limits = JSON.parse(text.decode(answer()));
     $('status').textContent = '';

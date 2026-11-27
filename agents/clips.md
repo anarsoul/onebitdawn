@@ -22,7 +22,13 @@ One library, twice: the command (`src/main.rs`) and, as WebAssembly
 with a C ABI written by hand (`src/wasm.rs` over `src/web.rs`; no
 binding generator, no npm), the page `docs/pack/index.html`, which the
 release workflow deploys beside the installer with the `.wasm` it
-builds (the file is ignored by git). The page previews a clip through
+builds (the file is ignored by git). The page converts in workers
+(`converter` in the page's script, started from a Blob; `POOL_MAX` of
+them at most), an instance of the wasm and so a `Session` each, and
+keeps the clips in its own instance: a worker's clip crosses as its
+bytes (`obd_clip`, then `obd_adopt`, whose number is the page's). So
+the page's thread only draws, previews and makes the pack; keep a
+conversion off it. The page previews a clip through
 `core`'s players (`web::Session::preview`) and gives the pack as a
 download; it does not post to a clock, which `http::admit` would
 refuse from a foreign `Origin`.

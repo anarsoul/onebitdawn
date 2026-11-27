@@ -3988,3 +3988,32 @@ well.
 Owed: nothing. The estimate's constants are one chip's, at the
 converter's default rate; a clip at 16 kHz is scaled and was not
 measured.
+
+## The pack maker's page converts off its main thread — 2026-11-27, on `next`; verified
+
+Adding several tunes froze the page for seconds, a conversion each,
+and a clip being heard ran dry: the converter and the preview's
+player shared the main thread and one wasm instance.
+
+- The conversions run in a pool of workers (`POOL_MAX`, and one
+  fewer than the cores), an instance of the wasm each; the page
+  compiles the module once and posts it to them. The worker's script
+  is in the page, started from a Blob: still two files to deploy.
+- The page's own instance keeps the clips, the preview and the pack:
+  a worker answers with the clip's JSON and its bytes (`obd_clip`),
+  and the page puts them in its session (`obd_adopt`, whose number
+  replaces the worker's). A preview never waits for a conversion.
+- A row is in the list at once, marked as being converted, and has a
+  job number: an answer for an older one (options typed again, the
+  output changed) or for a row removed is dropped. No pack is made
+  while a row is being converted. A worker whose converter trapped
+  says so in the row and starts a fresh instance.
+- The list is redrawn when an answer comes, which may be while a
+  field is typed in: the focus and the caret are put back, and an
+  Options field keeps what was typed and not yet entered.
+
+In headless Chromium the ten modules of `mods/` added at once were
+converted in 4.1 s with the main thread never held longer than
+38 ms. The user tried the page and found it working.
+
+Owed: nothing.
