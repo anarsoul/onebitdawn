@@ -166,7 +166,6 @@ enum Outcome {
 
 /// Hold a connection to the broker in the settings, for as long as
 /// there is one. Spawned on the station only.
-#[embassy_executor::task]
 pub async fn mqtt_task(stack: Stack<'static>, id: DeviceId) -> ! {
     let mut rx = settings::receiver();
     let mut backoff = BACKOFF_MIN;

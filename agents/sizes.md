@@ -117,6 +117,9 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-27 | 29.6 → 27.0 KB | on `next`: `xm::MAX_CHANNELS` from 20 to 32, 221 bytes a channel (30 280 → 27 632) |
 | 2026-11-27 | 27.0 KB | on `next`: a stream loaded where it stays, 16 bytes (27 632 → 27 616); 20 bytes of flash less |
 
+| 2026-11-27 | 27.0 → 89.5 KB | on `next`: the scan's two buffers an image each (2847 bytes) where they were a lap (30 847), 56 000 bytes, and the tasks of one mode joined in `net::mode_task`, 8008 (27 616 → 91 624) |
+| 2026-11-27 | 89.5 → 87.5 KB | on `next`: the mDNS socket holds two whole datagrams, 2944 bytes, where it held 1024, and eight of them where it held four (91 624 → 89 640) |
+
 How much of it is used, measured 2026-11-23 on the bare bench board
 with the `stack-watch` feature (`src/stack.rs`: the stack painted,
 the lowest word no longer painted found), the stack at 33 648 bytes:
@@ -156,7 +159,13 @@ channels. No function of a clip's start has a frame of a kilobyte
 touching `Stream`, `Player` or a tune's constructor, since nothing
 but the compiler's care keeps a value of 7 KB off the stack).
 
-So 7.1 KB of it is never touched, and the boot is what goes
+With the scan's image held once and the mode's tasks in one (the
+same day and board, the stack at 91 624 bytes): the boot 20 532, and
+17 656 at the deepest in two hours of four alarms rung to the
+time-out on the modules, 44 previews, the pages, `/api` and an mDNS
+lookup four times a minute, 12 saves, MQTT connected.
+
+So 71 KB of it is never touched, and the boot is what goes
 deepest; what in the boot does is not looked into. Not seen: the
 access point, a clip on the line output. A build with the
 feature: `cargo build --release --features stack-watch`; the lines
@@ -179,6 +188,10 @@ What takes it:
   4771, printed by the `mqtt` test): about 15 KB in all.
 - The clip ring is 16 KB in every build, since any build may meet a
   pack.
+- `net::mode_task`'s future is 17.9 KB, the station's set (the MQTT
+  task above all); the access point's three are 7.6 KB and lie in the
+  same room. A task that runs in one mode alone goes into its join,
+  not into a pool of its own.
 
 ## The clip ring's timing
 

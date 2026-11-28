@@ -363,6 +363,8 @@ Each with its measurements in `agents/hardware.md`.
 - The lap ends with a blanking frame so the CONF state between laps is
   dark. Keep it. A data descriptor holds whole cycles (two, 2800 bytes;
   the last 2847 with the blanking frame; `CHUNK_SIZE` is 4092, asserted),
+  and all of them read the one image buffer of that size
+  (`scan::IMAGE_BYTES`), a lap's cycles being alike,
   so an image swap, which repoints the descriptors one aligned store at
   a time, changes the image at a cycle boundary within one lap.
 - A published buffer may still be read for the rest of the lap in flight,

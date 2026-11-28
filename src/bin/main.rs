@@ -33,7 +33,7 @@ use onebitdawn::buzzer;
 use onebitdawn::clip;
 use onebitdawn::settings::{Settings, SoundPin};
 use onebitdawn::net::Mode;
-use onebitdawn::{buttons, carry, clock, dhcpd, display, dnsd, heal, http, mdns, mqtt, net, ota, pack, scan, sensors, settings, storage, watchdog};
+use onebitdawn::{buttons, carry, clock, display, heal, http, mqtt, net, ota, pack, scan, sensors, settings, storage, watchdog};
 
 // The app descriptor the esp-idf bootloader requires, with the git
 // version in it so an image file says what it is before it is flashed.
@@ -133,9 +133,9 @@ async fn main(spawner: Spawner) -> ! {
         display_wire(peripherals.GPIO6), // CLK_1,  driver 2
     ];
 
-    // Two transfer buffers: the one the ring points at, one being filled.
-    let buf = dma_tx_buffer!(scan::TRANSFER_BYTES).expect("dma buffer");
-    let spare = dma_tx_buffer!(scan::TRANSFER_BYTES).expect("dma spare buffer");
+    // Two image buffers: the one the ring points at, one being filled.
+    let buf = dma_tx_buffer!(scan::IMAGE_BYTES).expect("dma buffer");
+    let spare = dma_tx_buffer!(scan::IMAGE_BYTES).expect("dma spare buffer");
 
     // Saved settings, so the first frame already has the user's colour.
     // Without a usable nvs partition they live in RAM for this boot.
@@ -277,19 +277,8 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     spawner.spawn(net::net_task(runner).expect("spawn net"));
-    if mode == Mode::AccessPoint {
-        spawner.spawn(net::ap_task(controller, net::ap_ssid(mac)).expect("spawn ap"));
-        spawner.spawn(dhcpd::dhcpd_task(stack).expect("spawn dhcpd"));
-        spawner.spawn(dnsd::dnsd_task(stack).expect("spawn dnsd"));
-    } else {
-        spawner.spawn(net::wifi_task(controller, stack).expect("spawn wifi"));
-        spawner.spawn(net::ntp_task(stack).expect("spawn ntp"));
-        spawner.spawn(net::hostname_task(stack).expect("spawn hostname"));
-        spawner.spawn(mdns::mdns_task(stack).expect("spawn mdns"));
-        spawner.spawn(net::monitor_task(stack).expect("spawn monitor"));
-        spawner.spawn(net::probe_task(stack).expect("spawn probe"));
-        spawner.spawn(mqtt::mqtt_task(stack, mqtt::DeviceId::from_mac(mac)).expect("spawn mqtt"));
-    }
+    // What only one mode runs, in one task: see `net::mode_task`.
+    spawner.spawn(net::mode_task(controller, stack, mac).expect("spawn mode"));
     for i in 0..http::LISTENERS {
         spawner.spawn(http::http_task(stack, i).expect("spawn http"));
     }

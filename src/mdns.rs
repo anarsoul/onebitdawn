@@ -40,7 +40,6 @@ const ANNOUNCE_GAP: Duration = Duration::from_secs(1);
 const HOP_LIMIT: u8 = 255;
 
 /// Answer for the hostname while the station has an address.
-#[embassy_executor::task]
 pub async fn mdns_task(stack: Stack<'static>) -> ! {
     let mut rx_meta = [PacketMetadata::EMPTY; RX_DATAGRAMS];
     let mut rx_buf = [0u8; RX_BYTES];

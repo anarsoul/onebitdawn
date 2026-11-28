@@ -41,11 +41,12 @@ quad-nibble waveform encoder; pure `core`.
 duty `Levels` (no RGB; the palette is written in levels),
 `Panel::render` → `ScanImage`.
 
-**`src/scan.rs`**: the cycle and transfer (one lap) builder, and the
-scan task.
+**`src/scan.rs`**: the cycle and image builder (`build_image`: two
+cycles and the blanking frame, which a lap reads eleven times over),
+and the scan task.
 
 - The task builds the SPI2 quad + DMA bus itself, since an async
-  esp-hal driver is `!Send`. It runs one plain dark transfer so
+  esp-hal driver is `!Send`. It runs one plain dark transfer of an image so
   esp-hal programs the registers, starts the ring, and from then on
   only acts on three requests.
 - `stop`: the ring ends on its blanking frame within two laps, before
@@ -61,7 +62,8 @@ The one module with register access to SPI2, through esp-hal's
 
 - `Ring` is a `DmaTxBuffer` of a conf descriptor (bitmap with magic
   0xA and the USER word) and eleven data descriptors of two cycles
-  each, the last pointing at the first. Its `prepare` switches the
+  each, all reading the one image buffer, the last on into its
+  blanking frame and pointing at the first. Its `prepare` switches the
   mode on in the window esp-hal leaves between programming the
   registers and setting `usr`.
 - `request_stop` clears `usr_conf_nxt` in the conf USER word.
@@ -690,6 +692,11 @@ activate, reboot; `VERSION` from `build.rs`.
 
 **`src/net.rs`**:
 
+- `mode_task` is the one task of what a mode alone runs: it joins the
+  access point's `ap_task`, `dhcpd_task` and `dnsd_task`, or the
+  station's `wifi_task`, `ntp_task`, `hostname_task`, `monitor_task`,
+  `probe_task`, `mdns_task` and `mqtt_task`, which are plain `async
+  fn`s. One static future as large as the larger set.
 - The station, on the stored credentials: a scan before every connect,
   the connect pinned to the BSSID and channel that scan heard loudest
   (a new choice each time; the driver chooses only when the scan heard

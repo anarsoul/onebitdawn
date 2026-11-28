@@ -86,11 +86,12 @@ executor** runs the rest cooperatively.
 | thread | `storage::persist_task` | the `nvs` map | debounced save of changed settings |
 | thread | `net::net_task` | the stack's runner | embassy-net |
 | thread | `http::http_task` × `LISTENERS` | a socket each | pages, `/api`, commands, OTA upload |
-| thread, station | `net::wifi_task` | the Wi-Fi controller | scan, connect, DHCP on and off, RSSI, the transmit power setting |
-| thread, station | `net::ntp_task`, `hostname_task`, `monitor_task`, `probe_task` | sockets | time sync, DHCP hostname, link log, gateway ping and the self-heal trigger |
-| thread, station | `mqtt::mqtt_task` | a socket | Home Assistant session |
-| thread, station | `mdns::mdns_task` | a socket, the mDNS group | answers for `<hostname>.local` |
-| thread, access point | `net::ap_task`, `dhcpd::dhcpd_task`, `dnsd::dnsd_task` | the controller, sockets | the setup network, its leases, captive DNS |
+| thread | `net::mode_task` | the Wi-Fi controller, sockets | what one mode alone runs, the futures below joined in one task, so the two sets share its room |
+| in `mode_task`, station | `net::wifi_task` | the Wi-Fi controller | scan, connect, DHCP on and off, RSSI, the transmit power setting |
+| in `mode_task`, station | `net::ntp_task`, `hostname_task`, `monitor_task`, `probe_task` | sockets | time sync, DHCP hostname, link log, gateway ping and the self-heal trigger |
+| in `mode_task`, station | `mqtt::mqtt_task` | a socket | Home Assistant session |
+| in `mode_task`, station | `mdns::mdns_task` | a socket, the mDNS group | answers for `<hostname>.local` |
+| in `mode_task`, access point | `net::ap_task`, `dhcpd::dhcpd_task`, `dnsd::dnsd_task` | the controller, sockets | the setup network, its leases, captive DNS |
 
 Tasks talk through a small set of statics, each defined in the module
 that owns the receiving side and wrapped in functions:
@@ -116,8 +117,8 @@ Settings + time + readings
         ▼
    core::panel           font, COM/SEG map, colour → ScanImage (duty levels)
         ▼
-   scan::build_cycle     one lap of AiP33628 frames (core::aip33628),
-        │                binary-weighted sub-frames, ending in a blanking frame
+   scan::build_image     two cycles of AiP33628 frames (core::aip33628),
+        │                binary-weighted sub-frames, and a blanking frame
         ▼
    ring::publish         build into the spare buffer, repoint the descriptors
         ▼
@@ -131,6 +132,8 @@ data lines are the two drivers' clock and data. The transfer is one
 segment of the peripheral's DMA-controlled segmented mode on a
 descriptor ring whose last descriptor points at the first, so the
 hardware scans for ever with no interrupt and no CPU in the loop.
+A lap's cycles are all alike, so every data descriptor reads the same
+image buffer, the last one on into its blanking frame.
 `ring.rs` is the one module that touches SPI2's registers.
 
 The display task is the only publisher. A new image goes into the

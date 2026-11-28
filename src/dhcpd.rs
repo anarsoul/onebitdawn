@@ -277,7 +277,6 @@ impl core::fmt::Display for Mac {
 }
 
 /// Serve DHCP on the access point's network.
-#[embassy_executor::task]
 pub async fn dhcpd_task(stack: Stack<'static>) -> ! {
     let mut rx_meta = [PacketMetadata::EMPTY; 2];
     let mut rx_buf = [0u8; PACKET];

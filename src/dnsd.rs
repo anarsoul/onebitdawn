@@ -121,7 +121,6 @@ fn name_of(query: &[u8]) -> heapless::String<64> {
 
 /// Answer every name with the clock's address while it is the access
 /// point.
-#[embassy_executor::task]
 pub async fn dnsd_task(stack: Stack<'static>) -> ! {
     let mut rx_meta = [PacketMetadata::EMPTY; 4];
     let mut rx_buf = [0u8; PACKET * 2];

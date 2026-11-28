@@ -76,7 +76,9 @@ pub const CYCLE_BYTES: usize = SLOTS * SLOT_BYTES;
 /// Microseconds per cycle: four slots of `SLOT_UNITS` units each.
 pub const CYCLE_US: usize = SLOTS * UNIT_US * SLOT_UNITS;
 
-/// Bytes per DMA transfer: the cycles plus the trailing blanking frame.
+/// Bytes per DMA transfer, a lap of the ring: the cycles plus the
+/// trailing blanking frame. No buffer is this long: a lap reads the
+/// image (`IMAGE_BYTES`) several times over.
 pub const TRANSFER_BYTES: usize = CYCLES_PER_TRANSFER * CYCLE_BYTES + FRAME_BYTES;
 
 /// Nanoseconds one transfer, a lap of the ring, takes on the wire: two
@@ -116,11 +118,25 @@ pub fn build_cycle(img: &ScanImage, out: &mut [u8]) {
     }
 }
 
-/// Fill `out` with one complete DMA transfer for `img`: the cycles back to
-/// back, then the blanking frame so the inter-transfer gap is dark.
-pub fn build_transfer(img: &ScanImage, out: &mut [u8]) {
-    let out = &mut out[..TRANSFER_BYTES];
-    let (cycles, blank) = out.split_at_mut(CYCLES_PER_TRANSFER * CYCLE_BYTES);
+/// Cycles in an image, which is what a data descriptor of the ring
+/// reads: whole cycles, so an image swap at descriptor granularity lands
+/// on a cycle boundary.
+pub const CYCLES_PER_IMAGE: usize = 2;
+
+/// Bytes in an image: its cycles and the blanking frame after them,
+/// which the last descriptor of a lap alone reads.
+pub const IMAGE_BYTES: usize = CYCLES_PER_IMAGE * CYCLE_BYTES + FRAME_BYTES;
+
+/// A lap is the image's cycles over and over, a whole number of times.
+const _: () = assert!(CYCLES_PER_TRANSFER.is_multiple_of(CYCLES_PER_IMAGE));
+
+/// Fill `out` with the image of `img`: the cycles back to back, then the
+/// blanking frame so the gap between laps is dark. A lap is these
+/// cycles read `CYCLES_PER_TRANSFER / CYCLES_PER_IMAGE` times, the last
+/// time on into the blanking frame (`ring.rs`).
+pub fn build_image(img: &ScanImage, out: &mut [u8]) {
+    let out = &mut out[..IMAGE_BYTES];
+    let (cycles, blank) = out.split_at_mut(CYCLES_PER_IMAGE * CYCLE_BYTES);
     build_cycle(img, cycles);
     let (first, rest) = cycles.split_at_mut(CYCLE_BYTES);
     for chunk in rest.as_chunks_mut::<CYCLE_BYTES>().0 {
@@ -191,7 +207,7 @@ pub async fn halt() {
     stop().await
 }
 
-/// Hand a new image to the scan. Builds the transfer into the spare
+/// Hand a new image to the scan. Builds it into the spare
 /// buffer, in the caller's task, and points the ring at it; the image
 /// changes at a cycle boundary within one lap, about 3 ms.
 pub async fn publish(img: &ScanImage) {
@@ -201,7 +217,8 @@ pub async fn publish(img: &ScanImage) {
 /// What the scan task builds its SPI bus from: the peripherals, the four
 /// wires with their idle pull-downs already set (the builder leaves a
 /// `Flex` pin's configuration alone, see `main.rs`), and the two DMA
-/// buffers, one the ring points at and one the publisher fills. The
+/// buffers of an image each (`IMAGE_BYTES`), one the ring points at and
+/// one the publisher fills. The
 /// async driver is built in the task rather than handed to it: esp-hal
 /// ties an async driver to the core its interrupt handler was installed
 /// on and makes it `!Send` for that reason, so it is created where it
@@ -216,7 +233,7 @@ pub struct ScanHardware {
 }
 
 /// Runs the display forever. Builds the bus, runs one ordinary dark
-/// transfer so esp-hal programs every register, builds the ring over
+/// transfer, an image long, so esp-hal programs every register, builds the ring over
 /// that buffer and starts it; from then on the hardware scans by itself
 /// and the task only acts on `stop` and `resume`.
 #[embassy_executor::task]
@@ -235,9 +252,9 @@ pub async fn scan_task(hw: ScanHardware) -> ! {
         .with_dma(dma)
         .into_async();
 
-    build_transfer(&ScanImage::DARK, buf.as_mut_slice());
+    build_image(&ScanImage::DARK, buf.as_mut_slice());
     let mut transfer = spi
-        .half_duplex_write_buffer(DataMode::Quad, Command::None, Address::None, 0, TRANSFER_BYTES, buf)
+        .half_duplex_write_buffer(DataMode::Quad, Command::None, Address::None, 0, IMAGE_BYTES, buf)
         .map_err(|(e, ..)| e)
         .expect("scan: first transfer");
     transfer.wait_for_done().await;

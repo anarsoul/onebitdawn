@@ -17,6 +17,7 @@ use embassy_net::icmp::ping::{PingManager, PingParams};
 use embassy_net::icmp::PacketMetadata as IcmpPacketMetadata;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{ConfigV4, DhcpConfig, IpAddress, Ipv4Address, Ipv4Cidr, Runner, Stack, StaticConfigV4};
+use embassy_futures::join::{join, join3, join4};
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use esp_radio::wifi::ap::{AccessPointConfig, EventInfo};
@@ -35,7 +36,7 @@ use sntpc_time_embassy::EmbassyTimestampGenerator;
 
 use crate::form::Network;
 use crate::settings::{Credentials, Hostname, Text};
-use crate::{clock, config, heal, ota, settings};
+use crate::{clock, config, dhcpd, dnsd, heal, mdns, mqtt, ota, settings};
 
 const NTP_PORT: u16 = 123;
 const LOCAL_PORT: u16 = 12345;
@@ -207,7 +208,6 @@ async fn scan_networks(controller: &mut WifiController<'static>) {
 /// for; the stack gets its static address at once and `dhcpd` does the
 /// rest. The mode is AP+STA with a station half that is never
 /// connected, because the driver refuses a scan in AP-only mode.
-#[embassy_executor::task]
 pub async fn ap_task(mut controller: WifiController<'static>, ssid: heapless::String<32>) -> ! {
     // The access point's own power, not the station's setting.
     match controller.set_max_tx_power(config::AP_TX_POWER_QDBM) {
@@ -380,7 +380,6 @@ fn publish_rssi(controller: &WifiController<'static>) {
 /// of every connection goes out on a link that can carry it. A run of
 /// `config::CONNECT_RESET_ATTEMPTS` failed connects, or one lasting
 /// `config::CONNECT_RESET_SECS`, resets the chip through `heal::reset`.
-#[embassy_executor::task]
 pub async fn wifi_task(mut controller: WifiController<'static>, stack: Stack<'static>) -> ! {
     let creds = settings::get().wifi;
     if creds.is_none() {
@@ -531,6 +530,25 @@ fn poke(stack: Stack<'static>) {
     let _ = socket.bind(POKE_PORT);
 }
 
+/// Everything that runs in one mode alone, as one task: the access
+/// point's network, leases and captive DNS, or the station's
+/// connection, time, hostname, mDNS responder, link log, probe and MQTT
+/// session. A task's future is a static, and the two sets are never
+/// both running, so joined here they take the room of the larger set
+/// where tasks of their own took the sum. The futures of a set share
+/// the task's waker: each is polled whenever any of them wakes, which
+/// costs a pending one a few branches. None of them returns.
+#[embassy_executor::task]
+pub async fn mode_task(controller: WifiController<'static>, stack: Stack<'static>, mac: [u8; 6]) -> ! {
+    if mode() == Mode::AccessPoint {
+        join3(ap_task(controller, ap_ssid(mac)), dhcpd::dhcpd_task(stack), dnsd::dnsd_task(stack)).await.0
+    } else {
+        let link = join4(wifi_task(controller, stack), ntp_task(stack), hostname_task(stack), monitor_task(stack));
+        let services = join3(probe_task(stack), mdns::mdns_task(stack), mqtt::mqtt_task(stack, mqtt::DeviceId::from_mac(mac)));
+        join(link, services).await.0.0
+    }
+}
+
 /// Drive the network stack.
 #[embassy_executor::task]
 pub async fn net_task(mut runner: Runner<'static, Interface>) -> ! {
@@ -540,7 +558,6 @@ pub async fn net_task(mut runner: Runner<'static, Interface>) -> ! {
 /// Log every change of the link and of the address, so a lost lease
 /// with the link still up, or a link that bounced, is on record with
 /// its time.
-#[embassy_executor::task]
 pub async fn monitor_task(stack: Stack<'static>) -> ! {
     loop {
         stack.wait_link_up().await;
@@ -603,7 +620,6 @@ static PROBE_PAYLOAD: [u8; config::PROBE_PAYLOAD_BYTES] = [0x5a; config::PROBE_P
 /// the link up means the station is connected but passes no traffic, and
 /// the only thing known to clear that is a reset (`heal::reset`). With
 /// the link down nothing is done: the Wi-Fi task is already reconnecting.
-#[embassy_executor::task]
 pub async fn probe_task(stack: Stack<'static>) -> ! {
     let mut armed = false;
     let mut rx_meta = [IcmpPacketMetadata::EMPTY; 2];
@@ -674,7 +690,6 @@ fn dhcp_config(hostname: &Hostname) -> ConfigV4 {
 /// and stayed put for `RENEW_SETTLE`. The lease restarts; the address
 /// normally comes back the same. With the link down there is nothing to
 /// renew: the next connect starts DHCP with the current name anyway.
-#[embassy_executor::task]
 pub async fn hostname_task(stack: Stack<'static>) -> ! {
     let mut rx = settings::receiver();
     let mut current = settings::get().hostname;
@@ -738,7 +753,6 @@ async fn query_ntp(stack: Stack<'static>) -> Result<i64, &'static str> {
 }
 
 /// Sync the clock periodically.
-#[embassy_executor::task]
 pub async fn ntp_task(stack: Stack<'static>) -> ! {
     loop {
         stack.wait_config_up().await;

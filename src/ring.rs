@@ -23,6 +23,12 @@
 //! the last. Nothing else changes between laps, so no other register is
 //! named.
 //!
+//! A lap's cycles are all the same, so a buffer holds two of them and
+//! the blanking frame (`scan::IMAGE_BYTES`) and every data descriptor
+//! points at its start: the lap reads the same memory eleven times, the
+//! last time on into the blanking frame. Until 2026-11-27 a buffer held
+//! the whole lap, 30.8 KB of one cycle copied 22 times.
+//!
 //! A new image is published by pointing the data descriptors at the
 //! other buffer: eleven aligned stores the DMA reads as it reaches each
 //! descriptor, so a lap in flight changes image at a cycle boundary.
@@ -45,18 +51,23 @@ use static_cell::ConstStaticCell;
 
 use crate::aip33628::FRAME_BYTES;
 use crate::panel::ScanImage;
-use crate::scan::{CYCLE_BYTES, CYCLES_PER_TRANSFER, TRANSFER_BYTES, TRANSFER_NS, build_transfer};
+use crate::scan::{CYCLE_BYTES, CYCLES_PER_IMAGE, CYCLES_PER_TRANSFER, IMAGE_BYTES, TRANSFER_BYTES, TRANSFER_NS, build_image};
 
-/// Cycles per data descriptor. Whole cycles, so an image swap at
-/// descriptor granularity lands on a cycle boundary; two of them plus
-/// the blanking frame stay under the descriptor's 4092-byte limit.
-const CYCLES_PER_DESC: usize = 2;
-/// Data descriptors in the segment; the last also carries the blanking frame.
-const DATA_DESCS: usize = CYCLES_PER_TRANSFER.div_ceil(CYCLES_PER_DESC);
+/// Data descriptors in the segment, each the image's cycles (whole
+/// cycles, so an image swap at descriptor granularity lands on a cycle
+/// boundary); the last also carries the blanking frame.
+const DATA_DESCS: usize = CYCLES_PER_TRANSFER / CYCLES_PER_IMAGE;
 /// The conf descriptor and the data descriptors.
 pub const DESCS: usize = 1 + DATA_DESCS;
-const _: () = assert!(CYCLES_PER_DESC * CYCLE_BYTES + FRAME_BYTES <= CHUNK_SIZE);
-const _: () = assert!(DATA_DESCS * CYCLES_PER_DESC >= CYCLES_PER_TRANSFER);
+/// Bytes a data descriptor reads, but the last.
+const DESC_BYTES: usize = CYCLES_PER_IMAGE * CYCLE_BYTES;
+/// The image with its blanking frame stays under the descriptor's
+/// 4092-byte limit.
+const _: () = assert!(IMAGE_BYTES <= CHUNK_SIZE);
+/// The descriptors read exactly a lap, which is what the SPI is told
+/// the segment's length is.
+const _: () = assert!((DATA_DESCS - 1) * DESC_BYTES + IMAGE_BYTES == TRANSFER_BYTES);
+const _: () = assert!(DESC_BYTES + FRAME_BYTES == IMAGE_BYTES);
 
 /// Magic in bits 31:28 of the bitmap word and in `SPI_DMA_SEG_MAGIC_VALUE`;
 /// the manual's example value.
@@ -94,7 +105,8 @@ static CONF_USER_PTR: AtomicUsize = AtomicUsize::new(0);
 static USER_WORD: AtomicU32 = AtomicU32::new(0);
 
 /// The descriptor ring: one conf descriptor, then the data in whole
-/// cycles, the last descriptor pointing back at the first. Owns no
+/// cycles, every descriptor reading the same image, the last one on
+/// into its blanking frame and pointing back at the first. Owns no
 /// buffer memory: the data buffers belong to the publisher, which
 /// repoints the descriptors.
 pub struct Ring {
@@ -103,10 +115,10 @@ pub struct Ring {
 }
 
 impl Ring {
-    /// Build the ring over `live`, which holds one transfer as
-    /// `build_transfer` writes it. Panics if called twice.
+    /// Build the ring over `live`, which holds an image as
+    /// `build_image` writes it. Panics if called twice.
     pub fn new(live: &mut DmaAlignedMut<'static, [u8]>) -> Self {
-        assert!(live.len() >= TRANSFER_BYTES);
+        assert!(live.len() >= IMAGE_BYTES);
         let mut descriptors = DESCRIPTORS.take().get_mut();
         let mut conf = CONF.take().get_mut();
         conf[0] = (MAGIC as u32) << 28 | BM_USER;
@@ -127,22 +139,17 @@ impl Ring {
         let base = live.as_mut_ptr();
         for i in 0..DATA_DESCS {
             let last = i + 1 == DATA_DESCS;
-            let len = if last { TRANSFER_BYTES - data_offset(i) } else { CYCLES_PER_DESC * CYCLE_BYTES };
+            let len = if last { IMAGE_BYTES } else { DESC_BYTES };
             let d = &mut descriptors[1 + i];
             d.set_owner(Owner::Dma);
             d.set_suc_eof(false);
             d.set_size(len);
             d.set_length(len);
-            d.buffer = unsafe { base.add(data_offset(i)) };
+            d.buffer = base;
             d.next = if last { first } else { unsafe { first.add(2 + i) } };
         }
         Self { descriptors, conf }
     }
-}
-
-/// Byte offset of data descriptor `i` into a transfer buffer.
-const fn data_offset(i: usize) -> usize {
-    i * CYCLES_PER_DESC * CYCLE_BYTES
 }
 
 unsafe impl DmaTxBuffer for Ring {
@@ -221,12 +228,12 @@ fn point_at(buffer: *mut u8) {
     for i in 0..DATA_DESCS {
         let d = unsafe { base.add(1 + i) };
         let field = unsafe { &raw mut (*d).buffer };
-        unsafe { field.write_volatile(buffer.add(data_offset(i))) };
+        unsafe { field.write_volatile(buffer) };
     }
     fence(Ordering::SeqCst);
 }
 
-/// The two transfer buffers: the one the descriptors point at and the
+/// The two image buffers: the one the descriptors point at and the
 /// spare, with when the last swap was, so the spare is not written while
 /// the lap in flight may still read it.
 struct Slots {
@@ -265,7 +272,7 @@ pub async fn publish(img: &ScanImage) {
     if let Some(at) = slots.swapped_at {
         Timer::at(at + HOLD).await;
     }
-    build_transfer(img, &mut slots.spare[..TRANSFER_BYTES]);
+    build_image(img, &mut slots.spare[..IMAGE_BYTES]);
     point_at(slots.spare.as_mut_ptr());
     core::mem::swap(&mut slots.live, &mut slots.spare);
     slots.swapped_at = Some(Instant::now());

@@ -4008,7 +4008,9 @@ start has a frame of a kilobyte now (`scripts/frames.sh`); nothing
 in the language holds that, only the compiler, so the script is run
 after a change there. On `another-bench`: 17 340 bytes at the
 deepest after the eight modules previewed and an alarm rung, the
-boot's 20 532 the deepest again. Owed: the two hours of load again.
+boot's 20 532 the deepest again. The two hours of load again, on
+the image of the section "Static RAM given back to the stack": 17 656
+at the deepest.
 
 ## The pack maker's page converts off its main thread — 2026-11-27, on `next`; verified
 
@@ -4082,5 +4084,52 @@ its tables were left holding, and lets them go in the second, the
 first voice with a release of 750 ms. The record's writes are
 libsidplayfp's register for register and its render has the same
 burst; `mute=9` takes it out, by the user's ear.
+
+Owed: nothing.
+
+## Static RAM given back to the stack: the scan's image held once, the mode's tasks in one future — 2026-11-27, on `next`; verified
+
+Asked for by the user after a survey of the ELF: the main stack is
+what the statics leave, and it was 27.6 KB with 4.2 KB never touched.
+
+- **The scan's two buffers held a lap each, 30.8 KB, of one cycle
+  copied 22 times.** A buffer is now two cycles and the blanking
+  frame (`scan::IMAGE_BYTES`, 2847 bytes); every data descriptor
+  points at its start and the last alone runs on into the blanking
+  frame. The lap on the wire is the same bytes: its length, the CONF
+  state, `HOLD` and the swap are as they were. A publish builds
+  2.8 KB where it copied 30 KB. The first, ordinary transfer that has
+  esp-hal program the registers is one image long, dark.
+- **The tasks of a mode each had a static future, and only one
+  mode's ever run.** `net::mode_task` joins the access point's three
+  or the station's seven in one future, as large as the larger set
+  (17 904 bytes, the station's). The futures of a set share a waker,
+  so each is polled when any wakes.
+
+`.stack` is 91 624 bytes where it was 27 616: 56 000 the scan's
+buffers, 8008 the access point's futures.
+
+On white-clock over the air, by the user: the digits, the colours, no
+shimmer, a change of digit clean, and the access point working. Over
+the network after the update: MQTT connected, `white-clock.local`
+answered, a ping of 498 bytes, no heal and no watchdog reset.
+
+Two hours of load with `stack-watch` on `another-bench`, the heavy
+pack in flash, the load of the run before (four alarms rung to the
+time-out, 44 previews, the pages, `/api` and lookups four times a
+minute, 12 saves, MQTT connected): one boot, no panic, no underrun,
+no watchdog trip, no failed ping, lookup or request, a chunk in
+14.7 ms at most, the heap flat at 54 080. The stack: 20 532 of the
+91 624 bytes used at the boot, 17 656 at the deepest after. The
+`scan` field: 10 425 images published, no stop, the descriptor
+moving between heartbeats.
+
+A resume after a refused upload, on the same board: an image with
+four bytes of its middle changed was written to the other slot and
+refused at its hash, 10 s with the scan stopped; after it the
+heartbeat has one stop, none cancelled, the ring running, the
+descriptor moving and the images published rising, and the running
+image stayed. The board has no panel, so the picture coming back was
+not seen.
 
 Owed: nothing.
