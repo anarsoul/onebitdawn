@@ -115,6 +115,7 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 | 2026-11-26 | 29.6 KB | on `next`: a channel's step by a division of 32 bits, on both frequency tables, where it was one of 64 a channel a tick (a call into the ROM); the same steps, 42 bytes of flash less, nothing of the stack (30 280) |
 | 2026-11-26 | 29.6 KB | on `next`: an instrument of several samples, a table looked up where a note begins; 214 bytes of flash, nothing of the stack or `.rwtext` |
 | 2026-11-27 | 29.6 → 27.0 KB | on `next`: `xm::MAX_CHANNELS` from 20 to 32, 221 bytes a channel (30 280 → 27 632) |
+| 2026-11-27 | 27.0 KB | on `next`: a stream loaded where it stays, 16 bytes (27 632 → 27 616); 20 bytes of flash less |
 
 How much of it is used, measured 2026-11-23 on the bare bench board
 with the `stack-watch` feature (`src/stack.rs`: the stack painted,
@@ -144,10 +145,18 @@ not the boot. `clip::Stream::of` has a frame of 7328 bytes and
 `Player::take_tune` under it one of 14 416, two `xm::Tune`s it
 builds and moves, on the main stack above whatever the clip task's
 interrupt came over; with twenty channels the two were some 13.8 KB
-and hidden under the figures above. So a channel is 221 bytes of the
-stack's size and 663 more of its use at a module's start.
+and hidden under the figures above.
 
-So 4.2 KB of it is never touched, and a module's start is what goes
+With the stream loaded where it stays (the same day and board, the
+stack at 27 616 bytes; `Stream::blank` and `load`,
+`agents/modules.md`): the boot 20 532, and 17 340 at the deepest
+after the eight modules previewed and an alarm rung on the one of 32
+channels. No function of a clip's start has a frame of a kilobyte
+(`scripts/frames.sh`, which lists those that have: run it after
+touching `Stream`, `Player` or a tune's constructor, since nothing
+but the compiler's care keeps a value of 7 KB off the stack).
+
+So 7.1 KB of it is never touched, and the boot is what goes
 deepest; what in the boot does is not looked into. Not seen: the
 access point, a clip on the line output. A build with the
 feature: `cargo build --release --features stack-watch`; the lines

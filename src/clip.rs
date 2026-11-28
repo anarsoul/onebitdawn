@@ -321,7 +321,10 @@ impl Sampler {
         // On the line output a square wave, a beeper clip's or a
         // note's, is samples at a level, the `beep_volume` setting's,
         // and not the pin from rail to rail.
-        let mut player = Stream::of(sound, (out == SoundPin::Line).then(|| line_level(level)));
+        // Loaded where it stays, in this task's future: a stream with
+        // a module in it is 7 KB to move (`Stream::load`).
+        let mut player = Stream::blank(&sound);
+        player.load(sound, (out == SoundPin::Line).then(|| line_level(level)));
         // Set for a clip that goes through the chip's converter: the
         // bits it is to make of a sample, fewer on the buzzer's pin,
         // whose transistor makes a hiss of the edges.

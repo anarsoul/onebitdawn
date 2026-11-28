@@ -3997,8 +3997,18 @@ chunk in 14.8 ms at most; but 23 384 of the 27 632 bytes used at the
 deepest, 17 596 before, from the first module previewed on. The
 frames that build a `Tune` at a clip's start hold three of them
 (`agents/sizes.md`), so the twelve channels cost 8 KB of use on top
-of the 2.7 KB of size, and 4.2 KB is what is left. Owed: the `Tune`
-built in place (`PLAN.md`'s backlog).
+of the 2.7 KB of size, and 4.2 KB was what was left.
+
+**The stream loaded where it stays, 2026-11-27.** A tune's
+constructor is a value and no more (`xm::Tune::bare`, `pt3`'s the
+same), with what is done to it done in its place, and the firmware
+makes the stream in the clip task's future (`Stream::blank`, a
+module's with the tune in it, then `load`). No function of a clip's
+start has a frame of a kilobyte now (`scripts/frames.sh`); nothing
+in the language holds that, only the compiler, so the script is run
+after a change there. On `another-bench`: 17 340 bytes at the
+deepest after the eight modules previewed and an alarm rung, the
+boot's 20 532 the deepest again. Owed: the two hours of load again.
 
 ## The pack maker's page converts off its main thread — 2026-11-27, on `next`; verified
 

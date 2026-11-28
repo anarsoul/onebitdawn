@@ -359,6 +359,14 @@ pub struct Tune<'a> {
 impl<'a> Tune<'a> {
     /// `data` must be a converted tune (`is_tune`).
     pub fn new(data: &'a [u8]) -> Self {
+        let mut tune = Self::bare(data);
+        tune.start();
+        tune
+    }
+
+    /// The tune before `start`, as `xm::Tune::bare` is and for the
+    /// same reason: `clip::Player` starts it where it stays.
+    pub(crate) fn bare(data: &'a [u8]) -> Self {
         let m = data.get(HEADER..).unwrap_or(&[]);
         let version = match byte(m, VERSION) {
             digit @ b'0'..=b'9' => digit - b'0',
@@ -367,7 +375,7 @@ impl<'a> Tune<'a> {
         let old = version <= 3;
         let fast = byte(data, 4) & FAST != 0;
         let flat = byte(data, 4) & FLAT != 0;
-        let mut tune = Self {
+        Self {
             d: data,
             m,
             version,
@@ -408,13 +416,11 @@ impl<'a> Tune<'a> {
             ended: byte(m, POSITIONS) == 0,
             chip: Chip::new(byte(data, 4) & FINE != 0),
             shaper: Shaper::new(byte(data, 5), byte(data, 6), 1 + fast as u32, core::array::from_fn(|i| word(data, 28 + 2 * i) as i16), byte(data, 7), true, if flat { FLAT_KNEE } else { KNEES[(byte(data, 4) >> 4) as usize] }),
-        };
-        tune.start();
-        tune
+        }
     }
 
     /// The player and the chip as a tune finds them.
-    fn start(&mut self) {
+    pub(crate) fn start(&mut self) {
         let m = self.m;
         self.chip = Chip::new(byte(self.d, 4) & FINE != 0);
         self.chip.set_noise_level(match byte(self.d, 38) {

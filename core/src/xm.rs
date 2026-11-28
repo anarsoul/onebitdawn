@@ -798,13 +798,26 @@ pub struct Tune<'a> {
 impl<'a> Tune<'a> {
     /// `data` must be a converted module (`is_tune`).
     pub fn new(data: &'a [u8]) -> Self {
+        let mut tune = Self::bare(data);
+        tune.begin();
+        tune
+    }
+
+    /// The tune before its first row is entered, which `begin` does:
+    /// in two so that `clip::Player` can do the second where the tune
+    /// stays. This is nothing but the value, which the compiler then
+    /// builds in its place; a value made here, worked on and returned
+    /// was two copies of it on the stack at a clip's start, 14 KB of
+    /// frame at 32 channels (2026-11-27).
+    #[inline(never)]
+    pub(crate) fn bare(data: &'a [u8]) -> Self {
         let order_len = byte(data, 7) as usize;
         let patterns = byte(data, 8) as usize;
         let patterns_at = HEADER + order_len;
         let flags = byte(data, 17);
         // How many times the rate is twice the PCM clips', for the limiter.
         let octaves = if flags & FAST != 0 { 2 } else { (flags & TWICE) as u32 };
-        let mut tune = Self {
+        Self {
             d: data,
             channels: (byte(data, 4) as usize).min(MAX_CHANNELS),
             order_len,
@@ -839,9 +852,12 @@ impl<'a> Tune<'a> {
             ready: [0; RUN / 2],
             have: 0,
             given: 0,
-        };
-        tune.enter(0, 0);
-        tune
+        }
+    }
+
+    /// The first row of a `bare` tune entered.
+    pub(crate) fn begin(&mut self) {
+        self.enter(0, 0);
     }
 
     /// Play the tune round and round, as a tracker does, or once.

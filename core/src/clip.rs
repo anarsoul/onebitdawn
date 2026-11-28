@@ -127,8 +127,16 @@ impl<'a> Player<'a> {
         Self::with(Body::Ay(tune), None)
     }
 
+    /// The clip `data`, PCM, as this player's body, as `pcm` has it.
+    fn take_pcm(&mut self, data: &'a [u8]) {
+        let samples = pcm_samples(data);
+        self.len = Some(samples.len());
+        self.pcm_hz = pcm_rate(data);
+        self.body = Body::Pcm(samples);
+    }
+
     /// The clip `data`, PCM as ADPCM, as this player's body, for
-    /// `Stream::new`.
+    /// `Stream::load`.
     fn take_adpcm(&mut self, data: &'a [u8]) {
         let decoder = adpcm::Decoder::new(data);
         self.len = Some(decoder.len());
@@ -137,12 +145,25 @@ impl<'a> Player<'a> {
     }
 
     /// The clip `data`, a tracker module, as this player's body. This
-    /// and the two after it are for `Stream::new`, which says why they
+    /// and the two after it are for `Stream::load`, which says why they
     /// are not inlined.
     #[inline(never)]
     fn take_tune(&mut self, data: &'a [u8]) {
-        self.body = Body::Tune(xm::Tune::new(data));
+        if !matches!(self.body, Body::Tune(_)) {
+            self.put_tune(data);
+        }
+        if let Body::Tune(tune) = &mut self.body {
+            tune.begin();
+        }
         self.len = None;
+    }
+
+    /// A module's tune as the body, not begun, where `Stream::blank`
+    /// did not put it: a copy of it through this frame, which is why
+    /// this is a function of its own.
+    #[inline(never)]
+    fn put_tune(&mut self, data: &'a [u8]) {
+        self.body = Body::Tune(xm::Tune::bare(data));
     }
 
     /// The same for a SID tune.
@@ -155,7 +176,10 @@ impl<'a> Player<'a> {
     /// The same for a PT3 module.
     #[inline(never)]
     fn take_ay(&mut self, data: &'a [u8]) {
-        self.body = Body::Ay(pt3::Tune::new(data));
+        self.body = Body::Ay(pt3::Tune::bare(data));
+        if let Body::Ay(tune) = &mut self.body {
+            tune.start();
+        }
         self.len = None;
     }
 
@@ -861,54 +885,84 @@ impl<'a> Stream<'a> {
         Self::of(Sound::Clip { data, looping }, None)
     }
 
-    /// `sound` as a stream. `line` is the amplitude of a square wave
-    /// on the line output (`line_level`), for a sound that goes there:
-    /// a beeper clip is then samples at that level and not its bits.
-    /// Notes are samples wherever they go, at that level or
-    /// `LINE_PCT`'s.
-    ///
-    /// A tune's player is a kilobyte, and is built in the stream where
-    /// it stays, each kind by a function of its own: the clip task
-    /// runs on the interrupt executor, on whatever stack the interrupt
-    /// found, and all four kinds built in this frame and moved from it
-    /// took 6 KB and the Wi-Fi task's stack with it (2026-11-13).
-    #[inline(never)]
+    /// `sound` as a stream; `load` says what `line` is.
     pub fn of(sound: Sound<'a>, line: Option<i32>) -> Self {
+        let mut stream = Self::blank(&sound);
+        stream.load(sound, line);
+        stream
+    }
+
+    /// The stream to `load` `sound` into: `idle`, or for a module one
+    /// with the tune in it already, not begun.
+    pub fn blank(sound: &Sound<'a>) -> Self {
+        match *sound {
+            Sound::Clip { data, .. } if xm::is_tune(data) => Self::module(data),
+            _ => Self::idle(),
+        }
+    }
+
+    /// A stream with the module `data` in it, not begun. The value and
+    /// nothing else, in a function of its own, as `xm::Tune::bare` is:
+    /// the compiler then builds the tune in the caller's stream.
+    #[inline(never)]
+    fn module(data: &'a [u8]) -> Self {
+        Self::Pcm(Player::with(Body::Tune(xm::Tune::bare(data)), None))
+    }
+
+    /// A stream of nothing, for `load`: a few words to write, where a
+    /// stream with a tune in it is kilobytes.
+    pub const fn idle() -> Self {
+        Self::Pcm(Player::new(&[]))
+    }
+
+    /// `sound` as this stream, which is as `blank` gave it for this
+    /// sound (or `idle`, at the price of a module copied once). `line` is
+    /// the amplitude of a square wave on the line output
+    /// (`line_level`), for a sound that goes there: a beeper clip is
+    /// then samples at that level and not its bits. Notes are samples
+    /// wherever they go, at that level or `LINE_PCT`'s.
+    ///
+    /// A module's player is 7 KB, and is built in the stream where it
+    /// stays, each kind by a function of its own, and the stream where
+    /// the caller keeps it: the clip task runs on the interrupt
+    /// executor, on whatever stack the interrupt found. All four kinds
+    /// built in one frame and moved from it took 6 KB and the Wi-Fi
+    /// task's stack with it (2026-11-13), and a stream built here and
+    /// returned, over a tune built and moved twice, 21.7 KB of the
+    /// main stack's 27.6 (2026-11-27). `scripts/frames.sh` lists the
+    /// frames: none of these is to be there.
+    #[inline(never)]
+    pub fn load(&mut self, sound: Sound<'a>, line: Option<i32>) {
         let (data, looping) = match sound {
             Sound::Clip { data, looping } => (data, looping),
             Sound::Notes { notes, bpm } => {
-                let mut stream = Self::Pcm(Player::new(&[]));
-                if let Self::Pcm(player) = &mut stream {
+                if let Self::Pcm(player) = self {
                     player.take_notes(notes, bpm, line.unwrap_or(line_level(LINE_PCT)));
                 }
-                return stream;
+                return;
             }
         };
+        if is_beeper(data) && line.is_none() {
+            *self = Self::Beeper(Runs::new(Beeper::new(data).looped(looping)));
+            return;
+        }
+        let Self::Pcm(player) = self else { return };
         if is_beeper(data) {
-            let Some(amp) = line else {
-                return Self::Beeper(Runs::new(Beeper::new(data).looped(looping)));
-            };
-            let mut stream = Self::Pcm(Player::new(&[]));
-            if let Self::Pcm(player) = &mut stream {
-                player.take_beeper(data, looping, amp);
-            }
-            return stream;
+            player.take_beeper(data, looping, line.unwrap_or(line_level(LINE_PCT)));
+            return;
         }
-        let tune = adpcm::is_clip(data) || xm::is_tune(data) || sid::is_tune(data) || pt3::is_tune(data);
-        let mut stream = Self::Pcm(if tune { Player::new(&[]) } else { Player::pcm(data) });
-        if let Self::Pcm(player) = &mut stream {
-            if adpcm::is_clip(data) {
-                player.take_adpcm(data);
-            } else if xm::is_tune(data) {
-                player.take_tune(data);
-            } else if sid::is_tune(data) {
-                player.take_sid(data);
-            } else if pt3::is_tune(data) {
-                player.take_ay(data);
-            }
-            player.set_looping(looping);
+        if adpcm::is_clip(data) {
+            player.take_adpcm(data);
+        } else if xm::is_tune(data) {
+            player.take_tune(data);
+        } else if sid::is_tune(data) {
+            player.take_sid(data);
+        } else if pt3::is_tune(data) {
+            player.take_ay(data);
+        } else {
+            player.take_pcm(data);
         }
-        stream
+        player.set_looping(looping);
     }
 
     /// Write the next `out.len()` bytes, a multiple of
@@ -1391,6 +1445,36 @@ mod tests {
             got.pop();
         }
         got
+    }
+
+    /// A stream is loaded where it stays: a module's tune is in the
+    /// blank one already, and one loaded into an idle stream, which
+    /// copies it, plays the same; so do the other kinds either way.
+    #[test]
+    fn a_stream_loaded_in_place_plays_as_one_made() {
+        let tune = xm::short_tune();
+        let made = samples_of(&mut Stream::Pcm(Player::tune(xm::Tune::new(&tune))));
+        assert!(made.len() > 2 * RAMP);
+        let sound = Sound::Clip { data: &tune, looping: false };
+        let mut blank = Stream::blank(&sound);
+        assert!(matches!(&blank, Stream::Pcm(Player { body: Body::Tune(_), .. })));
+        blank.load(sound, None);
+        assert_eq!(samples_of(&mut blank), made);
+        let mut idle = Stream::idle();
+        idle.load(sound, None);
+        assert_eq!(samples_of(&mut idle), made);
+        // PCM, bare and behind its header.
+        let mut clip = PCM_MAGIC.to_vec();
+        clip.extend_from_slice(&(2 * PCM_HZ).to_le_bytes());
+        clip.extend((0..500u32).map(|i| (i * 37 % 251) as u8));
+        for data in [&clip[..], &clip[9..]] {
+            let sound = Sound::Clip { data, looping: false };
+            assert!(matches!(&Stream::blank(&sound), Stream::Pcm(Player { body: Body::Pcm([]), .. })));
+            let mut stream = Stream::idle();
+            stream.load(sound, None);
+            assert_eq!(stream.sample_rate(), pcm_rate(data));
+            assert_eq!(samples_of(&mut stream), samples_of(&mut Stream::Pcm(Player::pcm(data))));
+        }
     }
 
     #[test]

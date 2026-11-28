@@ -315,10 +315,19 @@ command, looped or once, and stops within a note.
 - `Stream`: either kind, by its first bytes (PCM as ADPCM, `adpcm.rs`,
   is a `Player`'s body as a tune is). `Stream::of` takes a `Sound`, a
   clip or a melody's notes, and the line output's level if the sound
-  goes there; `Stream::new` is a clip for the buzzer's pin. `of` is never inlined
-  and builds a tune's player in place through `Player::take_*`:
-  inlined, with a slot a kind, it was 6 KB of the clip task's frame,
-  on whatever stack the interrupt found. For the firmware half it has
+  goes there; `Stream::new` is a clip for the buzzer's pin. The firmware
+  does it in two, `Stream::blank` into the task's future and `load`
+  on it there, so that a module's 7 KB are built where they stay:
+  `blank` has the tune in it already (`xm::Tune::bare`, a value and
+  no more, as `Stream::module` around it is, which is what lets the
+  compiler build it in the caller's place) and `load` begins it;
+  the other kinds go into an idle stream through `Player::take_*`,
+  never inlined, a kind a function. On whatever stack the interrupt
+  found, a stream built in `of`'s frame and a tune built, worked on
+  and moved were 21.7 KB of frames at 32 channels;
+  `scripts/frames.sh` lists the frames of a kilobyte and more, where
+  none of the clip's start is to be (`Player::put_tune`, a module
+  into an idle stream, is the host's and is). For the firmware half it has
   `converter`, `sample_rate`, `rest` and `bit_rate` (the rate the ring
   is read at: the line's bits, or 16 a sample).
 - `Pacer` says which chunks of the ring to write from the time since
