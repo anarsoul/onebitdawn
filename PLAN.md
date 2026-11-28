@@ -612,3 +612,15 @@ for more than twenty channels). Not fixed:
 - **Not played and named**: E3, the glissando, and a vibrato's or
   tremolo's waveform other than the sine (E4, E7); no module of the
   collection that converts uses either.
+
+### Found with the stack watched at 32 channels (2026-11-27)
+
+- **A module's start takes 21.7 KB of the main stack**, of 27.6:
+  `clip::Stream::of` (7328 bytes) and `Player::take_tune` (14 416)
+  hold three `xm::Tune`s between them, built and moved. 4248 bytes
+  were left on the bare bench board over two hours; not seen there:
+  a start from MQTT or over a deeper thread task, the access point,
+  the line output. Build the `Tune` where it stays (an initialiser
+  over `&mut`, or the body made empty and filled), then the run
+  again; `agents/sizes.md` has the figures.
+

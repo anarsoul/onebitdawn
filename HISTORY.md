@@ -3989,6 +3989,17 @@ Owed: nothing. The estimate's constants are one chip's, at the
 converter's default rate; a clip at 16 kHz is scaled and was not
 measured.
 
+**The stack, 2026-11-27.** Two hours of load with `stack-watch` on
+`another-bench`, the heavy pack in flash (four alarms rung to the
+time-out, 44 previews, the pages, `/api` and lookups four times a
+minute, MQTT connected): no panic, no underrun, no watchdog trip, a
+chunk in 14.8 ms at most; but 23 384 of the 27 632 bytes used at the
+deepest, 17 596 before, from the first module previewed on. The
+frames that build a `Tune` at a clip's start hold three of them
+(`agents/sizes.md`), so the twelve channels cost 8 KB of use on top
+of the 2.7 KB of size, and 4.2 KB is what is left. Owed: the `Tune`
+built in place (`PLAN.md`'s backlog).
+
 ## The pack maker's page converts off its main thread — 2026-11-27, on `next`; verified
 
 Adding several tunes froze the page for seconds, a conversion each,

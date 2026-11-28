@@ -133,7 +133,21 @@ hour of four alarms rung to the time-out, 43 clips previewed, the
 pages, `/api` and an mDNS lookup four times a minute, MQTT connected.
 The responder's cost is its statics; 10.1 KB is never touched.
 
-So 13.1 KB of it is never touched, and the boot is what goes
+With 32 channels (2026-11-27, the same board, the stack at 27 632
+bytes, the pack of eight modules of 18 to 32 channels): the boot
+20 532 again, and 23 384 at the deepest in two hours of four alarms
+rung to the time-out on those modules, 44 previews, the pages, `/api`
+and an mDNS lookup four times a minute, 12 saves, MQTT connected;
+4248 bytes never touched. The figure is reached at the first module
+previewed and never passed: a clip's start is what goes deepest now,
+not the boot. `clip::Stream::of` has a frame of 7328 bytes and
+`Player::take_tune` under it one of 14 416, two `xm::Tune`s it
+builds and moves, on the main stack above whatever the clip task's
+interrupt came over; with twenty channels the two were some 13.8 KB
+and hidden under the figures above. So a channel is 221 bytes of the
+stack's size and 663 more of its use at a module's start.
+
+So 4.2 KB of it is never touched, and a module's start is what goes
 deepest; what in the boot does is not looked into. Not seen: the
 access point, a clip on the line output. A build with the
 feature: `cargo build --release --features stack-watch`; the lines
