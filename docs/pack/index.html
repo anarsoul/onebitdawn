@@ -402,7 +402,8 @@ function pump() {
     // Asked again since, or removed: nobody wants this one.
     if (row.gone || row.job !== job) continue;
     const worker = idle.pop();
-    const done = (m) => { idle.push(worker); settle(row, job, m); pump(); };
+    // The queue goes on whatever becomes of this answer.
+    const done = (m) => { idle.push(worker); try { settle(row, job, m); } finally { pump(); } };
     worker.onmessage = (e) => done(e.data);
     worker.onerror = (e) => { e.preventDefault(); done({ ok: false, said: 'The converter failed: ' + e.message }); };
     worker.postMessage({ file: row.file, bytes: row.bytes, options: row.options, speaker: speaker() ? 1 : 0, firmware: firmware(), limiter: limiter() });
@@ -414,6 +415,8 @@ function pump() {
 function settle(row, job, m) {
   if (row.gone || row.job !== job) return;
   row.busy = false;
+  // The clip being heard is the one that goes: its preview ends first.
+  if (playing && playing.row === row) stop();
   if (row.clip) x.obd_forget(row.clip.id);
   if (!m.ok) {
     row.clip = null;
@@ -537,7 +540,7 @@ function render() {
     line.append(move('↑', k - 1, 'Move up'), move('↓', k + 1, 'Move down'), remove);
     item.append(line);
 
-    if (playing && playing.row === row) {
+    if (playing && playing.row === row && row.clip) {
       // Where it is in the clip, and a way to anywhere else in it.
       const bar = el('input', { type: 'range', min: 0, max: row.clip.ms, step: 100, ariaLabel: 'Seek in ' + row.label });
       bar.dataset.at = k + 'seek';

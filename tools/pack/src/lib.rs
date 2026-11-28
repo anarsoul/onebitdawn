@@ -112,11 +112,20 @@ impl Firmware {
         if self == Firmware::V0_5 { 20 } else { onebitdawn_core::xm::MAX_CHANNELS }
     }
 
-    /// Whether it plays a clip this maker's firmware does.
+    /// Whether it plays a clip this maker's firmware does, by the
+    /// clip's version.
     pub fn plays(self, clip: &[u8]) -> bool {
         use onebitdawn_core::{adpcm, xm};
         let later: [&[u8; 4]; 4] = [xm::WIDE_MAGIC, xm::PACKED_MAGIC, adpcm::PACKED_MAGIC, adpcm::WIDE_MAGIC];
         self.wide() || !later.iter().any(|magic| clip.starts_with(&magic[..]))
+    }
+
+    /// The channels of a module's clip, if they are more than its
+    /// player has: a clip made already for a later firmware may be of
+    /// a version this one plays and of more channels.
+    pub fn crowded(self, clip: &[u8]) -> Option<usize> {
+        let channels = *clip.get(xmc::CHANNELS_AT)? as usize;
+        (onebitdawn_core::xm::is_tune(clip) && channels > self.channels()).then_some(channels)
     }
 
     /// Why an option's value is not for this firmware.
@@ -410,6 +419,9 @@ pub fn convert_for(source: &Source, target: Target) -> Result<Clip, String> {
         let magic = String::from_utf8_lossy(&data[..4]).into_owned();
         let again = if kind == Kind::Clip { "; convert its source again" } else { "" };
         return Err(format!("{file}: a clip of the version {magic}, which a clock at {} does not play{again}", firmware.text()));
+    }
+    if let Some(channels) = firmware.crowded(&data) {
+        return Err(format!("{file}: a module's clip of {channels} channels, and a clock at {} plays {}; convert its source again", firmware.text(), firmware.channels()));
     }
     // A sample of 16 bits at an odd offset a pack mends by a byte
     // before the clip; some at odd ones and some at even it cannot.

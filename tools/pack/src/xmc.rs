@@ -324,8 +324,9 @@ struct Instrument {
     keys: Vec<u8>,
 }
 
-/// Where a clip's header has the limiter's drive, its flags and the
-/// knee (`xm`'s header).
+/// Where a clip's header has its channels, the limiter's drive, its
+/// flags and the knee (`xm`'s header).
+pub(crate) const CHANNELS_AT: usize = 4;
 const DRIVE_AT: usize = 10;
 const FLAGS_AT: usize = 17;
 const KNEE_AT: usize = 29;
@@ -419,6 +420,13 @@ const LOAD_BLOCK: f64 = 24.2;
 /// decodes from the loop's first block again.
 const LOAD_WRAP: f64 = 1.5;
 
+/// The samples a clip of so many milliseconds is at `rate`. The
+/// product is more than 32 bits hold from 137 s on at 31 250 Hz, and
+/// `usize` is 32 bits where the page runs this.
+fn samples_in(ms: u32, rate: usize) -> u64 {
+    ms as u64 * rate as u64 / 1000
+}
+
 /// An estimate of the share of the processor, in hundredths, the
 /// clock spends playing the clip in its dearest second: the voices
 /// sounding (`xm::Tune::voices`) and the blocks their predicted
@@ -434,7 +442,7 @@ pub fn load(clip: &[u8]) -> f64 {
     let rate = tune.rate() as usize;
     // 62 500 mixed samples a second for a clip at 31 250, 32 000 for the rest.
     let scale = if rate > 24000 { 1.0 } else { 32000.0 / 62500.0 };
-    let mut left = onebitdawn_core::clip::duration_ms(clip) as usize * rate / 1000;
+    let mut left = samples_in(onebitdawn_core::clip::duration_ms(clip), rate);
     let (mut dearest, mut sum, mut looks, mut out) = (0.0f64, 0.0, 0u32, 0usize);
     while left != 0 {
         let got = tune.block().len();
@@ -443,7 +451,7 @@ pub fn load(clip: &[u8]) -> f64 {
         }
         tune.taken(got);
         out += got;
-        left = left.saturating_sub(got);
+        left = left.saturating_sub(got as u64);
         looks += 1;
         for voice in tune.voices() {
             sum += LOAD_VOICE;
@@ -912,6 +920,14 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_tune_is_counted_in_64_bits() {
+        // 153.6 s at 31 250 Hz: the product is past what 32 bits
+        // hold, and wrapped it was the tune's first 16 s.
+        assert_eq!(samples_in(153_600, 31250), 4_800_000);
+        assert_eq!(samples_in(u32::MAX, 62500), 268_435_455_937);
+    }
 
     #[test]
     fn an_r_that_changes_no_volume_is_e9() {

@@ -416,6 +416,13 @@ fn a_sample_is_predicted_where_the_clock_can_afford_it() {
     let old = convert_for(&Source { data: many(24), file: "test.xm".into(), options: vec![], label: None }, OLD);
     assert_eq!(old.err().as_deref(), Some("test.xm: 24 channels; the player has 20 of the firmware the pack is for, 32 of a later one"));
     assert!(convert_for(&Source { data: many(20), file: "test.xm".into(), options: vec![], label: None }, OLD).is_ok());
+    // Nor one made already for a later firmware, of a version v0.5
+    // plays: its samples of 8 bits.
+    let narrow = made(many(24), &[("samples", "8")]);
+    assert_eq!((&narrow.data[..4], narrow.data[4]), (&b"XMC2"[..], 24));
+    let given = |file: &str, target| convert_for(&Source { data: narrow.data.clone(), file: file.into(), options: vec![], label: None }, target);
+    assert_eq!(given("test.xmc", OLD).err().as_deref(), Some("test.xmc: a module's clip of 24 channels, and a clock at v0.5 plays 20; convert its source again"));
+    assert!(given("test.xmc", Target::default()).is_ok());
     // The sound is the same but for the coding's noise.
     assert_eq!(play(&crowd.data).len(), play(&forced.data).len());
 }

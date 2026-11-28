@@ -81,6 +81,43 @@ is poor, and a reconnect when a much stronger BSSID of the same
 network is seen, is the obvious shape; nothing is designed. A
 feature, so for `next`, not for master before v0.5.
 
+## Three findings of a review of the pack maker (2026-11-27) — built on `next`, tried in headless Chromium
+
+A review of the commits of 2026-11-26 and 27 (`bug-report.md`, not
+kept) found three faults; each was read against the code and holds.
+
+- **`xmc::load` looks at the start of a long tune only, in the
+  browser.** Its count of output samples is the clip's milliseconds
+  times its rate in `usize`, which is 32 bits in WebAssembly and wraps
+  past 137 s at 31 250 Hz: a dear passage after that is not seen, and
+  the page keeps a sample predicted that the command would not. The
+  count is to be of 64 bits, in a function of its own under test.
+- **The page's list is not drawn when a conversion fails for the row
+  being played**: `settle` clears the clip, the seek bar reads its
+  length, the render throws before the error is shown and the queue
+  is not pumped. `settle` is to stop the row's preview before the
+  clip is replaced or cleared (its player's clip is forgotten there
+  too), the seek bar to be drawn only for a row with a clip, and the
+  worker's answer to pump the queue whatever `settle` does.
+- **A clip made already goes into a pack for v0.5 with more than
+  twenty channels**: `Firmware::plays` reads the magic alone, and an
+  `XMC2` of 24 channels made for v0.6 (`samples=8`) passes, which
+  v0.5 plays with its rows read wrong. `plays` is to read a module's
+  channels as well, with the refusal saying so.
+
+Built as planned: `xmc::samples_in`, `Firmware::crowded` beside
+`plays`, and the page's `settle`. In headless Chromium, the page and
+the WebAssembly of before and after: a module of 16 channels and
+153.6 s with its dear passage in the last 15 s came out of the old
+page as `XMC4` of 6764 bytes with no word of the load, and of the new
+as the command's `XMC3` of 10 416 (94 % to 45 %); `bad=1` entered
+while the row played threw at every tick of the old page, with no
+error shown and the status left at converting, and on the new the
+preview stops, the error is shown and nothing is thrown.
+
+Owed: the same hole for the effects v0.5 does not play, in an `XMC2`
+made for v0.6 and given to a pack for v0.5, is not looked at.
+
 ## An mDNS responder: the clock is `<hostname>.local` — built and tested on the bench board 2026-11-26, on `next`
 
 A network whose router does not put DHCP names in its DNS had no
