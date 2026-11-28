@@ -17,6 +17,9 @@ ram = []
 # Each player's `skip`, which goes on in a tune without making its
 # samples: the pack maker's page seeks with it. Not the firmware's.
 seek = []
+# The PT3 player's registers frame by frame, for holding it to a
+# reference player (`cargo pt3-check`). Not the firmware's.
+dump = []
 
 [dependencies]
 embassy-sync     = "0.7"

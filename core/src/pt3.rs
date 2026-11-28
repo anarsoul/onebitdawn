@@ -235,9 +235,22 @@ struct Lines {
 impl Lines {
     /// The one whose address is the word at `pointer`: its loop
     /// position, its length, then the lines.
+    /// A module made in Vortex Tracker names ones it has not got, with
+    /// a pointer of nought: such a one has no lines.
     fn at(m: &[u8], pointer: usize) -> Self {
-        let at = word(m, pointer) as usize;
-        Self { at: at + 2, len: byte(m, at + 1), back: byte(m, at) }
+        match word(m, pointer) as usize {
+            0 => Self::default(),
+            at => Self { at: at + 2, len: byte(m, at + 1), back: byte(m, at) },
+        }
+    }
+
+    /// Where line `pos` is, each of `size` bytes, if there is one: a
+    /// position past the last (an offset effect's, or in a sample or an
+    /// ornament the module has not got) is an empty line, as the
+    /// tracker plays it, and not the bytes that follow in the module,
+    /// which is what the Spectrum's routine reads.
+    fn line(&self, pos: u8, size: usize) -> Option<usize> {
+        (pos < self.len).then(|| self.at + size * pos as usize)
     }
 
     /// The position after `pos`.
@@ -739,13 +752,17 @@ impl<'a> Tune<'a> {
         if ch.sounding {
             // A line: flags and the noise or envelope offset, flags and
             // the level, the tone offset as a word.
-            let at = ch.sample.at + 4 * ch.sample_pos as usize;
-            let (b0, b1) = (byte(m, at), byte(m, at + 1));
-            let offset = (word(m, at + 2) as i32).wrapping_add(ch.tone_sum);
+            // An empty line is silent: no level, and the tone, the
+            // noise and the envelope all masked.
+            let (b0, b1, tone) = match ch.sample.line(ch.sample_pos, 4) {
+                Some(at) => (byte(m, at), byte(m, at + 1), word(m, at + 2)),
+                None => (0x01, 0x90, 0),
+            };
+            let offset = (tone as i32).wrapping_add(ch.tone_sum);
             if b1 & 0x40 != 0 {
                 ch.tone_sum = offset;
             }
-            let note = ch.note.wrapping_add(byte(m, ch.ornament.at + ch.ornament_pos as usize));
+            let note = ch.note.wrapping_add(ch.ornament.line(ch.ornament_pos, 1).map_or(0, |at| byte(m, at)));
             let note = if note >= 0x80 { 0 } else { note.min(TOP_NOTE) };
             ch.tone = (offset.wrapping_add(ch.slide).wrapping_add(self.tones[note as usize] as i32) & 0xFFF) as u16;
             if ch.slide_in > 0 {
@@ -860,21 +877,35 @@ pub fn raw_mix(data: &[u8]) -> Vec<i16> {
     out
 }
 
-/// The registers the player gives the chip, fourteen a frame with 255
-/// for a shape not written: for comparing the player with another.
+impl Tune<'_> {
+    /// The next frame's registers as the player gives them to the
+    /// chip, with 255 for a shape not written, or `None` at the tune's
+    /// end: for comparing the player with another (the `dump` feature,
+    /// `cargo pt3-check`). Not for a tune that is also played.
+    #[cfg(any(test, feature = "dump"))]
+    pub fn frame_registers(&mut self) -> Option<[u8; 14]> {
+        self.next_frame(true);
+        if self.ended {
+            return None;
+        }
+        let mut frame: [u8; 14] = core::array::from_fn(|r| self.chip.register(r as u8));
+        frame[13] = self.shape.unwrap_or(0xFF);
+        Some(frame)
+    }
+
+    /// Where the player is, for a dump's reader: the position, and
+    /// each channel's next byte in the module.
+    #[cfg(any(test, feature = "dump"))]
+    pub fn place(&self) -> (u8, [usize; 3]) {
+        (self.position, core::array::from_fn(|c| self.channel[c].at))
+    }
+}
+
+/// The whole tune's registers, fourteen a frame.
 #[cfg(test)]
 pub fn registers(data: &[u8]) -> Vec<[u8; 14]> {
     let mut t = Tune::new(data);
-    let mut out = Vec::new();
-    loop {
-        t.next_frame(true);
-        if t.ended {
-            return out;
-        }
-        let mut frame: [u8; 14] = core::array::from_fn(|r| t.chip.register(r as u8));
-        frame[13] = t.shape.unwrap_or(0xFF);
-        out.push(frame);
-    }
+    core::iter::from_fn(|| t.frame_registers()).collect()
 }
 
 #[cfg(test)]
@@ -1146,6 +1177,30 @@ mod tests {
         let module = Module::new().ornament(3, &[12], 0).sample(4, &[plain(9)], 0).pattern(&[0xF3, 8, note(45)], &[], &[]);
         let frames = module.registers();
         assert_eq!((tone(&frames[0], 0), frames[0][8]), (0x7C, 9));
+    }
+
+    /// As zxtune plays them, and Vortex Tracker, whose modules have
+    /// them: the Spectrum's routine reads whatever follows in the
+    /// module (`cargo pt3-check` found three such in a collection).
+    #[test]
+    fn a_line_the_module_has_not_got_is_empty() {
+        // An ornament begun past its end adds nothing for a frame and
+        // goes round; one the module has not got adds nothing at all.
+        let chord = [0x0F9, 0x0C5, 0x0A6];
+        let module = Module::new().ornament(1, &[0, 4, 7], 0).pattern(&[0xB1, 2, 0x41, 0x04, note(45), 5, 0x45, note(45)], &[], &[]);
+        let got: Vec<u16> = module.registers().iter().map(|f| tone(f, 0)).collect();
+        assert_eq!(got[..6], [chord[0], chord[0], chord[1], chord[2], chord[0], chord[1]]);
+        assert_eq!(got[6..12], [chord[0]; 6]);
+        // A sample begun past its end is silent for a frame, its tone
+        // and noise masked, with the note's tone; one the module has
+        // not got is so for good.
+        let module = Module::new().sample(2, &[plain(9)], 0).pattern(&[0xB1, 2, 0xD2, 0x03, note(45), 4, 0xD7, note(45)], &[], &[]);
+        let got: Vec<_> = module.registers().iter().map(|f| (tone(f, 0), f[8], f[7])).collect();
+        assert_eq!(got[..3], [(0xF9, 0, 0b001_001), (0xF9, 9, 0b001_000), (0xF9, 9, 0b001_000)]);
+        assert_eq!(got[6..12], [(0xF9, 0, 0b001_001); 6]);
+        // Silent with the envelope on as well.
+        let module = Module::new().pattern(&[0x1E, 0, 9, 14, note(45)], &[], &[]);
+        assert_eq!(module.registers()[0][8], 0);
     }
 
     #[test]

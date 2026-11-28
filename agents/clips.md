@@ -14,6 +14,7 @@ cargo pack --clip clips/tune.xmc tune.xm        # one file's clip and no pack
 cargo pack --help                               # every kind's options
 cargo pack-test                                 # its tests
 cargo collection ~/Music/modules                # it and the player over a collection (agents/collection.md)
+cargo pt3-check pt3                             # the PT3 player against zxtune123 over a collection (agents/collection.md)
 cargo pack-wasm && cp target/wasm32-unknown-unknown/tool/onebitdawn_pack.wasm docs/pack/
 (cd docs && python3 -m http.server)             # the page, at /pack/
 ```

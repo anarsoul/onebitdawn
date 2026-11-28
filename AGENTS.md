@@ -105,7 +105,7 @@ touches them:
 | a clip converter, a pack, the sound path's build variables | `agents/clips.md` |
 | the buzzer pin, a DMA ring, the sensors, the current, Wi-Fi power, the flash | `agents/hardware.md` |
 | a buffer, a page's size, the record, a partition, a new static | `agents/sizes.md` |
-| an effect of the module player, a tracker converter, how a tune ends | `agents/collection.md` |
+| an effect of the module player, a tracker converter, how a tune ends, the PT3 player | `agents/collection.md` |
 
 Keep them current in the same change as the code. A date, a
 measurement or the story of how something came to be goes in the
@@ -125,6 +125,7 @@ cargo clippy -p onebitdawn-pack --target host-tuple --all-targets
 cargo pack -o packs/mine.bin tune.xm ring.wav   # a clip pack of your files; --help for the options
 cargo pack-wasm                          # the pack maker for its page, docs/pack/ (agents/clips.md)
 cargo collection ~/Music/modules         # the pack maker and the module player over modules kept elsewhere (agents/collection.md)
+cargo pt3-check pt3                      # the PT3 player's registers against zxtune123's, over a folder of modules (agents/collection.md)
 node scripts/tz-check.mjs                # src/tz.js against zones with known rules
 WIFI_SSID='…' WIFI_PASSWORD='…' TZ_RULE='<-07>7' API_TOKEN='…' cargo run --release   # flash over USB, open the monitor
 API_TOKEN='…' scripts/ota.sh <ip>        # update over the LAN; with no arguments just the image file
@@ -439,7 +440,8 @@ them; `node scripts/tz-check.mjs` checks `src/tz.js`;
 for byte, and runs it over whatever is in the ignored music folders. The players'
 tests over real clips run only with `ALARM_CLIP` naming some, which
 the CI does in a second run. The module player's effects are held to
-openmpt123 and to a collection of modules by hand, with the tools of
+openmpt123 and to a collection of modules by hand, and the PT3
+player to zxtune123 over one, with the tools of
 `agents/collection.md`. Not under test: `scan.rs`'s
 `build_cycle`, `ring.rs` (its layout is `const`-asserted),
 `src/clip.rs`, `dhcpd.rs` and `dnsd.rs`,

@@ -160,6 +160,14 @@ from `http://<ip>/update`; its settings survive the update.
 
 ### Fixed
 
+- A ZX Spectrum tune made in Vortex Tracker that names an ornament
+  or a sample its module has not got, or begins one past its last
+  line with an offset effect, is played as the tracker and zxtune
+  play it, with an empty line; the player read the bytes that follow
+  in the module, which was a wrong note or a burst of noise for a
+  frame or more (on `next`, for the release after v0.5). Found by
+  holding the player to zxtune over 104 modules.
+
 - The pack maker converts an XM module whose file ends before its
   instruments do (the header counts more than there are, or the last
   sample is cut) and one whose instruments give a wrong size for

@@ -548,7 +548,11 @@ does nothing for PCM (HISTORY.md, 2026-11-16).
   sample and ornament offset, on/off vibrato, envelope slide, tempo),
   samples and ornaments a line a frame, and the tone and volume tables
   by the module's version. Every read is bounds-checked. No
-  TurboSound.
+  TurboSound. A sample or an ornament the module has not got, and a
+  position past the last line of one, is an empty line
+  (`Lines::line`), as Vortex Tracker and zxtune play it.
+- `Tune::frame_registers` (the `dump` feature, not the firmware's)
+  gives a frame's registers and no sound, for `cargo pt3-check`.
 - For a clip whose header says `FLAT` (the converter's default): its
   mean is taken out (a 5 Hz tracker), then `shape::Shaper` is the
   clip's high-pass and a plain gain, the header's drive in 127ths of
@@ -822,7 +826,9 @@ Covered:
 - The PT3 player, on modules built in the test: notes by table and
   version, rows and tempo, sample lines and their sums, ornaments,
   slides and portamento, the envelope, the positions, the loop and the
-  fresh start, cut and random modules.
+  fresh start, lines a module has not got, cut and random modules.
+  Real modules are held to zxtune123 by hand (`cargo pt3-check`,
+  `agents/collection.md`).
 - The ring's pacer, run against a model of the DMA. `ALARM_CLIP=… cargo
   host-test` covers the table with the clip in it.
 - Sensors: the NTC and LDR tables against their equations, the

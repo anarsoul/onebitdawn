@@ -154,3 +154,52 @@ samples (61 modules have one, in 28 a note plays a sample past the
 first), an auto-vibrato's waveform and when it begins again (55
 modules have a square or a ramp). Found and not fixed: `PLAN.md`'s
 backlog.
+
+## The PT3 player against zxtune
+
+`cargo pt3-check path…` (`tools/pack/examples/pt3check.rs`, whose
+header is its full account) holds the PT3 player to `zxtune123`, the
+reference the user chose (r5112 when this was written; on the `PATH`
+or `--zxtune`). Each `.pt3` is converted as the pack maker does and
+played by `pt3::Tune` for the registers it gives the chip, a frame
+at a time (`Tune::frame_registers`, `core`'s `dump` feature); zxtune
+writes its own for the same file (`--convert mode=psg`), and the two
+are compared frame by frame with the bits the chip does not read left
+out. `--show N` prints a file's first N differing frames, the clock's
+over zxtune's, with the position and each channel's place in its
+pattern; `--from FRAME` prints from a frame on, alike or not. It
+exits with 1 if a file differs. The collection is the user's 104
+modules in the ignored `pt3/`.
+
+To explain a difference: the pattern's bytes at the places `--show`
+names, the module's sample and ornament tables, and zxtune's source
+(`src/module/players/aym/vortex.cpp` the player,
+`src/formats/chiptune/aym/protracker3_compiled.cpp` the parser, in
+vitamin-caig/zxtune). A fix is a case in the player's tests, on a
+module built there.
+
+What the measure cannot say, and what it showed (2026-11-28):
+
+- zxtune's record is not its playing at a tune's end. The last frame
+  is never in it; one before the last is lost now and then; a run of
+  more than 1020 frames with nothing written comes out short by a
+  multiple of 1024 (the count's byte goes round). `mode=zx50` is
+  short in the same way. The tool rejoins the two past the frames
+  the record lacks and counts the files where that was more than
+  one. zxtune's sound has the frames: a frame in doubt is settled by
+  rendering (`zxtune123 --wav filename=x.wav --file m.pt3`) and
+  looking at that frame's 882 samples for the tones in question.
+- The PSG's `FF` is the end of a frame and `FE n` of four times n:
+  read otherwise, a change comes a frame late after every such run.
+- TurboSound is refused by the converter; zxtune took the same 33 of
+  the 104 for TurboSound.
+- 70 of the other 71 are zxtune's in every frame, 2.9 hours. Fixed
+  for it: a sample or an ornament the module has not got and a
+  position past the last line of one (three Vortex Tracker modules).
+- Left as it is: a portamento on a row with no note ("New View 48k",
+  8 frames). The player has arrived at once, as the Spectrum's
+  routine; zxtune slides towards note 0.
+- Not met in the collection, so not held to anything: an effect
+  named twice on a row (zxtune takes its parameters twice, the player
+  once, where it was named last), a sample's number out of range in
+  a pattern (zxtune plays sample 0), a sample of more than 64 lines.

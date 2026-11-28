@@ -443,6 +443,48 @@ the stack or `.rwtext`.
 Owed: a module with a square or a ramp, and one of the three S3M,
 heard on a clock, which is the user's.
 
+## The PT3 player held to zxtune over a collection — built 2026-11-28, on `next`; not heard on a clock
+
+The register comparison the PT3 player owed, with zxtune123 as the
+reference (the user's choice) and the user's 104 modules in the
+ignored `pt3/`. `cargo pt3-check` (`tools/pack/examples/pt3check.rs`,
+`agents/collection.md`) converts each as the pack maker does and
+holds the registers `pt3::Tune` gives the chip, frame by frame
+(`Tune::frame_registers`, `core`'s `dump` feature), to zxtune's
+record of the same file (`--convert mode=psg`).
+
+- 33 of the 104 are TurboSound and refused; zxtune takes the same 33
+  for TurboSound.
+- Of the 71, 2.9 hours, 67 gave zxtune's registers in every frame
+  as the player was. Three modules made in Vortex Tracker differed:
+  a pattern names an ornament or a sample the module has not got (a
+  pointer of nought), or an offset effect begins one past its last
+  line. The player read the bytes that follow in the module, as the
+  Spectrum's routine does; zxtune, like the tracker the tune was
+  written in, plays an empty line: no note added, or no level with
+  the tone, the noise and the envelope masked. The player now does
+  the same (`Lines::line`); 70 are then the same.
+- One differs and is left: a portamento on a row with no note (8
+  frames of "New View 48k", the tone one to three steps off). The
+  player, as the Spectrum's routine, has arrived at once; zxtune
+  slides towards note 0, which looks like its model's default and
+  not a rule.
+- zxtune's record is not its playing at a tune's end: the last frame
+  is never in it, now and then one before it is lost, and a run of
+  more than 1020 frames with nothing written is short by a multiple
+  of 1024. Its own sound has those frames (two tunes rendered: the
+  lengths are the player's, and the frames in doubt sound as the
+  player's registers say). The tool rejoins the two past the frames
+  lost and says in how many files it had more than one to pass.
+
+`.rwtext` and `.stack` are as they were.
+
+Owed: the three modules heard on a clock, the user's; the other
+differences zxtune's parser has from the player (an effect named
+twice on a row, a sample's number out of range, a sample of more
+than 64 lines) were not met in the collection and are not held to
+anything.
+
 ## Checks still owed
 
 A line is struck or deleted when its check is made or no longer
@@ -461,8 +503,6 @@ condensed and the built sections moved there):
 - **Web flasher and releases** — an install from the browser.
 - **Timezone rules: POSIX TZ strings and daylight saving** — the
   panel, a real transition, the page on a phone.
-- **ZX Spectrum tunes: an AY-3-8910 and a PT3 player on the chip** —
-  the register comparison with a reference player.
 - **The station picks its access point: the strongest of each scan**
   — built 2026-11-13, not on a clock yet.
 - **The page split in four** — white-clock, a phone and the access

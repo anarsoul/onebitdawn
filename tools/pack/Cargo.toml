@@ -17,6 +17,14 @@ crate-type = ["rlib", "cdylib"]
 name = "onebitdawn-pack"
 path = "src/main.rs"
 
+# The collection tools that look inside a player (`cargo pt3-check`).
+[features]
+dump = ["onebitdawn-core/dump"]
+
+[[example]]
+name = "pt3check"
+required-features = ["dump"]
+
 [dependencies]
 # The pack's layout and its parser, the clips' magics and the players,
 # which are what a pack is checked with before it is given out.

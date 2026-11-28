@@ -24,6 +24,9 @@ pack-wasm = "build --profile tool -p onebitdawn-pack --lib --target wasm32-unkno
 # The pack maker and the module player over a collection of modules
 # kept elsewhere (`tools/pack/examples/collection.rs`, `agents/collection.md`).
 collection = "run -q --release -p onebitdawn-pack --example collection --target host-tuple --"
+# The PT3 player's registers against zxtune123's, over a folder of
+# modules (`tools/pack/examples/pt3check.rs`, `agents/collection.md`).
+pt3-check = "run -q --release -p onebitdawn-pack --example pt3check --features dump --target host-tuple --"
 
 [build]
 rustflags = [
