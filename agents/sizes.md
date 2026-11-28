@@ -119,6 +119,7 @@ What the statics leave of DRAM is the main stack. Check `.stack` in
 
 | 2026-11-27 | 27.0 → 89.5 KB | on `next`: the scan's two buffers an image each (2847 bytes) where they were a lap (30 847), 56 000 bytes, and the tasks of one mode joined in `net::mode_task`, 8008 (27 616 → 91 624) |
 | 2026-11-27 | 89.5 → 87.5 KB | on `next`: the mDNS socket holds two whole datagrams, 2944 bytes, where it held 1024, and eight of them where it held four (91 624 → 89 640) |
+| 2026-11-27 | 87.5 KB | on `next`: the auto-vibrato's waveforms and rules; 198 bytes of flash, nothing of the stack or `.rwtext` |
 
 How much of it is used, measured 2026-11-23 on the bare bench board
 with the `stack-watch` feature (`src/stack.rs`: the stack painted,

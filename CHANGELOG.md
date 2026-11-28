@@ -70,6 +70,16 @@ from `http://<ip>/update`; its settings survive the update.
   pack maker names them as not played only for a clock at v0.5; it
   did not name the tremor at all, and no longer names what does
   nothing in FastTracker (E0, EF) or on one speaker (E8).
+- An instrument's own vibrato is played in its waveform, the
+  square and the two ramps as well as the sine, and as OpenMPT
+  plays it (on `next`, for the release after v0.5): it begins again
+  with an instrument's number and not with a note alone, a key-off
+  before it has grown to its depth ends it, and it is no longer a
+  tick late. A pack for a clock at v0.5 has the sine, and the maker
+  says so.
+- A ScreamTracker module with fast volume slides, one made by
+  ScreamTracker 3.00 above all, is converted, its slides moving on a
+  row's first tick as well; the pack maker refused it.
 - An order that names a pattern the module has not, an empty one
   FastTracker did not save as a rule, is passed by, as OpenMPT
   passes it: it was 64 rows of silence, at a tune's end or its

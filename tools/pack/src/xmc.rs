@@ -319,6 +319,8 @@ struct Instrument {
     env_loop: (u8, u8),
     fade: u16,
     auto: [u8; 3],
+    /// The auto-vibrato's waveform, for a player that has them.
+    wave: u8,
     /// For an instrument of several samples, the entry each note
     /// plays (`xm`'s `Instrument::keyed`); empty for one of one.
     keys: Vec<u8>,
@@ -617,10 +619,15 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
             entry.env_loop = (d.u8(at + 228), d.u8(at + 229));
             entry.flags = if points > 0 { d.u8(at + 233) & 7 } else { 0 };
             entry.fade = d.u16(at + 239);
-            // Auto-vibrato: sweep, depth, rate. The player's is a sine.
+            // Auto-vibrato: sweep, depth, rate, and the waveform:
+            // FastTracker's square and two ramps, which a player after
+            // v0.5 has. Any other is a sine: OpenMPT's noise named,
+            // the numbers past it a sine there too.
             entry.auto = [d.u8(at + 236), d.u8(at + 237), d.u8(at + 238)];
             let waveform = d.u8(at + 235);
-            if entry.auto[1] != 0 && waveform != 0 {
+            if entry.auto[1] != 0 && matches!(waveform, 1..=3) && shape.retrigger {
+                entry.wave = waveform;
+            } else if entry.auto[1] != 0 && matches!(waveform, 1..=4) {
                 warn(format!("instrument {number}: auto-vibrato waveform {waveform}, played as a sine"));
             }
             // Of several samples a note plays the one the
@@ -849,7 +856,7 @@ pub fn convert(module: &[u8], shape: &Shape, notes: &mut Vec<String>) -> Result<
             let kept = if i.sample.is_empty() { Samples::Cut } else { i.kept };
             // The sample's flags: how it is kept, bit 2 for a predicted
             // one's seek points, bit 3 for the table of several samples.
-            out.extend([kept as u8 | ((kept == Samples::Packed) as u8) << 2 | if i.keys.is_empty() { 0 } else { 8 }, 0, 0]);
+            out.extend([kept as u8 | ((kept == Samples::Packed) as u8) << 2 | if i.keys.is_empty() { 0 } else { 8 }, i.wave, 0]);
             for p in 0..ENVELOPE_POINTS {
                 let (x, y) = i.points.get(p).copied().unwrap_or((0, 0));
                 out.extend(x.to_le_bytes());
@@ -927,6 +934,36 @@ mod tests {
         // hold, and wrapped it was the tune's first 16 s.
         assert_eq!(samples_in(153_600, 31250), 4_800_000);
         assert_eq!(samples_in(u32::MAX, 62500), 268_435_455_937);
+    }
+
+    #[test]
+    fn an_auto_vibratos_waveform_is_a_byte_of_the_clip_for_a_player_that_has_it() {
+        use crate::modxm::xm;
+        // One instrument, a note of it for two seconds, its vibrato of
+        // a depth and the waveform given.
+        let made = |waveform: u8, retrigger: bool| {
+            let mut module = xm::header(b"wave", &[0], 0, 2, 1, 1, 6, 125);
+            let cells = (0..128).map(|i| if i == 0 { [49, 1, 0, 0, 0] } else { [0; 5] });
+            module.extend(xm::pattern(cells));
+            let at = module.len();
+            let pcm: Vec<u8> = (0..64).map(|i| if i < 32 { 100 } else { 156 }).collect();
+            module.extend(xm::instrument(b"square", &pcm, Some((0, 64)), 64, 0, 0));
+            (module[at + 235], module[at + 237], module[at + 238]) = (waveform, 8, 16);
+            let mut notes = Vec::new();
+            let shape = Shape { retrigger, ..Shape::new(Output::Buzzer) };
+            (convert(&module, &shape, &mut notes).unwrap(), notes.iter().any(|n| n.contains("played as a sine")))
+        };
+        let (sine, _) = made(0, true);
+        for waveform in 1..=3 {
+            // The one byte, and nothing said.
+            let (clip, named) = made(waveform, true);
+            let differ: Vec<u8> = clip.iter().zip(&sine).filter(|(a, b)| a != b).map(|(a, _)| *a).collect();
+            assert_eq!((differ, named), (vec![waveform], false));
+            // For a player with a sine alone: the sine's clip, and a note.
+            assert!(made(waveform, false) == (made(0, false).0, true));
+        }
+        // OpenMPT's noise is a sine and named; past it, a sine there too.
+        assert!(made(4, true) == (sine.clone(), true) && made(5, true) == (sine, false));
     }
 
     #[test]

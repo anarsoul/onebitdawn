@@ -9,14 +9,33 @@
 //! frequency table, which is what `onebitdawn_core::xm` plays. The
 //! effects converted are A, B, C, D, O and T (D00's memory resolved in
 //! playing order, since FT2 keeps the fine slides' apart); any other is
-//! left out and named. Not converted: AdLib instruments, 16-bit, stereo
-//! and packed samples, fast volume slides (refused), and the panning, a
+//! left out and named. A module of fast volume slides (ScreamTracker
+//! 3.00's, or by the flag) slides on a row's first tick as well: that
+//! tick's step is the volume column's (`fast`). Not converted: AdLib
+//! instruments, 16-bit, stereo and packed samples, and the panning, a
 //! module being mono on the clock.
 
 use std::collections::{BTreeSet, HashSet};
 
 use crate::bytes::Data;
 use crate::modxm::xm;
+
+/// A fast volume slide's first tick, which FastTracker's A has not: the
+/// XM's volume column for a cell of that column and a slide D of
+/// `par`, neither of them fine. A volume set there takes the step; an
+/// empty column is the fine slide, which is a row's first tick's.
+fn fast(column: u8, par: u8) -> u8 {
+    let (up, down) = match (par >> 4, par & 15) {
+        (x, 0) => (x, 0),
+        (_, y) => (0, y),
+    };
+    match column {
+        0 if up != 0 => 0x90 | up,
+        0 if down != 0 => 0x80 | down,
+        0 => 0,
+        set => 0x10 + (set - 0x10 + up).min(64).saturating_sub(down),
+    }
+}
 
 /// The XM of the module in `module`.
 pub fn convert(module: &[u8], notes: &mut Vec<String>) -> Result<Vec<u8>, String> {
@@ -32,9 +51,7 @@ pub fn convert(module: &[u8], notes: &mut Vec<String>) -> Result<Vec<u8>, String
     let last = d.bytes(0x40, 32)?.iter().rposition(|&c| c < 16).ok_or("no channels")?;
     let nch = last + 1 + (last + 1) % 2;
     let orders: Vec<u8> = d.slice(0x60, 0x60 + ordn).iter().copied().filter(|&o| o < 254).collect();
-    if cwt == 0x1300 || flags & 0x40 != 0 {
-        return Err("fast volume slides: not handled".into());
-    }
+    let fast_slides = cwt == 0x1300 || flags & 0x40 != 0;
 
     // The patterns as [pattern][row][channel] = note, instrument,
     // volume, effect, parameter, in S3M's terms.
@@ -121,6 +138,7 @@ pub fn convert(module: &[u8], notes: &mut Vec<String>) -> Result<Vec<u8>, String
                 (0, 0)
             }
         };
+        let xv = if fast_slides && xf == 0xA { fast(xv, xp) } else { xv };
         [xn, ins, xv, xf, xp]
     };
 
@@ -167,4 +185,17 @@ pub fn convert(module: &[u8], notes: &mut Vec<String>) -> Result<Vec<u8>, String
         notes.push(format!("not converted: the effects {}", letters.join(", ")));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fast;
+
+    #[test]
+    fn a_fast_slides_first_tick_is_the_volume_columns() {
+        // An empty column: the fine slide, up or down.
+        assert_eq!([fast(0, 0x30), fast(0, 0x03), fast(0, 0xF0), fast(0, 0x0F), fast(0, 0)], [0x93, 0x83, 0x9F, 0x8F, 0]);
+        // A volume set there takes the step, within its range.
+        assert_eq!([fast(0x30, 0x30), fast(0x30, 0x03), fast(0x4E, 0x40), fast(0x12, 0x05)], [0x33, 0x2D, 0x50, 0x10]);
+    }
 }

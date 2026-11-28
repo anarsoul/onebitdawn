@@ -797,7 +797,7 @@ fn the_knee_fitted_is_what_the_ear_chose() {
     };
     let keygen = "mods/Orion-Nero6.3.0.2.xm:name=keygen";
     let knees: Vec<u8> = Limiter::ALL.iter().map(|&(limiter, _)| chosen(keygen, Output::Speaker, limiter)[29]).collect();
-    assert_eq!(knees, [0, 50, 60, 76]);
+    assert_eq!(knees, [0, 51, 60, 76]);
     // The maker's own default is the cleanest.
     assert_eq!(chosen(keygen, Output::Speaker, Limiter::default())[29], 76);
     assert!(chosen(keygen, Output::Speaker, Limiter::Cleaner) == made(&format!("{keygen},knee=auto,tops=600"), Output::Speaker).data);

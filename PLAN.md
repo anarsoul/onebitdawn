@@ -393,6 +393,56 @@ workflow run, which only a tag does. Open: louder with no flat tops
 at all needs a limiter that sees the peak coming, which is the
 firmware's and a new clip version.
 
+## An instrument's vibrato in its own waveform, and ScreamTracker's fast volume slides — built 2026-11-27, on `next`; not heard on a clock
+
+What the collection still named: 55 modules with an auto-vibrato
+that is not a sine, played as one, and 3 S3M modules refused for
+fast volume slides (all three by the tracker's version, 3.00, none
+by the flag).
+
+**The auto-vibrato, as openmpt123 plays it** (a square wave's and a
+ramp's renders, a tick at a time, 2026-11-27):
+
+- The waveforms are FastTracker's: 0 a sine, the period down first;
+  1 a square, down for the first half; 2 a ramp from nought up to
+  the depth at the half, then from its negative back to nought; 3
+  the same the other way. 4 is noise in OpenMPT and 5 and on a sine;
+  both stay a sine here, 4 named.
+- The position moves by the rate, and the depth grows by the sweep,
+  before the tick's value is taken, not after: the player was a tick
+  late in both.
+- An instrument's number restarts it (position and sweep), with a
+  note, alone, or beside a note slid to; a note with no number does
+  not, nor a key-off with one.
+- A key-off before the sweep is done takes the depth to nought, for
+  good; after it, the vibrato goes on.
+- The depth is the byte as it is (64 swings 64 units).
+
+The waveform goes in the first spare byte of a clip's instrument,
+which every player so far ignores: an older firmware plays the sine
+it always did, and the maker goes on naming it for v0.5.
+
+**Fast volume slides**: a slide Dx0 or D0y moves on a row's first
+tick as well. The XM has it as the same A slide and, for the first
+tick, the volume column's fine slide; where the column sets a volume
+the step is folded into it. K and L, the other two that slide, are
+not converted at all yet.
+
+**Measured.** The renders tell a tick's period to a unit, so the
+player's rounding (towards nought) is not held to OpenMPT's. The
+collection: 1191 of 1196 convert and play to their ends, 1188
+before, nothing newly refused or silent, and no module is left with
+a waveform named (none has OpenMPT's noise). The three S3M modules
+are within 0.1 s of OpenMPT in length; two of them have such slides,
+and their loudness over 20 ms follows OpenMPT's a little closer with
+the first tick's step than without (a correlation of 0.815 for
+0.802, and 0.796 for 0.796). The sine's new phase moved Keygen's
+fitted knee for `loud` from 50 to 51. 198 bytes of flash, nothing of
+the stack or `.rwtext`.
+
+Owed: a module with a square or a ramp, and one of the three S3M,
+heard on a clock, which is the user's.
+
 ## Checks still owed
 
 A line is struck or deleted when its check is made or no longer
@@ -630,6 +680,10 @@ for more than twenty channels). Not fixed:
 - **ED with no note** begins the channel's note again at its tick
   in OpenMPT, with the instrument named beside it; the player does
   nothing there. Seen in a render, in no module looked at.
+- **The Amiga's filter (E0 in a ProTracker module) will not be
+  played** (decided 2026-11-27): a low-pass over the whole mix is
+  dear for the processor, and nearly every module only turns it off.
+  The MOD converter goes on naming it (24 modules).
 - **Not played and named**: E3, the glissando, and a vibrato's or
   tremolo's waveform other than the sine (E4, E7); no module of the
   collection that converts uses either.

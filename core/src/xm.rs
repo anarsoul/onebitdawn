@@ -35,7 +35,7 @@
 //! 4 vibrato, 5 6 with volume slide, 9 offset, A volume slide, B jump,
 //! C volume, D break, E1 E2 fine portamento, E5 finetune, 7 tremolo (a sine), L envelope position, T tremor, X1 X2 extra fine portamento, E9 retrigger, EA EB fine
 //! volume, E6 pattern loop, EC cut, ED delay, EE pattern delay, F speed and tempo, G global volume, K key
-//! off, H global volume slide, R retrigger with a volume change (`Tune::retrigger`); and an instrument's auto-vibrato, as a sine. Panning is nothing on one buzzer. The converter says what a
+//! off, H global volume slide, R retrigger with a volume change (`Tune::retrigger`); and an instrument's auto-vibrato, in its waveform. Panning is nothing on one buzzer. The converter says what a
 //! module uses beyond that.
 //!
 //! The channels are mixed at four times the output rate with linear
@@ -500,7 +500,8 @@ fn refill(d: &[u8], ch: &mut Channel<'_>, block: u32) {
 /// bytes each; `WIDE_MAGIC`; 2 for a predicted sample, `PACKED_HEAD`
 /// and then its blocks; `PACKED_MAGIC`; with 4 as well, its seek
 /// points between the two, `SEEK`; 8 for an instrument of several
-/// samples, `Instrument::keyed`), two spare bytes, then twelve
+/// samples, `Instrument::keyed`), the auto-vibrato's waveform
+/// (`Instrument::auto_wave`), a spare byte, then twelve
 /// points of frame and level as `u16` each.
 #[derive(Clone, Copy)]
 struct Instrument<'a> {
@@ -549,6 +550,20 @@ impl Instrument<'_> {
     /// units, and the rate, 256 to a cycle.
     fn auto_vibrato(&self) -> (u32, u32, u8) {
         (byte(self.d, self.at + 26) as u32, byte(self.d, self.at + 27) as u32, byte(self.d, self.at + 28))
+    }
+
+    /// The auto-vibrato's waveform, FastTracker's: 1 a square, 2 and 3
+    /// the ramps, anything else a sine. The first of the spare bytes:
+    /// a clip from before it has a sine.
+    fn auto_wave(&self) -> u8 {
+        byte(self.d, self.at + 30)
+    }
+
+    /// The auto-vibrato's depth as a note begins, in 256ths: all of it
+    /// with no sweep.
+    fn auto_start(&self) -> u32 {
+        let (sweep, depth, _) = self.auto_vibrato();
+        if sweep == 0 { depth << 8 } else { 0 }
     }
 
     /// How the sample is kept.
@@ -1133,6 +1148,7 @@ impl<'a> Tune<'a> {
         // to does not even remember the number (openmpt123,
         // 2026-11-26).
         let ch = &mut self.channel[c];
+        let sounding = ch.instrument;
         let slides = cell.note != 0 && cell.note != KEY_OFF && cell.slides_to_note() && ch.playing;
         if cell.instrument != 0 && !slides {
             ch.named = cell.instrument;
@@ -1145,6 +1161,15 @@ impl<'a> Tune<'a> {
         let instrument = self.instrument(self.channel[c].instrument);
         let amiga = self.amiga;
         let ch = &mut self.channel[c];
+        // An instrument's number begins its vibrato again, with a note,
+        // alone or beside a note slid to; a note with no number does
+        // not, nor a key-off with one (openmpt123, 2026-11-27). A note
+        // that begins another instrument does as well, whose vibrato
+        // the depth would not be otherwise.
+        if (cell.instrument != 0 && cell.note != KEY_OFF) || ch.instrument != sounding {
+            ch.auto_pos = 0;
+            ch.auto_depth = instrument.map_or(0, |i| i.auto_start());
+        }
         if cell.instrument != 0 {
             ch.volume = instrument.map_or(0, |i| i.volume());
             ch.key_on = true;
@@ -1167,12 +1192,10 @@ impl<'a> Tune<'a> {
             } else {
                 // 9xx: start 256 samples in for each of xx.
                 self.strike(c, cell.note, if cell.effect == 9 { cell.param as u32 * 256 } else { 0 });
-                if let Some(i) = instrument {
+                if instrument.is_some() {
                     let ch = &mut self.channel[c];
                     ch.vibrato_pos = 0;
                     ch.tremolo_pos = 0;
-                    ch.auto_pos = 0;
-                    ch.auto_depth = if i.auto_vibrato().0 == 0 { i.auto_vibrato().1 << 8 } else { 0 };
                 }
             }
         }
@@ -1337,6 +1360,12 @@ impl<'a> Tune<'a> {
 
     fn key_off(ch: &mut Channel<'_>, instrument: Option<Instrument>) {
         ch.key_on = false;
+        // A key-off before the instrument's vibrato has grown to its
+        // depth is the end of it (openmpt123, 2026-11-27, FastTracker's
+        // own quirk).
+        if instrument.is_some_and(|i| ch.auto_depth < i.auto_vibrato().1 << 8) {
+            ch.auto_depth = 0;
+        }
         // With no envelope there is nothing to fade along: silence.
         if instrument.is_none_or(|i| i.envelope_flags() & 1 == 0) {
             ch.volume = 0;
@@ -1670,16 +1699,30 @@ impl<'a> Tune<'a> {
             ch.quiet = false;
         }
         ch.mixing = ch.playing && !ch.quiet;
-        // The instrument's vibrato: a sine that grows to its depth over
-        // the sweep, whatever the pattern says.
+        // The instrument's vibrato, whatever the pattern says: it grows
+        // to its depth over the sweep while the key is held, and both
+        // it and the position move before the tick's value is taken
+        // (openmpt123, 2026-11-27).
         let mut auto = 0;
-        if let Some((sweep, depth, rate)) = instrument.map(|i| i.auto_vibrato())
+        if let Some(i) = instrument
+            && let (sweep, depth, rate) = i.auto_vibrato()
             && depth != 0
         {
-            let wave = ((SINE[(ch.auto_pos >> 2 & 31) as usize] as u32 * ch.auto_depth) >> 16) as i32;
-            auto = if ch.auto_pos & 0x80 == 0 { -wave } else { wave };
             ch.auto_pos = ch.auto_pos.wrapping_add(rate);
-            ch.auto_depth = (ch.auto_depth + (depth << 8) / sweep.max(1)).min(depth << 8);
+            if ch.key_on && sweep != 0 {
+                ch.auto_depth = (ch.auto_depth + (depth << 8) / sweep).min(depth << 8);
+            }
+            // The wave in 256ths, the period down first.
+            let pos = ch.auto_pos as i32;
+            let wave = match i.auto_wave() {
+                1 if pos < 128 => -256,
+                1 => 256,
+                2 => (((pos / 2 + 64) & 127) - 64) * 4,
+                3 => (((64 - pos / 2) & 127) - 64) * 4,
+                _ if pos < 128 => -(SINE[((pos >> 2) & 31) as usize] as i32),
+                _ => SINE[((pos >> 2) & 31) as usize] as i32,
+            };
+            auto = wave * ch.auto_depth as i32 / 65536;
         }
         let base = match ch.arpeggio {
             0 => ch.period,
@@ -1904,6 +1947,8 @@ mod tests {
         fade: u16,
         /// The auto-vibrato: sweep, depth, rate.
         auto: (u8, u8, u8),
+        /// Its waveform.
+        wave: u8,
         /// The sample at 16 bits, in place of `sample`, if it has any.
         wide: Vec<i16>,
         /// And whether that is kept predicted, and with seek points.
@@ -1948,7 +1993,7 @@ mod tests {
     /// A square wave of `period` samples, looped.
     fn square(period: usize) -> Ins {
         let sample = (0..period).map(|i| if i < period / 2 { 127 } else { -127 }).collect();
-        Ins { sample, loop_start: 0, loop_len: period as u32, volume: 64, finetune: 0, relative: 0, envelope: vec![], flags: 0, sustain: 0, fade: 0, auto: (0, 0, 0), wide: vec![], packed: false, seeks: false }
+        Ins { sample, loop_start: 0, loop_len: period as u32, volume: 64, finetune: 0, relative: 0, envelope: vec![], flags: 0, sustain: 0, fade: 0, auto: (0, 0, 0), wave: 0, wide: vec![], packed: false, seeks: false }
     }
 
     /// A cell: note, instrument, volume column, effect, parameter.
@@ -2005,7 +2050,7 @@ mod tests {
             d.extend(i.loop_len.to_le_bytes());
             d.extend([i.volume, i.finetune as u8, i.relative as u8, i.flags, i.envelope.len() as u8, i.sustain, 0, 0]);
             d.extend(i.fade.to_le_bytes());
-            d.extend([i.auto.0, i.auto.1, i.auto.2, if i.packed { 2 | (i.seeks as u8) << 2 } else { !i.wide.is_empty() as u8 }, 0, 0]);
+            d.extend([i.auto.0, i.auto.1, i.auto.2, if i.packed { 2 | (i.seeks as u8) << 2 } else { !i.wide.is_empty() as u8 }, i.wave, 0]);
             for p in 0..ENVELOPE_POINTS {
                 let (x, y) = i.envelope.get(p).copied().unwrap_or((0, 0));
                 d.extend(x.to_le_bytes());
@@ -2494,6 +2539,48 @@ mod tests {
         assert!(sounding > 140, "{sounding} of the tunes sound");
     }
 
+    /// An instrument's own vibrato, which no effect asks for: the
+    /// period's distance from the note at each tick, as openmpt123
+    /// plays it to a unit (2026-11-27; the renders are of a ramp three
+    /// octaves up, a tick's pitch from how far it went).
+    #[test]
+    fn an_instruments_vibrato_is_fasttrackers() {
+        let play = |speed, auto, wave, cells: &[At]| {
+            let ins = Ins { auto, wave, ..square(32) };
+            ticks(&module(1, speed, 125, &[0], &[pattern(4, cells)], &[ins])).iter().map(|t| t.0 - PERIOD_C4).collect::<Vec<_>>()
+        };
+        let note = [(0, (C4, 1, 0, 0, 0))];
+        // A sine, the period down first; the position and the sweep
+        // have moved before the first tick's value.
+        assert_eq!(play(3, (4, 16, 32), 0, &note), [-2, -7, -8, 0, 11, 15, 11, 0, -11, -15, -11, 0]);
+        // A waveform nobody has is a sine.
+        assert_eq!(play(3, (4, 16, 32), 5, &note), play(3, (4, 16, 32), 0, &note));
+        // A square: down for the first half.
+        assert_eq!(play(2, (0, 15, 64), 1, &note), [-15, 15, 15, -15, -15, 15, 15, -15]);
+        // The ramps: from nought to the depth at the half, then from
+        // the other side back; the third waveform the other way.
+        assert_eq!(play(3, (0, 15, 32), 2, &note)[..9], [3, 7, 11, -15, -11, -7, -3, 0, 3]);
+        assert_eq!(play(3, (0, 15, 32), 3, &note)[..9], [-3, -7, -11, -15, 11, 7, 3, 0, -3]);
+        // The depth is the byte as it is.
+        assert_eq!(play(1, (0, 64, 4), 1, &note)[..2], [-64, -64]);
+        // The sweep: so many ticks to the depth.
+        assert_eq!(play(3, (8, 15, 4), 1, &note)[..10], [-1, -3, -5, -7, -9, -11, -13, -15, -15, -15]);
+        // What begins it again is an instrument's number: with a note,
+        // alone, beside a note slid to. A note with no number does not,
+        // nor a key-off with one. At 48 a tick and five ticks a row, the
+        // thirteenth tick is up if the second row began it again.
+        let second = |cell| play(5, (0, 15, 48), 1, &[(0, (C4, 1, 0, 0, 0)), (1, cell)])[12];
+        assert_eq!([second((C4, 1, 0, 0, 0)), second((0, 1, 0, 0, 0)), second((C4, 1, 0, 3, 0))], [15; 3]);
+        assert_eq!([second((0, 0, 0, 0, 0)), second((C4, 0, 0, 0, 0)), second((C4, 0, 0, 3, 0)), second((KEY_OFF, 1, 0, 0, 0))], [-15; 4]);
+        // A key-off before the sweep is done ends the vibrato; a
+        // number alone begins it again.
+        let off = play(6, (16, 15, 4), 1, &[(0, (C4, 1, 0, 0, 0)), (1, (KEY_OFF, 0, 0, 0, 0)), (3, (0, 1, 0, 0, 0))]);
+        assert_eq!(off[4..20], [-4, -5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -2, -3][..16]);
+        // After the sweep it goes on.
+        let on = play(6, (8, 15, 4), 1, &[(0, (C4, 1, 0, 0, 0)), (2, (KEY_OFF, 0, 0, 0, 0))]);
+        assert_eq!(on[10..16], [-15; 6]);
+    }
+
     #[test]
     fn pitch_effects_move_the_period_as_fasttracker_does() {
         let play = |speed, cells: &[At]| {
@@ -2524,13 +2611,6 @@ mod tests {
         // does not start the sample again.
         let up = play(4, &[(0, (C4, 1, 0, 0, 0)), (1, (C4 + 1, 0, 0, 3, 8)), (2, (0, 0, 0, 3, 0))]);
         assert_eq!(up[4..12], [base, base - 32, base - 64, base - 64, base - 64, base - 64, base - 64, base - 64]);
-        // An instrument's own vibrato: no effect asks for it, it grows to
-        // its depth over the sweep and swings both ways.
-        let auto = Ins { auto: (4, 16, 32), ..square(32) };
-        let seen: Vec<i32> = ticks(&module(1, 16, 125, &[0], &[pattern(1, &[(0, (C4, 1, 0, 0, 0))])], &[auto])).iter().map(|t| t.0 - base).collect();
-        assert_eq!(seen[0], 0);
-        assert!(seen[1] < 0 && seen[1] > seen[2], "{seen:?}");
-        assert_eq!((seen.iter().min(), seen.iter().max()), (Some(&-15), Some(&15)), "{seen:?}");
         // Vibrato swings about the note, down in pitch first (the
         // period up; openmpt123 on Crush's lead, 2026-11-18), and is
         // gone with it.

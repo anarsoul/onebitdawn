@@ -143,12 +143,14 @@ Of its 1196 modules (937 of them XM) 1129 convert and play to their
 ends, 35 hours, with no panic; 59 of the 67 refused have more than
 twenty channels, which was the limit (32 since 2026-11-27: 1188
 convert, 37 hours, and what is dear to play is then the pack
-maker's to say, `xmc::load`). Found with
+maker's to say, `xmc::load`; 1191 with ScreamTracker's fast volume
+slides converted). Found with
 it and fixed: files that end before their instruments do and
 instruments that give a wrong size for a sample's header (80
 modules), the effects R, H, EE and E6, the Amiga frequency table
 (245 modules), an instrument named with no note, the effects 7, T,
 X, L and E5, orders with no pattern, instruments of several
 samples (61 modules have one, in 28 a note plays a sample past the
-first). Found and not fixed: `PLAN.md`'s
+first), an auto-vibrato's waveform and when it begins again (55
+modules have a square or a ramp). Found and not fixed: `PLAN.md`'s
 backlog.

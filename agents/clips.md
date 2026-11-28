@@ -138,7 +138,13 @@ has must come out the same.
   first is empty if none is its; a table entry past the
   instrument's samples is the first, as in openmpt123. For a
   firmware up to v0.5 the clip has the first sample alone and a
-  note says so. The effect R (retrigger with a volume change) is the
+  note says so. An instrument's auto-vibrato has its waveform
+  (2026-11-27) in the first spare byte of the instrument's entry
+  (`xm::Instrument::auto_wave`): 1 the square, 2 and 3 the ramps,
+  FastTracker's; 0 and any other a sine, OpenMPT's noise (4) named.
+  A player from before it does not look at the byte and plays a
+  sine, so for a firmware up to v0.5 the byte is 0 and the waveform
+  named. The effect R (retrigger with a volume change) is the
   player's since 2026-11-26 and a clip keeps it as it is. For a
   firmware up to v0.5 (`--firmware 0.5`), whose player has none, an
   R that changes no volume is written as E9, which that player has:
@@ -154,7 +160,11 @@ has must come out the same.
   (1, 2, 3, 5, E1, E2) converted from periods to the linear table at
   the period each is played at, E0 (the filter) left out and named. A
   ScreamTracker 3 module the same: samples, notes, volumes and the
-  effects A, B, C, D, O and T, any other named; no panning.
+  effects A, B, C, D, O and T, any other named; no panning. A
+  module of fast volume slides (made by ScreamTracker 3.00, or with
+  the header's flag) slides on a row's first tick too: the XM has
+  that tick's step in the volume column, the fine slide, or in the
+  volume set there (`s3mxm::fast`).
 - A module's 16-bit samples are kept predicted (`XMC4`: 8 bits a
   sample and a sixteenth more, behind a table of predictors fitted
   to each sample; `xmc::predicted`), the default since 2026-11-22.
