@@ -14,10 +14,22 @@ use onebitdawn_core::mdns::{GROUP, Limit, PORT, RESPONSE_MAX, To, announce, resp
 
 use crate::settings;
 
-/// What the socket holds of what the group says, the other
-/// responders' answers with the queries. A datagram that does not fit
-/// is dropped by the stack; a query for a host's address is short.
-const RX_BYTES: usize = 1024;
+/// The largest datagram a frame of 1500 bytes carries, after the IP
+/// and UDP headers. The stack drops one that does not fit; fragments
+/// are not put together.
+const DATAGRAM_MAX: usize = 1500 - 20 - 8;
+
+/// What the socket holds until the loop has read it: two datagrams of
+/// the largest size. The other responders' answers come into the same
+/// buffer as the queries and are the long ones (a speaker's and a
+/// printer's records, 1200 to 1450 bytes here); room for one alone
+/// would let such an answer keep out the query behind it.
+const RX_BYTES: usize = 2 * DATAGRAM_MAX;
+
+/// How many datagrams the socket holds until the loop has read them:
+/// the group's traffic comes in bursts, the other responders' answers
+/// with the queries.
+const RX_DATAGRAMS: usize = 8;
 
 /// Announcements at a new address, and the wait between them (the
 /// RFC's least: two, a second apart).
@@ -30,7 +42,7 @@ const HOP_LIMIT: u8 = 255;
 /// Answer for the hostname while the station has an address.
 #[embassy_executor::task]
 pub async fn mdns_task(stack: Stack<'static>) -> ! {
-    let mut rx_meta = [PacketMetadata::EMPTY; 4];
+    let mut rx_meta = [PacketMetadata::EMPTY; RX_DATAGRAMS];
     let mut rx_buf = [0u8; RX_BYTES];
     let mut tx_meta = [PacketMetadata::EMPTY; 2];
     let mut tx_buf = [0u8; RESPONSE_MAX * 2];

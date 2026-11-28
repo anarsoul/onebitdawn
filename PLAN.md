@@ -195,6 +195,27 @@ Learned:
 - One plain resolver's query, the first after a flash, went
   unanswered and was not seen again; not explained.
 
+2026-11-27: the socket's receive buffer from 1024 bytes to 2944, two
+whole datagrams of a 1500-byte frame, and its slots from four to
+eight. A query for the name alone is some 50 bytes, but an asker
+(macOS above all) may put the questions due into one packet with
+their known answers, and the stack drops a datagram that does not
+fit. On the home network every datagram over 1024 bytes in a capture
+was another responder's answer (a speaker's and a printer's records,
+1223 to 1448 bytes, several every ten seconds), none a query: room
+for one datagram alone would take such an answer in and leave none
+for a query behind it, which is why it is two. 1984 bytes of the
+main stack. Not seen: a query that long, or a query lost to a burst.
+On white-clock and the bench board (test-clock) since that evening:
+the name resolves from macOS and Avahi as before. Fifty rounds each
+from the session to test-clock, long answers sent to the group with
+a query right behind them: 49 of 50 answered with the query alone,
+50 behind one answer of 1448 bytes, 47 behind two and 47 behind
+three, 50 behind eight of 100. Three such answers are more than the
+buffer holds, so the loop reads a datagram before the next is in,
+most of the time at least, and the losses are the radio's; the
+buffer's size was not what any of these runs turned on.
+
 Owed: the hardened build looked at on white-clock, which has it
 since the evening of 2026-11-26; the name from Windows, and after
 the network's access point restarts.
